@@ -11,18 +11,7 @@ import sys
 # Vercel 배포 구조에서는 /var/task가 프로젝트 루트이므로 한 단계만 올라간다.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from telegram import Update
-from telegram.ext import Application, MessageHandler, CommandHandler, filters, ContextTypes
-
-# 로컬에서는 config/telegram_config.py를 사용하되,
-# Vercel 배포 시에는 파일이 .gitignore로 제외되므로 환경변수를 바로 읽는다.
-try:
-    from config.telegram_config import TELEGRAM_BOT_TOKEN  # type: ignore
-except ModuleNotFoundError:
-    TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
-from parsers.message_parser import MessageParser
-from calculator.base_calculator import BaseCalculator
-from utils.formatter import format_all_results
+# 지연 로딩을 위해 함수 내부에서 import
 
 
 # 전역 애플리케이션 인스턴스
@@ -32,18 +21,33 @@ application = None
 def get_application():
     """텔레그램 애플리케이션 인스턴스 가져오기 (싱글톤)"""
     global application
+    
+    # 지연 import
+    from telegram import Update
+    from telegram.ext import Application, MessageHandler, CommandHandler, filters, ContextTypes
+    from parsers.message_parser import MessageParser
+    from calculator.base_calculator import BaseCalculator
+    from utils.formatter import format_all_results
+    
+    # 로컬에서는 config/telegram_config.py를 사용하되,
+    # Vercel 배포 시에는 파일이 .gitignore로 제외되므로 환경변수를 바로 읽는다.
+    try:
+        from config.telegram_config import TELEGRAM_BOT_TOKEN  # type: ignore
+    except ModuleNotFoundError:
+        TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
+    
     if application is None:
         application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
         
         # /start, /help 명령어 핸들러
-        async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        async def start_command(update, context):
             await update.message.reply_text(
                 "안녕하세요! 담보대출 계산기 봇입니다.\n\n"
                 "부동산 정보를 메시지로 보내주시면 여러 금융사의 대출 한도와 금리를 계산해드립니다."
             )
         
         # 메시지 핸들러
-        async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        async def handle_message(update, context):
             message_text = update.message.text
             
             if not message_text:
@@ -78,20 +82,20 @@ def get_application():
     return application
 
 
-def index(request):
-    """Vercel 서버리스 함수 핸들러 (index 함수 사용)"""
+# Vercel Python 함수 핸들러
+# Vercel은 기본적으로 handler 또는 index 함수를 찾습니다
+def handler(request):
+    """Vercel 서버리스 함수 핸들러 (단순 dict 반환)"""
     import asyncio
     
     try:
         # Vercel Request 객체 처리
-        # request는 dict 형식일 수 있음
         if isinstance(request, dict):
             method = request.get('method', 'POST')
             body = request.get('body', {})
             if isinstance(body, str):
                 body = json.loads(body)
         else:
-            # 객체인 경우
             method = getattr(request, 'method', 'POST')
             if hasattr(request, 'json'):
                 body = request.json()
@@ -111,6 +115,7 @@ def index(request):
             }
         
         # Update 객체 생성
+        from telegram import Update
         update = Update.de_json(body, get_application().bot)
         
         # 비동기 처리
