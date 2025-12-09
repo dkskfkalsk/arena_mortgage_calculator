@@ -86,9 +86,7 @@ async def handler(request):
         }
 
 
-# Vercel용 진입점
-def main(request):
-    """Vercel 서버리스 함수 진입점"""
-    import asyncio
-    return asyncio.run(handler(request))
+# Vercel용 진입점 (Vercel은 자동으로 handler 함수를 찾습니다)
+# 또는 명시적으로 export
+__all__ = ["handler"]
 
