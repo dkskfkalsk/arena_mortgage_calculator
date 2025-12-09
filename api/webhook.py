@@ -11,7 +11,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from telegram import Update
-from telegram.ext import Application, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, MessageHandler, CommandHandler, filters, ContextTypes
 from config.telegram_config import TELEGRAM_BOT_TOKEN
 from parsers.message_parser import MessageParser
 from calculator.base_calculator import BaseCalculator
@@ -28,7 +28,14 @@ def get_application():
     if application is None:
         application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
         
-        # 핸들러 등록
+        # /start, /help 명령어 핸들러
+        async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            await update.message.reply_text(
+                "안녕하세요! 담보대출 계산기 봇입니다.\n\n"
+                "부동산 정보를 메시지로 보내주시면 여러 금융사의 대출 한도와 금리를 계산해드립니다."
+            )
+        
+        # 메시지 핸들러
         async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message_text = update.message.text
             
@@ -56,33 +63,45 @@ def get_application():
                     f"오류 내용: {str(e)}"
                 )
         
+        # 핸들러 등록
+        application.add_handler(CommandHandler("start", start_command))
+        application.add_handler(CommandHandler("help", start_command))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     return application
 
 
-async def handler(request):
-    """Vercel 서버리스 함수 핸들러"""
-    if request.method == "POST":
-        try:
-            body = await request.json()
-            update = Update.de_json(body, get_application().bot)
-            
-            await get_application().process_update(update)
-            
-            return {
-                "statusCode": 200,
-                "body": json.dumps({"ok": True})
-            }
-        except Exception as e:
-            return {
-                "statusCode": 500,
-                "body": json.dumps({"error": str(e)})
-            }
-    else:
+def handler(req):
+    """Vercel 서버리스 함수 핸들러 (동기 함수)"""
+    import asyncio
+    
+    if req.method != "POST":
         return {
             "statusCode": 405,
+            "headers": {"Content-Type": "application/json"},
             "body": json.dumps({"error": "Method not allowed"})
+        }
+    
+    try:
+        # 요청 본문 파싱
+        body = json.loads(req.body) if isinstance(req.body, str) else req.body
+        
+        # Update 객체 생성
+        update = Update.de_json(body, get_application().bot)
+        
+        # 비동기 처리
+        asyncio.run(get_application().process_update(update))
+        
+        return {
+            "statusCode": 200,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps({"ok": True})
+        }
+    except Exception as e:
+        return {
+            "statusCode": 500,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps({"error": str(e)})
         }
 
 
