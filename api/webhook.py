@@ -78,20 +78,37 @@ def get_application():
     return application
 
 
-def handler(req):
-    """Vercel 서버리스 함수 핸들러 (동기 함수)"""
+def index(request):
+    """Vercel 서버리스 함수 핸들러 (index 함수 사용)"""
     import asyncio
     
-    if req.method != "POST":
-        return {
-            "statusCode": 405,
-            "headers": {"Content-Type": "application/json"},
-            "body": json.dumps({"error": "Method not allowed"})
-        }
-    
     try:
-        # 요청 본문 파싱
-        body = json.loads(req.body) if isinstance(req.body, str) else req.body
+        # Vercel Request 객체 처리
+        # request는 dict 형식일 수 있음
+        if isinstance(request, dict):
+            method = request.get('method', 'POST')
+            body = request.get('body', {})
+            if isinstance(body, str):
+                body = json.loads(body)
+        else:
+            # 객체인 경우
+            method = getattr(request, 'method', 'POST')
+            if hasattr(request, 'json'):
+                body = request.json()
+            elif hasattr(request, 'body'):
+                body_str = request.body
+                if isinstance(body_str, bytes):
+                    body_str = body_str.decode('utf-8')
+                body = json.loads(body_str) if body_str else {}
+            else:
+                body = {}
+        
+        if method != "POST":
+            return {
+                "statusCode": 405,
+                "headers": {"Content-Type": "application/json"},
+                "body": json.dumps({"error": "Method not allowed"})
+            }
         
         # Update 객체 생성
         update = Update.de_json(body, get_application().bot)
@@ -105,14 +122,12 @@ def handler(req):
             "body": json.dumps({"ok": True})
         }
     except Exception as e:
+        import traceback
+        error_msg = str(e)
+        traceback_str = traceback.format_exc()
         return {
             "statusCode": 500,
             "headers": {"Content-Type": "application/json"},
-            "body": json.dumps({"error": str(e)})
+            "body": json.dumps({"error": error_msg, "traceback": traceback_str})
         }
-
-
-# Vercel용 진입점 (Vercel은 자동으로 handler 함수를 찾습니다)
-# 또는 명시적으로 export
-__all__ = ["handler"]
 
