@@ -136,3 +136,6 @@ def handler(request):
             "body": json.dumps({"error": error_msg, "traceback": traceback_str})
         }
 
+
+__all__ = ["handler"]
+
