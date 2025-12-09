@@ -14,8 +14,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 application = None
 
 
-async def get_application():
-    """텔레그램 애플리케이션 인스턴스 가져오기 (싱글톤, async)"""
+def get_application():
+    """텔레그램 애플리케이션 인스턴스 가져오기 (싱글톤, sync)"""
     global application
 
     if application is None:
@@ -49,26 +49,17 @@ async def get_application():
                 return
 
             try:
-                # 메시지 파싱
                 parser = MessageParser()
                 property_data = parser.parse(message_text)
-
-                # 계산 수행
                 results = BaseCalculator.calculate_all_banks(property_data)
-
-                # 결과 포맷팅
                 formatted_result = format_all_results(results)
-
-                # 결과 전송
                 await update.message.reply_text(formatted_result)
-
             except Exception as e:
                 await update.message.reply_text(
                     f"계산 중 오류가 발생했습니다.\n\n"
                     f"오류 내용: {str(e)}"
                 )
 
-        # 핸들러 등록
         application.add_handler(CommandHandler("start", start_command))
         application.add_handler(CommandHandler("help", start_command))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
@@ -76,26 +67,44 @@ async def get_application():
     return application
 
 
-# Vercel Python 함수 핸들러 (async)
-async def handler(request):
+# Vercel Python 함수 핸들러 (sync dict 반환)
+def handler(request):
+    import asyncio
     from telegram import Update
 
-    if getattr(request, "method", "POST") != "POST":
+    # 텔레그램 웹훅이 아니거나 POST가 아니면 200 OK로 무시
+    method = getattr(request, "method", "POST")
+    if method != "POST":
         return {
-            "statusCode": 405,
+            "statusCode": 200,
             "headers": {"Content-Type": "application/json"},
-            "body": json.dumps({"error": "Method not allowed"})
+            "body": json.dumps({"ok": True, "skipped": "non-POST"})
+        }
+
+    # 본문 파싱
+    try:
+        body = request.json()
+    except Exception:
+        try:
+            raw = request.body
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8")
+            body = json.loads(raw) if raw else {}
+        except Exception:
+            body = {}
+
+    # 텔레그램 update 형식이 아니면 무시
+    if not isinstance(body, dict) or "update_id" not in body:
+        return {
+            "statusCode": 200,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps({"ok": True, "skipped": "not telegram update"})
         }
 
     try:
-        body = await request.json()
-    except Exception:
-        body = {}
-
-    try:
-        app = await get_application()
+        app = get_application()
         update = Update.de_json(body, app.bot)
-        await app.process_update(update)
+        asyncio.run(app.process_update(update))
 
         return {
             "statusCode": 200,
