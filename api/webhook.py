@@ -13,7 +13,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from telegram import Update
 from telegram.ext import Application, MessageHandler, CommandHandler, filters, ContextTypes
-from config.telegram_config import TELEGRAM_BOT_TOKEN
+
+# 로컬에서는 config/telegram_config.py를 사용하되,
+# Vercel 배포 시에는 파일이 .gitignore로 제외되므로 환경변수를 바로 읽는다.
+try:
+    from config.telegram_config import TELEGRAM_BOT_TOKEN  # type: ignore
+except ModuleNotFoundError:
+    TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 from parsers.message_parser import MessageParser
 from calculator.base_calculator import BaseCalculator
 from utils.formatter import format_all_results
