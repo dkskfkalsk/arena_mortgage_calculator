@@ -48,21 +48,45 @@ def get_application():
         allowed_chat_ids = []
         if ALLOWED_CHAT_IDS_STR:
             allowed_chat_ids = [int(chat_id.strip()) for chat_id in ALLOWED_CHAT_IDS_STR.split(",") if chat_id.strip()]
+        
+        print(f"DEBUG: Application initialized - ALLOWED_CHAT_IDS_STR: {ALLOWED_CHAT_IDS_STR}, allowed_chat_ids: {allowed_chat_ids}")
 
         application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
+        def get_chat_id(update):
+            """업데이트에서 채팅방 ID 가져오기"""
+            if update.message:
+                return update.message.chat.id
+            elif update.edited_message:
+                return update.edited_message.chat.id
+            elif update.channel_post:
+                return update.channel_post.chat.id
+            elif update.edited_channel_post:
+                return update.edited_channel_post.chat.id
+            return None
+
         def is_allowed_chat(chat_id):
             """채팅방이 허용된 목록에 있는지 확인"""
+            if chat_id is None:
+                return False
             if not allowed_chat_ids:  # 허용 목록이 비어있으면 모든 채팅방 허용
                 return True
             return chat_id in allowed_chat_ids
 
         async def start_command(update, context):
+            # 메시지가 없으면 무시
+            if not update.message:
+                print("DEBUG: start_command - update.message is None")
+                return
+            
             # 채팅방 ID 확인
-            chat_id = update.message.chat.id
+            chat_id = get_chat_id(update)
+            print(f"DEBUG: start_command - chat_id: {chat_id}, allowed_chat_ids: {allowed_chat_ids}")
             if not is_allowed_chat(chat_id):
                 # 허용되지 않은 채팅방에서는 조용히 무시
+                print(f"DEBUG: start_command - Chat {chat_id} is not allowed")
                 return
+            print(f"DEBUG: start_command - Processing command for chat {chat_id}")
             
             welcome_message = (
                 "🏠 담보대출 계산기 봇에 오신 것을 환영합니다!\n\n"
@@ -83,11 +107,19 @@ def get_application():
             await update.message.reply_text(welcome_message)
 
         async def handle_message(update, context):
+            # 메시지가 없으면 무시
+            if not update.message:
+                print("DEBUG: handle_message - update.message is None")
+                return
+            
             # 채팅방 ID 확인
-            chat_id = update.message.chat.id
+            chat_id = get_chat_id(update)
+            print(f"DEBUG: handle_message - chat_id: {chat_id}, allowed_chat_ids: {allowed_chat_ids}")
             if not is_allowed_chat(chat_id):
                 # 허용되지 않은 채팅방에서는 조용히 무시
+                print(f"DEBUG: handle_message - Chat {chat_id} is not allowed")
                 return
+            print(f"DEBUG: handle_message - Processing message for chat {chat_id}")
             
             message_text = update.message.text
             if not message_text:
@@ -154,6 +186,12 @@ class handler(BaseHTTPRequestHandler):
             
             app = get_application()
             update = Update.de_json(body, app.bot)
+            
+            # 업데이트 정보 로깅
+            if update.message:
+                print(f"DEBUG: Received update - message.chat.id: {update.message.chat.id}, message.text: {update.message.text[:50] if update.message.text else None}")
+            else:
+                print(f"DEBUG: Received update - no message (update type: {type(update)})")
             
             # 비동기 처리 (Application 초기화 포함)
             async def process():
