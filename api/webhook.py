@@ -107,9 +107,10 @@ def get_application():
             await update.message.reply_text(welcome_message)
 
         async def handle_message(update, context):
-            # 메시지가 없으면 무시
-            if not update.message:
-                print("DEBUG: handle_message - update.message is None")
+            # 메시지 또는 채널 포스트 가져오기
+            message = update.message or update.channel_post or update.edited_message or update.edited_channel_post
+            if not message:
+                print("DEBUG: handle_message - No message found in update")
                 return
             
             # 채팅방 ID 확인
@@ -121,25 +122,27 @@ def get_application():
                 return
             print(f"DEBUG: handle_message - Processing message for chat {chat_id}")
             
-            message_text = update.message.text
+            message_text = message.text
             if not message_text:
-                await update.message.reply_text("메시지가 비어있습니다.")
+                await message.reply_text("메시지가 비어있습니다.")
                 return
             try:
                 parser = MessageParser()
                 property_data = parser.parse(message_text)
                 results = BaseCalculator.calculate_all_banks(property_data)
                 formatted_result = format_all_results(results)
-                await update.message.reply_text(formatted_result)
+                await message.reply_text(formatted_result)
             except Exception as e:
-                await update.message.reply_text(
+                await message.reply_text(
                     f"계산 중 오류가 발생했습니다.\n\n"
                     f"오류 내용: {str(e)}"
                 )
 
         application.add_handler(CommandHandler("start", start_command))
         application.add_handler(CommandHandler("help", start_command))
+        # 일반 메시지와 채널 포스트 모두 처리
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        application.add_handler(MessageHandler(filters.TEXT & filters.ChatType.CHANNELS, handle_message))
 
     return application
 
