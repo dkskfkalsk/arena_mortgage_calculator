@@ -206,13 +206,34 @@ class handler(BaseHTTPRequestHandler):
                 print(f"DEBUG: Unknown update type - update dict keys: {list(body.keys())}")
             
             # 비동기 처리 (Application 초기화 포함)
+            # Vercel 서버리스 환경에서 이벤트 루프 안전하게 처리
             async def process():
                 # 초기화되지 않았으면 초기화
                 if not app._initialized:
                     await app.initialize()
                 await app.process_update(update)
             
-            asyncio.run(process())
+            # 이벤트 루프 안전하게 실행
+            # Vercel 서버리스 환경에서는 매 요청마다 새로운 컨텍스트이므로 새 루프 생성
+            try:
+                # 기존 루프가 닫혔는지 확인
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_closed():
+                        raise RuntimeError("Loop is closed")
+                except RuntimeError:
+                    # 루프가 없거나 닫혔으면 새로 생성
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                
+                # 루프 실행
+                loop.run_until_complete(process())
+            except RuntimeError as e:
+                # 모든 방법이 실패하면 asyncio.run() 사용 (새 루프 생성)
+                if "Event loop is closed" in str(e) or "no running event loop" in str(e).lower():
+                    asyncio.run(process())
+                else:
+                    raise
             
             self._send_response(200, {"ok": True})
             
