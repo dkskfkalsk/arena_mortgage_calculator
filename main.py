@@ -28,11 +28,23 @@ logger = logging.getLogger(__name__)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """봇 시작 명령어"""
-    await update.message.reply_text(
-        "안녕하세요! 담보대출 계산기 봇입니다.\n\n"
-        "담보물건 정보를 입력해주시면 여러 금융사의 한도와 금리를 계산해드립니다.\n\n"
-        "사용법: 담보물건 정보를 그대로 복사해서 보내주세요."
+    welcome_message = (
+        "🏠 담보대출 계산기 봇에 오신 것을 환영합니다!\n\n"
+        "이 봇은 여러 금융사의 담보대출 한도와 금리를 계산해드립니다.\n\n"
+        "📝 사용 방법:\n"
+        "담보물건 정보를 메시지로 보내주시면 자동으로 계산해드립니다.\n\n"
+        "💡 입력 예시:\n"
+        "• 담보물건 주소: 서울특별시 강남구\n"
+        "• KB시세: 5억원\n"
+        "• 신용점수: 750점\n"
+        "• 나이: 35세\n\n"
+        "또는 실제 담보물건 정보를 그대로 복사해서 보내주셔도 됩니다.\n\n"
+        "🔍 명령어:\n"
+        "/start - 이 도움말 보기\n"
+        "/help - 도움말 보기\n\n"
+        "이제 담보물건 정보를 보내주시면 계산해드리겠습니다! 🚀"
     )
+    await update.message.reply_text(welcome_message)
 
 
 async def calculate(update: Update, context: ContextTypes.DEFAULT_TYPE):

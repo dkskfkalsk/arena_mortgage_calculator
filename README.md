@@ -56,6 +56,11 @@ python main.py
      ```
    - 상세 방법은 [`SETUP.md`](SETUP.md) 참고
 
+3. **BotFather에서 추가 설정 (선택사항이지만 권장)**
+   - 명령어 목록 설정 (`/setcommands`)
+   - 봇 설명 설정 (`/setdescription`)
+   - 상세 방법은 [`SETUP.md`](SETUP.md) 참고
+
 ### 금융사 설정 (선택사항)
 - `data/banks/bnk_config.json`에서 금융사별 조건을 수정할 수 있습니다.
 - 새 금융사를 추가하려면 `data/banks/새금융사_config.json` 파일을 추가하세요.
