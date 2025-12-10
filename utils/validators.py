@@ -8,13 +8,29 @@ def validate_kb_price(kb_price):
     """
     KB시세 검증
     시세가 없으면 None 반환 (산출 불가)
+    "일반 125,000만원" 형식도 처리
     """
     if kb_price is None or kb_price == "" or kb_price == "시세없음":
         return None
     
     try:
-        # 숫자로 변환 시도 (만원 단위)
-        price = float(str(kb_price).replace(",", "").replace("만원", "").strip())
+        # 문자열로 변환
+        price_str = str(kb_price).strip()
+        
+        # "일반", "하한" 같은 키워드 제거
+        price_str = price_str.replace("일반", "").replace("하한", "").replace("상한", "").strip()
+        
+        # 숫자만 추출 (만원 단위)
+        import re
+        # 숫자와 쉼표만 추출
+        numbers = re.findall(r'[\d,]+', price_str)
+        if numbers:
+            # 첫 번째 숫자 사용 (일반 가격)
+            price = float(numbers[0].replace(",", ""))
+            return price
+        
+        # 정규식으로 추출 실패 시 기존 방식 시도
+        price = float(price_str.replace(",", "").replace("만원", "").replace("만", "").strip())
         return price
     except (ValueError, AttributeError):
         return None

@@ -45,8 +45,14 @@ class MessageParser:
         }
         
         current_section = None
+        skip_next_line = False  # 다음 줄을 건너뛸지 여부
         
-        for line in lines:
+        for i, line in enumerate(lines):
+            # 이전 반복에서 이미 처리한 줄이면 건너뛰기
+            if skip_next_line:
+                skip_next_line = False
+                continue
+                
             line = line.strip()
             if not line:
                 continue
@@ -65,6 +71,15 @@ class MessageParser:
                 # 키:값 형식 파싱
                 key, value = self._parse_key_value(line)
                 if key and value:
+                    # KB시세인 경우 다음 줄도 확인
+                    if "kb시세" in key.lower() or "시세" in key:
+                        # 다음 줄이 있으면 추가 (하한, 상한 등)
+                        if i + 1 < len(lines):
+                            next_line = lines[i + 1].strip()
+                            # 다음 줄이 숫자로 시작하거나 "하한", "상한" 같은 키워드가 있으면 추가
+                            if next_line and (any(keyword in next_line for keyword in ["하한", "상한", "일반"]) or re.search(r'[\d,]+', next_line)):
+                                value += " " + next_line
+                                skip_next_line = True  # 다음 줄은 건너뛰기
                     self._set_field(data, key, value)
             
             # 설정 내역 파싱
@@ -161,6 +176,8 @@ class MessageParser:
             data["property_type"] = value
         
         elif "kb시세" in key.lower() or "시세" in key:
+            # KB시세는 여러 줄에 걸쳐 있을 수 있음 (일반, 하한 등)
+            # 첫 번째 값만 저장 (일반 가격)
             data["kb_price"] = value
     
     def _parse_mortgage_line(self, line: str) -> Optional[Dict[str, Any]]:
