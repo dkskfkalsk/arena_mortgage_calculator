@@ -44,6 +44,12 @@ class MessageParser:
             "region": None
         }
         
+        # 먼저 전체 텍스트에서 KB시세를 직접 추출 (가장 확실한 방법)
+        kb_price = self._extract_kb_price_from_text(message_text)
+        if kb_price:
+            data["kb_price"] = kb_price
+            print(f"DEBUG: KB price extracted from full text: {kb_price}")
+        
         current_section = None
         skip_next_line = False  # 다음 줄을 건너뛸지 여부
         
@@ -71,8 +77,8 @@ class MessageParser:
                 # 키:값 형식 파싱
                 key, value = self._parse_key_value(line)
                 if key and value:
-                    # KB시세인 경우 다음 줄도 확인
-                    if "kb시세" in key.lower() or "시세" in key:
+                    # KB시세인 경우 특별 처리
+                    if "kb시세" in key.lower() or ("시세" in key and "kb" in line.lower()):
                         # 다음 줄이 있으면 추가 (하한, 상한 등)
                         if i + 1 < len(lines):
                             next_line = lines[i + 1].strip()
@@ -80,7 +86,24 @@ class MessageParser:
                             if next_line and (any(keyword in next_line for keyword in ["하한", "상한", "일반"]) or re.search(r'[\d,]+', next_line)):
                                 value += " " + next_line
                                 skip_next_line = True  # 다음 줄은 건너뛰기
-                    self._set_field(data, key, value)
+                        # KB시세 직접 설정 (더 강력한 파싱)
+                        self._set_field(data, key, value)
+                    else:
+                        self._set_field(data, key, value)
+            elif "kb시세" in line.lower() and current_section != "mortgages":
+                # "KB시세"가 포함된 줄에서 직접 추출 (콜론이 없어도 처리)
+                # 예: "KB시세 일반 125,000만원" 또는 "KB시세: 일반 125,000만원"
+                kb_match = re.search(r'kb시세\s*:?\s*(.+)', line, re.IGNORECASE)
+                if kb_match:
+                    kb_value = kb_match.group(1).strip()
+                    # 다음 줄도 확인
+                    if i + 1 < len(lines):
+                        next_line = lines[i + 1].strip()
+                        if next_line and (any(keyword in next_line for keyword in ["하한", "상한", "일반"]) or re.search(r'[\d,]+', next_line)):
+                            kb_value += " " + next_line
+                            skip_next_line = True
+                    data["kb_price"] = kb_value
+                    print(f"DEBUG: Direct KB price extraction - line: {line}, value: {kb_value}")
             
             # 설정 내역 파싱
             if current_section == "mortgages":
@@ -106,10 +129,34 @@ class MessageParser:
         if data["address"]:
             data["region"] = self._extract_region(data["address"])
         
-        # KB시세 검증
+        # KB시세 검증 (전체 텍스트에서 추출한 것이 없으면 기존 방식 사용)
+        if not data["kb_price"]:
+            # 기존 방식으로 다시 시도
+            for i, line in enumerate(lines):
+                if "kb시세" in line.lower():
+                    # KB시세 줄과 다음 줄 모두 포함
+                    kb_value = line
+                    if i + 1 < len(lines):
+                        next_line = lines[i + 1].strip()
+                        if next_line:
+                            kb_value += " " + next_line
+                    # 콜론 뒤의 값만 추출
+                    if ":" in kb_value:
+                        kb_value = kb_value.split(":", 1)[1].strip()
+                    else:
+                        kb_value = re.sub(r'kb시세\s*', '', kb_value, flags=re.IGNORECASE).strip()
+                    data["kb_price"] = kb_value
+                    print(f"DEBUG: KB price from line parsing: {kb_value}")
+                    break
+        
+        print(f"DEBUG: Before validation - kb_price: {data['kb_price']}")
         if data["kb_price"]:
             validated_price = validate_kb_price(data["kb_price"])
             data["kb_price"] = validated_price
+            print(f"DEBUG: After validation - kb_price: {data['kb_price']}")
+        else:
+            print(f"DEBUG: No KB price found in parsed data")
+            print(f"DEBUG: Full text sample: {message_text[:500]}")
         
         # 신용점수 검증
         if data["credit_score"]:
@@ -179,6 +226,7 @@ class MessageParser:
             # KB시세는 여러 줄에 걸쳐 있을 수 있음 (일반, 하한 등)
             # 첫 번째 값만 저장 (일반 가격)
             data["kb_price"] = value
+            print(f"DEBUG: Parsed KB price - key: {key}, value: {value}")
     
     def _parse_mortgage_line(self, line: str) -> Optional[Dict[str, Any]]:
         """근저당권 설정 내역 라인 파싱"""
@@ -223,6 +271,43 @@ class MessageParser:
             "institution": institution,
             "is_refinance": is_refinance  # TODO: 대환 여부 판단 로직 추가 필요
         }
+    
+    def _extract_kb_price_from_text(self, text: str) -> Optional[str]:
+        """
+        전체 텍스트에서 KB시세를 직접 추출
+        "KB시세 : 일반 125,000만원" 형식 등 다양한 형식 처리
+        """
+        # "KB시세" 또는 "kb시세"가 포함된 부분 찾기
+        kb_patterns = [
+            r'kb시세\s*:?\s*일반\s*([\d,]+)\s*만원',  # KB시세 : 일반 125,000만원
+            r'kb시세\s*:?\s*([\d,]+)\s*만원',  # KB시세 : 125,000만원
+            r'kb시세\s*:?\s*([\d,]+)',  # KB시세 : 125,000
+            r'kb시세[^:]*:?\s*일반\s*([\d,]+)',  # KB시세 일반 125,000
+            r'kb시세[^:]*:?\s*([\d,]+)',  # KB시세 125,000
+        ]
+        
+        for pattern in kb_patterns:
+            match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
+            if match:
+                price_str = match.group(1).replace(",", "").strip()
+                if price_str:
+                    # "일반" 키워드가 포함된 전체 문자열 반환 (나중에 validate에서 처리)
+                    # 전체 컨텍스트를 찾아서 반환
+                    kb_context = re.search(r'kb시세[^:]*:?\s*(.+?)(?=\n|$)', text, re.IGNORECASE | re.MULTILINE | re.DOTALL)
+                    if kb_context:
+                        kb_value = kb_context.group(1).strip()
+                        # 다음 줄도 포함 (하한 정보 등)
+                        lines = text.split('\n')
+                        for i, line in enumerate(lines):
+                            if 'kb시세' in line.lower():
+                                if i + 1 < len(lines):
+                                    next_line = lines[i + 1].strip()
+                                    if next_line and (any(kw in next_line for kw in ['하한', '상한', '일반']) or re.search(r'[\d,]+', next_line)):
+                                        kb_value += " " + next_line
+                                break
+                        return kb_value
+        
+        return None
     
     def _extract_region(self, address: str) -> Optional[str]:
         """주소에서 행정구역 추출 (구/시/군 단위까지)"""

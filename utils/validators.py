@@ -11,11 +11,13 @@ def validate_kb_price(kb_price):
     "일반 125,000만원" 형식도 처리
     """
     if kb_price is None or kb_price == "" or kb_price == "시세없음":
+        print(f"DEBUG: validate_kb_price - None or empty: {kb_price}")
         return None
     
     try:
         # 문자열로 변환
         price_str = str(kb_price).strip()
+        print(f"DEBUG: validate_kb_price - input: {price_str}")
         
         # "일반", "하한" 같은 키워드 제거
         price_str = price_str.replace("일반", "").replace("하한", "").replace("상한", "").strip()
@@ -27,12 +29,15 @@ def validate_kb_price(kb_price):
         if numbers:
             # 첫 번째 숫자 사용 (일반 가격)
             price = float(numbers[0].replace(",", ""))
+            print(f"DEBUG: validate_kb_price - extracted price: {price}")
             return price
         
         # 정규식으로 추출 실패 시 기존 방식 시도
         price = float(price_str.replace(",", "").replace("만원", "").replace("만", "").strip())
+        print(f"DEBUG: validate_kb_price - fallback price: {price}")
         return price
-    except (ValueError, AttributeError):
+    except (ValueError, AttributeError) as e:
+        print(f"DEBUG: validate_kb_price - error: {e}, input: {kb_price}")
         return None
 
 
