@@ -188,10 +188,19 @@ class handler(BaseHTTPRequestHandler):
             update = Update.de_json(body, app.bot)
             
             # 업데이트 정보 로깅
+            print(f"DEBUG: Received update - update_id: {update.update_id}")
+            print(f"DEBUG: Update attributes: message={update.message is not None}, edited_message={update.edited_message is not None}, channel_post={update.channel_post is not None}, callback_query={update.callback_query is not None}")
+            
             if update.message:
-                print(f"DEBUG: Received update - message.chat.id: {update.message.chat.id}, message.text: {update.message.text[:50] if update.message.text else None}")
+                print(f"DEBUG: message.chat.id: {update.message.chat.id}, message.text: {update.message.text[:50] if update.message.text else None}")
+            elif update.edited_message:
+                print(f"DEBUG: edited_message.chat.id: {update.edited_message.chat.id}")
+            elif update.channel_post:
+                print(f"DEBUG: channel_post.chat.id: {update.channel_post.chat.id}")
+            elif update.callback_query:
+                print(f"DEBUG: callback_query.from_user.id: {update.callback_query.from_user.id}")
             else:
-                print(f"DEBUG: Received update - no message (update type: {type(update)})")
+                print(f"DEBUG: Unknown update type - update dict keys: {list(body.keys())}")
             
             # 비동기 처리 (Application 초기화 포함)
             async def process():
