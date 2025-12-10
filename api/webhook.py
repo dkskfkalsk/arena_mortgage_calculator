@@ -35,9 +35,35 @@ def get_application():
             except ModuleNotFoundError:
                 raise ValueError("TELEGRAM_BOT_TOKEN 환경변수를 설정해주세요.")
 
+        # 허용된 채팅방 ID 가져오기
+        ALLOWED_CHAT_IDS_STR = os.getenv("ALLOWED_CHAT_IDS")
+        if not ALLOWED_CHAT_IDS_STR:
+            try:
+                from config.telegram_config import ALLOWED_CHAT_IDS  # type: ignore
+                ALLOWED_CHAT_IDS_STR = ALLOWED_CHAT_IDS
+            except (ModuleNotFoundError, ImportError):
+                ALLOWED_CHAT_IDS_STR = None
+        
+        # 허용된 채팅방 ID 리스트로 변환 (쉼표로 구분된 문자열을 리스트로)
+        allowed_chat_ids = []
+        if ALLOWED_CHAT_IDS_STR:
+            allowed_chat_ids = [int(chat_id.strip()) for chat_id in ALLOWED_CHAT_IDS_STR.split(",") if chat_id.strip()]
+
         application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
+        def is_allowed_chat(chat_id):
+            """채팅방이 허용된 목록에 있는지 확인"""
+            if not allowed_chat_ids:  # 허용 목록이 비어있으면 모든 채팅방 허용
+                return True
+            return chat_id in allowed_chat_ids
+
         async def start_command(update, context):
+            # 채팅방 ID 확인
+            chat_id = update.message.chat.id
+            if not is_allowed_chat(chat_id):
+                # 허용되지 않은 채팅방에서는 조용히 무시
+                return
+            
             welcome_message = (
                 "🏠 담보대출 계산기 봇에 오신 것을 환영합니다!\n\n"
                 "이 봇은 여러 금융사의 담보대출 한도와 금리를 계산해드립니다.\n\n"
@@ -57,6 +83,12 @@ def get_application():
             await update.message.reply_text(welcome_message)
 
         async def handle_message(update, context):
+            # 채팅방 ID 확인
+            chat_id = update.message.chat.id
+            if not is_allowed_chat(chat_id):
+                # 허용되지 않은 채팅방에서는 조용히 무시
+                return
+            
             message_text = update.message.text
             if not message_text:
                 await update.message.reply_text("메시지가 비어있습니다.")

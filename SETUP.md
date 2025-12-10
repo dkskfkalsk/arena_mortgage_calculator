@@ -43,6 +43,14 @@ TELEGRAM_BOT_TOKEN=your_token_here
    - **Environment**: Production, Preview, Development 모두 선택
 7. **Save** 클릭
 
+8. **허용된 채팅방 ID 설정** (선택사항):
+   - **Key**: `ALLOWED_CHAT_IDS`
+   - **Value**: 허용할 채팅방 ID (예: `-1003204391811`)
+   - 여러 채팅방을 허용하려면 쉼표로 구분: `-1003204391811,-1001234567890`
+   - 비워두면 모든 채팅방에서 작동
+   - **Environment**: Production, Preview, Development 모두 선택
+   - **Save** 클릭
+
 ### 방법 2: 파일에 직접 입력
 
 1. **예시 파일 복사** (처음 한 번만):
