@@ -123,8 +123,14 @@ class handler(BaseHTTPRequestHandler):
             app = get_application()
             update = Update.de_json(body, app.bot)
             
-            # 비동기 처리
-            asyncio.run(app.process_update(update))
+            # 비동기 처리 (Application 초기화 포함)
+            async def process():
+                # 초기화되지 않았으면 초기화
+                if not app._initialized:
+                    await app.initialize()
+                await app.process_update(update)
+            
+            asyncio.run(process())
             
             self._send_response(200, {"ok": True})
             
