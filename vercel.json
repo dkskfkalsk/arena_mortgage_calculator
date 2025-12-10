@@ -3,12 +3,6 @@
     "api/webhook.py": {
       "runtime": "python3.9"
     }
-  },
-  "rewrites": [
-    {
-      "source": "/api/webhook",
-      "destination": "/api/webhook.py"
-    }
-  ]
+  }
 }
 

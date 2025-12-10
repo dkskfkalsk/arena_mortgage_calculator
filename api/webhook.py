@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """
 Vercel 서버리스 함수 - 텔레그램 Webhook
-Vercel Python 런타임에 맞춘 BaseHTTPRequestHandler 클래스
 """
 
 import json
@@ -145,8 +144,4 @@ class handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         """로그 메시지 출력 (Vercel 로그에 출력)"""
         print(f"{self.address_string()} - {format % args}")
-
-
-# Vercel이 찾는 핸들러 클래스
-__all__ = ["handler"]
 
