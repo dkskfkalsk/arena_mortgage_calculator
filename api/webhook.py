@@ -109,7 +109,7 @@ def get_application():
             )
             await message.reply_text(welcome_message)
 
-        async def handle_message(update, context):
+        async def handle_message(update, context=None):
             # 메시지 또는 채널 포스트 가져오기
             message = update.message or update.channel_post or update.edited_message or update.edited_channel_post
             if not message:
@@ -269,13 +269,10 @@ class handler(BaseHTTPRequestHandler):
                 
                 # channel_post, edited_message, edited_channel_post는 MessageHandler가 처리하지 않으므로 직접 처리
                 if update.channel_post or update.edited_message or update.edited_channel_post:
-                    # handle_message 함수 직접 호출
+                    # handle_message 함수 직접 호출 (context는 사용하지 않으므로 None 전달)
                     if hasattr(app, '_handle_message'):
-                        # ContextTypes를 사용하여 context 생성
-                        from telegram.ext import ContextTypes
-                        # ContextTypes.DEFAULT_TYPE을 사용하여 context 생성
-                        context = ContextTypes.DEFAULT_TYPE(application=app, update=update)
-                        await app._handle_message(update, context)
+                        print("DEBUG: Directly calling handle_message for channel_post/edited_message")
+                        await app._handle_message(update, None)
                     else:
                         # fallback: process_update 사용 (일반 메시지만 처리됨)
                         await app.process_update(update)
