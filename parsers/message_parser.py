@@ -79,14 +79,20 @@ class MessageParser:
                 if key and value:
                     # KB시세인 경우 특별 처리
                     if "kb시세" in key.lower() or ("시세" in key and "kb" in line.lower()):
-                        # 다음 줄이 있으면 추가 (하한, 상한 등)
-                        if i + 1 < len(lines):
-                            next_line = lines[i + 1].strip()
-                            # 다음 줄이 숫자로 시작하거나 "하한", "상한" 같은 키워드가 있으면 추가
-                            if next_line and (any(keyword in next_line for keyword in ["하한", "상한", "일반"]) or re.search(r'[\d,]+', next_line)):
-                                value += " " + next_line
-                                skip_next_line = True  # 다음 줄은 건너뛰기
+                        # 다음 줄이 있으면 추가 (하한, 상한 등) - 최대 2줄까지 확인
+                        for j in range(1, 3):  # 다음 1-2줄 확인
+                            if i + j < len(lines):
+                                next_line = lines[i + j].strip()
+                                # 다음 줄이 숫자로 시작하거나 "하한", "상한" 같은 키워드가 있으면 추가
+                                if next_line and (any(keyword in next_line for keyword in ["하한", "상한", "일반"]) or re.search(r'[\d,]+', next_line)):
+                                    value += " " + next_line
+                                    if j == 1:
+                                        skip_next_line = True  # 첫 번째 다음 줄은 건너뛰기
+                                else:
+                                    # 숫자가 없으면 더 이상 확인하지 않음
+                                    break
                         # KB시세 직접 설정 (더 강력한 파싱)
+                        print(f"DEBUG: Setting KB price from key-value: {value}")
                         self._set_field(data, key, value)
                     else:
                         self._set_field(data, key, value)
@@ -96,12 +102,17 @@ class MessageParser:
                 kb_match = re.search(r'kb시세\s*:?\s*(.+)', line, re.IGNORECASE)
                 if kb_match:
                     kb_value = kb_match.group(1).strip()
-                    # 다음 줄도 확인
-                    if i + 1 < len(lines):
-                        next_line = lines[i + 1].strip()
-                        if next_line and (any(keyword in next_line for keyword in ["하한", "상한", "일반"]) or re.search(r'[\d,]+', next_line)):
-                            kb_value += " " + next_line
-                            skip_next_line = True
+                    # 다음 줄도 확인 - 최대 2줄까지 확인
+                    for j in range(1, 3):  # 다음 1-2줄 확인
+                        if i + j < len(lines):
+                            next_line = lines[i + j].strip()
+                            if next_line and (any(keyword in next_line for keyword in ["하한", "상한", "일반"]) or re.search(r'[\d,]+', next_line)):
+                                kb_value += " " + next_line
+                                if j == 1:
+                                    skip_next_line = True
+                            else:
+                                # 숫자가 없으면 더 이상 확인하지 않음
+                                break
                     data["kb_price"] = kb_value
                     print(f"DEBUG: Direct KB price extraction - line: {line}, value: {kb_value}")
             
@@ -284,37 +295,47 @@ class MessageParser:
         for i, line in enumerate(lines):
             line_lower = line.lower()
             if 'kb시세' in line_lower or ('kb' in line_lower and '시세' in line_lower):
+                print(f"DEBUG: Found KB시세 line: {line}")
                 # KB시세 줄에서 값 추출
                 # "KB시세 : 일반 125,000만원" 형식
                 if ':' in line:
                     parts = line.split(':', 1)
                     if len(parts) == 2:
                         kb_value = parts[1].strip()
+                        print(f"DEBUG: Extracted from colon: {kb_value}")
                 else:
                     # "KB시세 일반 125,000만원" 형식
                     kb_match = re.search(r'kb시세\s+(.+)', line, re.IGNORECASE)
                     if kb_match:
                         kb_value = kb_match.group(1).strip()
+                        print(f"DEBUG: Extracted from regex: {kb_value}")
                 
-                # 다음 줄도 확인 (하한, 상한 정보)
-                if i + 1 < len(lines):
-                    next_line = lines[i + 1].strip()
-                    if next_line:
-                        # 하한, 상한, 일반 키워드가 있거나 숫자가 있으면 추가
-                        if any(kw in next_line for kw in ['하한', '상한', '일반']) or re.search(r'[\d,]+', next_line):
-                            if kb_value:
-                                kb_value += " " + next_line
+                # 다음 줄도 확인 (하한, 상한 정보) - 최대 2줄까지 확인
+                for j in range(1, 3):  # 다음 1-2줄 확인
+                    if i + j < len(lines):
+                        next_line = lines[i + j].strip()
+                        if next_line:
+                            # 하한, 상한, 일반 키워드가 있거나 숫자가 있으면 추가
+                            if any(kw in next_line for kw in ['하한', '상한', '일반']) or re.search(r'[\d,]+', next_line):
+                                if kb_value:
+                                    kb_value += " " + next_line
+                                    print(f"DEBUG: Added next line {j}: {next_line}, kb_value now: {kb_value}")
+                                else:
+                                    kb_value = next_line
+                                    print(f"DEBUG: Set kb_value from next line {j}: {kb_value}")
                             else:
-                                kb_value = next_line
+                                # 숫자가 없으면 더 이상 확인하지 않음
+                                break
                 
                 if kb_value:
                     print(f"DEBUG: KB price extracted - line: {line}, value: {kb_value}")
                     return kb_value
         
-        # 패턴 매칭으로 재시도
+        # 패턴 매칭으로 재시도 (더 강력한 패턴)
         kb_patterns = [
             r'kb시세\s*:?\s*일반\s*([\d,]+)\s*만원',  # KB시세 : 일반 125,000만원
             r'kb시세\s*:?\s*([\d,]+)\s*만원',  # KB시세 : 125,000만원
+            r'kb시세\s*:?\s*일반\s*([\d,]+)',  # KB시세 : 일반 125,000
             r'kb시세\s*:?\s*([\d,]+)',  # KB시세 : 125,000
             r'kb시세[^:]*:?\s*일반\s*([\d,]+)',  # KB시세 일반 125,000
             r'kb시세[^:]*:?\s*([\d,]+)',  # KB시세 125,000
@@ -332,13 +353,16 @@ class MessageParser:
                         # 다음 줄도 포함 (하한 정보 등)
                         for i, line in enumerate(lines):
                             if 'kb시세' in line.lower():
-                                if i + 1 < len(lines):
-                                    next_line = lines[i + 1].strip()
-                                    if next_line and (any(kw in next_line for kw in ['하한', '상한', '일반']) or re.search(r'[\d,]+', next_line)):
-                                        kb_value += " " + next_line
+                                for j in range(1, 3):  # 다음 1-2줄 확인
+                                    if i + j < len(lines):
+                                        next_line = lines[i + j].strip()
+                                        if next_line and (any(kw in next_line for kw in ['하한', '상한', '일반']) or re.search(r'[\d,]+', next_line)):
+                                            kb_value += " " + next_line
                                 break
+                        print(f"DEBUG: KB price from pattern matching: {kb_value}")
                         return kb_value
         
+        print(f"DEBUG: No KB price found in text")
         return None
     
     def _extract_region(self, address: str) -> Optional[str]:

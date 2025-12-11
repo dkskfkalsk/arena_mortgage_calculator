@@ -19,19 +19,20 @@ def validate_kb_price(kb_price):
         price_str = str(kb_price).strip()
         print(f"DEBUG: validate_kb_price - input: {price_str}")
         
-        # "일반", "하한" 같은 키워드 제거
-        price_str_clean = price_str.replace("일반", "").replace("하한", "").replace("상한", "").strip()
+        # "일반", "하한" 같은 키워드 제거 (공백 포함)
+        import re
+        price_str_clean = re.sub(r'\s*(일반|하한|상한)\s*', ' ', price_str, flags=re.IGNORECASE).strip()
+        # 여러 공백을 하나로
+        price_str_clean = re.sub(r'\s+', ' ', price_str_clean)
         
         # 숫자만 추출 (만원 단위)
-        import re
-        
-        # 방법 1: 정규식으로 숫자 추출 (쉼표 포함)
+        # 방법 1: 정규식으로 숫자 추출 (쉼표 포함) - 첫 번째 큰 숫자 사용
         numbers = re.findall(r'[\d,]+', price_str_clean)
         if numbers:
-            # 첫 번째 숫자 사용 (일반 가격)
-            # "125,000" 형식에서 쉼표 제거
+            # 가장 큰 숫자 사용 (일반 가격이 보통 더 큼)
+            # 또는 첫 번째 숫자 사용
             price_str_num = numbers[0].replace(",", "").strip()
-            if price_str_num:
+            if price_str_num and len(price_str_num) >= 3:  # 최소 3자리 숫자
                 price = float(price_str_num)
                 print(f"DEBUG: validate_kb_price - extracted price (method 1): {price}")
                 return price
@@ -41,14 +42,16 @@ def validate_kb_price(kb_price):
         numbers2 = re.findall(r'[\d,]+', price_str_clean2)
         if numbers2:
             price_str_num = numbers2[0].replace(",", "").strip()
-            if price_str_num:
+            if price_str_num and len(price_str_num) >= 3:
                 price = float(price_str_num)
                 print(f"DEBUG: validate_kb_price - extracted price (method 2): {price}")
                 return price
         
         # 방법 3: 직접 변환 시도
         price_str_final = price_str_clean.replace(",", "").replace("만원", "").replace("만", "").strip()
-        if price_str_final:
+        # 숫자만 남기기
+        price_str_final = re.sub(r'[^\d]', '', price_str_final)
+        if price_str_final and len(price_str_final) >= 3:
             price = float(price_str_final)
             print(f"DEBUG: validate_kb_price - extracted price (method 3): {price}")
             return price
@@ -58,6 +61,8 @@ def validate_kb_price(kb_price):
         
     except (ValueError, AttributeError, TypeError) as e:
         print(f"DEBUG: validate_kb_price - error: {e}, input: {kb_price}, type: {type(kb_price)}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
