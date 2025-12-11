@@ -231,23 +231,20 @@ class handler(BaseHTTPRequestHandler):
                 if not app._initialized:
                     await app.initialize()
                 
-                # channel_post, edited_message, edited_channel_post를 message로 변환하여 처리
-                # MessageHandler는 update.message만 처리하므로, 다른 타입을 message로 복사
-                if update.channel_post and not update.message:
-                    # channel_post를 message로 복사 (임시로)
-                    update.message = update.channel_post
-                    print("DEBUG: Converted channel_post to message for processing")
-                elif update.edited_message and not update.message:
-                    # edited_message를 message로 복사 (임시로)
-                    update.message = update.edited_message
-                    print("DEBUG: Converted edited_message to message for processing")
-                elif update.edited_channel_post and not update.message:
-                    # edited_channel_post를 message로 복사 (임시로)
-                    update.message = update.edited_channel_post
-                    print("DEBUG: Converted edited_channel_post to message for processing")
-                
-                # process_update로 처리 (이제 모든 메시지가 update.message에 있음)
-                await app.process_update(update)
+                # channel_post, edited_message, edited_channel_post는 MessageHandler가 처리하지 않으므로 직접 처리
+                if update.channel_post or update.edited_message or update.edited_channel_post:
+                    # handle_message 함수 직접 호출
+                    if hasattr(app, '_handle_message'):
+                        # ContextTypes를 사용하여 context 생성
+                        from telegram.ext import ContextTypes
+                        context = app.create_context(update)
+                        await app._handle_message(update, context)
+                    else:
+                        # fallback: process_update 사용 (일반 메시지만 처리됨)
+                        await app.process_update(update)
+                else:
+                    # 일반 메시지는 process_update로 처리
+                    await app.process_update(update)
             
             # 이벤트 루프 안전하게 실행
             # Vercel 서버리스 환경에서는 매 요청마다 새로운 컨텍스트이므로 새 루프 생성
