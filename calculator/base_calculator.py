@@ -62,8 +62,12 @@ class BaseCalculator:
             }
         """
         # KB시세 검증
-        kb_price = self.validate_kb_price(property_data.get("kb_price"))
+        kb_price_raw = property_data.get("kb_price")
+        print(f"DEBUG: BaseCalculator.calculate - kb_price_raw: {kb_price_raw}, type: {type(kb_price_raw)}")
+        kb_price = self.validate_kb_price(kb_price_raw)
+        print(f"DEBUG: BaseCalculator.calculate - kb_price after validation: {kb_price}")
         if kb_price is None:
+            print(f"DEBUG: BaseCalculator.calculate - KB price is None, returning None")
             return None  # 시세 없으면 산출 불가
         
         # 지역 확인
@@ -174,7 +178,10 @@ class BaseCalculator:
         KB시세 검증 및 변환
         시세가 없으면 None 반환 (산출 불가)
         """
-        return validate_kb_price(kb_price)
+        print(f"DEBUG: BaseCalculator.validate_kb_price - input: {kb_price}, type: {type(kb_price)}")
+        result = validate_kb_price(kb_price)
+        print(f"DEBUG: BaseCalculator.validate_kb_price - output: {result}")
+        return result
     
     def get_region_grade(self, region: str) -> Optional[int]:
         """

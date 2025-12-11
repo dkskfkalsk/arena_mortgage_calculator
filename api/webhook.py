@@ -21,7 +21,10 @@ def get_application():
     global application
 
     if application is None:
-        from telegram.ext import Application, MessageHandler, CommandHandler, filters
+        from telegram.ext import (
+            Application, MessageHandler, CommandHandler, ChannelPostHandler,
+            EditedMessageHandler, EditedChannelPostHandler, filters
+        )
         from parsers.message_parser import MessageParser
         from calculator.base_calculator import BaseCalculator
         from utils.formatter import format_all_results
@@ -74,9 +77,10 @@ def get_application():
             return chat_id in allowed_chat_ids
 
         async def start_command(update, context):
-            # 메시지가 없으면 무시
-            if not update.message:
-                print("DEBUG: start_command - update.message is None")
+            # 메시지 또는 채널 포스트 가져오기
+            message = update.message or update.channel_post or update.edited_message or update.edited_channel_post
+            if not message:
+                print("DEBUG: start_command - No message found")
                 return
             
             # 채팅방 ID 확인
@@ -104,7 +108,7 @@ def get_application():
                 "/help - 도움말 보기\n\n"
                 "이제 담보물건 정보를 보내주시면 계산해드리겠습니다! 🚀"
             )
-            await update.message.reply_text(welcome_message)
+            await message.reply_text(welcome_message)
 
         async def handle_message(update, context):
             # 메시지 또는 채널 포스트 가져오기
@@ -113,6 +117,10 @@ def get_application():
                 print("DEBUG: handle_message - No message found in update")
                 return
             
+            # 어떤 타입의 메시지인지 확인
+            msg_type = "message" if update.message else "channel_post" if update.channel_post else "edited_message" if update.edited_message else "edited_channel_post"
+            print(f"DEBUG: handle_message - Message type: {msg_type}")
+            
             # 채팅방 ID 확인
             chat_id = get_chat_id(update)
             print(f"DEBUG: handle_message - chat_id: {chat_id}, allowed_chat_ids: {allowed_chat_ids}")
@@ -120,16 +128,24 @@ def get_application():
                 # 허용되지 않은 채팅방에서는 조용히 무시
                 print(f"DEBUG: handle_message - Chat {chat_id} is not allowed")
                 return
-            print(f"DEBUG: handle_message - Processing message for chat {chat_id}")
+            print(f"DEBUG: handle_message - Processing message for chat {chat_id}, type: {msg_type}")
             
             message_text = message.text
             if not message_text:
-                await message.reply_text("메시지가 비어있습니다.")
+                print("DEBUG: handle_message - No text in message, sending help message")
+                await message.reply_text(
+                    "텍스트 메시지를 보내주세요.\n\n"
+                    "담보물건 정보를 텍스트로 입력해주시면 계산해드립니다.\n\n"
+                    "/start 명령어로 사용 방법을 확인하실 수 있습니다."
+                )
                 return
             try:
                 parser = MessageParser()
                 property_data = parser.parse(message_text)
+                print(f"DEBUG: handle_message - property_data: {property_data}")
+                print(f"DEBUG: handle_message - kb_price in property_data: {property_data.get('kb_price')}")
                 results = BaseCalculator.calculate_all_banks(property_data)
+                print(f"DEBUG: handle_message - results count: {len(results) if results else 0}")
                 formatted_result = format_all_results(results)
                 await message.reply_text(formatted_result)
             except Exception as e:
@@ -138,11 +154,22 @@ def get_application():
                     f"오류 내용: {str(e)}"
                 )
 
+        # 명령어 핸들러 (모든 메시지 타입에서 작동)
         application.add_handler(CommandHandler("start", start_command))
         application.add_handler(CommandHandler("help", start_command))
-        # 일반 메시지와 채널 포스트 모두 처리
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-        application.add_handler(MessageHandler(filters.TEXT & filters.ChatType.CHANNELS, handle_message))
+        
+        # 모든 메시지 처리 (명령어 제외, 텍스트 있든 없든 모두 처리)
+        # 일반 메시지
+        application.add_handler(MessageHandler(~filters.COMMAND, handle_message))
+        
+        # 채널 포스트
+        application.add_handler(ChannelPostHandler(~filters.COMMAND, handle_message))
+        
+        # 편집된 메시지
+        application.add_handler(EditedMessageHandler(~filters.COMMAND, handle_message))
+        
+        # 편집된 채널 포스트
+        application.add_handler(EditedChannelPostHandler(~filters.COMMAND, handle_message))
 
     return application
 

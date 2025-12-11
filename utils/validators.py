@@ -20,24 +20,44 @@ def validate_kb_price(kb_price):
         print(f"DEBUG: validate_kb_price - input: {price_str}")
         
         # "일반", "하한" 같은 키워드 제거
-        price_str = price_str.replace("일반", "").replace("하한", "").replace("상한", "").strip()
+        price_str_clean = price_str.replace("일반", "").replace("하한", "").replace("상한", "").strip()
         
         # 숫자만 추출 (만원 단위)
         import re
-        # 숫자와 쉼표만 추출
-        numbers = re.findall(r'[\d,]+', price_str)
+        
+        # 방법 1: 정규식으로 숫자 추출 (쉼표 포함)
+        numbers = re.findall(r'[\d,]+', price_str_clean)
         if numbers:
             # 첫 번째 숫자 사용 (일반 가격)
-            price = float(numbers[0].replace(",", ""))
-            print(f"DEBUG: validate_kb_price - extracted price: {price}")
+            # "125,000" 형식에서 쉼표 제거
+            price_str_num = numbers[0].replace(",", "").strip()
+            if price_str_num:
+                price = float(price_str_num)
+                print(f"DEBUG: validate_kb_price - extracted price (method 1): {price}")
+                return price
+        
+        # 방법 2: "만원" 또는 "만" 제거 후 숫자 추출
+        price_str_clean2 = price_str_clean.replace("만원", "").replace("만", "").strip()
+        numbers2 = re.findall(r'[\d,]+', price_str_clean2)
+        if numbers2:
+            price_str_num = numbers2[0].replace(",", "").strip()
+            if price_str_num:
+                price = float(price_str_num)
+                print(f"DEBUG: validate_kb_price - extracted price (method 2): {price}")
+                return price
+        
+        # 방법 3: 직접 변환 시도
+        price_str_final = price_str_clean.replace(",", "").replace("만원", "").replace("만", "").strip()
+        if price_str_final:
+            price = float(price_str_final)
+            print(f"DEBUG: validate_kb_price - extracted price (method 3): {price}")
             return price
         
-        # 정규식으로 추출 실패 시 기존 방식 시도
-        price = float(price_str.replace(",", "").replace("만원", "").replace("만", "").strip())
-        print(f"DEBUG: validate_kb_price - fallback price: {price}")
-        return price
-    except (ValueError, AttributeError) as e:
-        print(f"DEBUG: validate_kb_price - error: {e}, input: {kb_price}")
+        print(f"DEBUG: validate_kb_price - all methods failed, input: {kb_price}")
+        return None
+        
+    except (ValueError, AttributeError, TypeError) as e:
+        print(f"DEBUG: validate_kb_price - error: {e}, input: {kb_price}, type: {type(kb_price)}")
         return None
 
 
