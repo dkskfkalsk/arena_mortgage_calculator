@@ -263,22 +263,34 @@ class handler(BaseHTTPRequestHandler):
             # 비동기 처리 (Application 초기화 포함)
             # Vercel 서버리스 환경에서 이벤트 루프 안전하게 처리
             async def process():
-                # 초기화되지 않았으면 초기화
-                if not app._initialized:
-                    await app.initialize()
-                
-                # channel_post, edited_message, edited_channel_post는 MessageHandler가 처리하지 않으므로 직접 처리
-                if update.channel_post or update.edited_message or update.edited_channel_post:
-                    # handle_message 함수 직접 호출 (context는 사용하지 않으므로 None 전달)
-                    if hasattr(app, '_handle_message'):
-                        print("DEBUG: Directly calling handle_message for channel_post/edited_message")
-                        await app._handle_message(update, None)
+                try:
+                    # 초기화되지 않았으면 초기화
+                    if not app._initialized:
+                        await app.initialize()
+                    
+                    # channel_post, edited_message, edited_channel_post는 MessageHandler가 처리하지 않으므로 직접 처리
+                    if update.channel_post or update.edited_message or update.edited_channel_post:
+                        # handle_message 함수 직접 호출 (context는 사용하지 않으므로 None 전달)
+                        if hasattr(app, '_handle_message'):
+                            print("DEBUG: Directly calling handle_message for channel_post/edited_message")
+                            await app._handle_message(update, None)
+                        else:
+                            # fallback: process_update 사용 (일반 메시지만 처리됨)
+                            await app.process_update(update)
                     else:
-                        # fallback: process_update 사용 (일반 메시지만 처리됨)
+                        # 일반 메시지는 process_update로 처리
                         await app.process_update(update)
-                else:
-                    # 일반 메시지는 process_update로 처리
-                    await app.process_update(update)
+                    
+                    # Application의 내부 HTTP 작업들이 완료될 때까지 기다리기
+                    # 여러 번 짧게 대기하여 모든 비동기 작업이 완료되도록 함
+                    for _ in range(5):
+                        await asyncio.sleep(0.05)  # 총 0.25초 대기
+                    
+                except Exception as e:
+                    print(f"DEBUG: Error in process(): {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    raise
             
             # 이벤트 루프 안전하게 실행
             # Vercel 서버리스 환경에서는 매 요청마다 새로운 컨텍스트이므로 새 루프 생성
@@ -297,8 +309,30 @@ class handler(BaseHTTPRequestHandler):
                     
                     def run_in_thread():
                         try:
-                            asyncio.run(process())
-                            result_queue.put(("success", None))
+                            # 새로운 이벤트 루프에서 실행
+                            new_loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(new_loop)
+                            try:
+                                new_loop.run_until_complete(process())
+                                # 루프가 닫히기 전에 모든 작업이 완료되도록 짧게 대기
+                                new_loop.run_until_complete(asyncio.sleep(0.1))
+                                result_queue.put(("success", None))
+                            finally:
+                                # 루프 정리
+                                try:
+                                    # 루프가 닫히기 전에 모든 pending 작업 완료 대기
+                                    # 하지만 자기 자신은 제외해야 함
+                                    pending = [t for t in asyncio.all_tasks(new_loop) if not t.done()]
+                                    if pending:
+                                        # 타임아웃 설정하여 무한 대기 방지
+                                        new_loop.run_until_complete(asyncio.wait_for(
+                                            asyncio.gather(*pending, return_exceptions=True),
+                                            timeout=1.0
+                                        ))
+                                except (asyncio.TimeoutError, Exception) as cleanup_e:
+                                    print(f"DEBUG: Cleanup warning: {str(cleanup_e)}")
+                                finally:
+                                    new_loop.close()
                         except Exception as e:
                             result_queue.put(("error", e))
                     
@@ -314,6 +348,7 @@ class handler(BaseHTTPRequestHandler):
                         raise TimeoutError("Process timeout after 30 seconds")
                 except RuntimeError:
                     # 실행 중인 루프가 없으면 asyncio.run() 사용
+                    # asyncio.run()은 자동으로 루프를 생성하고 정리함
                     asyncio.run(process())
             except Exception as e:
                 # 모든 방법이 실패하면 asyncio.run() 사용 (새 루프 생성)
