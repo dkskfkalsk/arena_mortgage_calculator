@@ -273,7 +273,8 @@ class handler(BaseHTTPRequestHandler):
                     if hasattr(app, '_handle_message'):
                         # ContextTypes를 사용하여 context 생성
                         from telegram.ext import ContextTypes
-                        context = app.create_context(update)
+                        # ContextTypes.DEFAULT_TYPE을 사용하여 context 생성
+                        context = ContextTypes.DEFAULT_TYPE(application=app, update=update)
                         await app._handle_message(update, context)
                     else:
                         # fallback: process_update 사용 (일반 메시지만 처리됨)
