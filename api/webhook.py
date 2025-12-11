@@ -22,8 +22,7 @@ def get_application():
 
     if application is None:
         from telegram.ext import (
-            Application, MessageHandler, CommandHandler, ChannelPostHandler,
-            EditedMessageHandler, EditedChannelPostHandler, filters
+            Application, MessageHandler, CommandHandler, filters
         )
         from parsers.message_parser import MessageParser
         from calculator.base_calculator import BaseCalculator
@@ -154,22 +153,15 @@ def get_application():
                     f"오류 내용: {str(e)}"
                 )
 
-        # 명령어 핸들러 (모든 메시지 타입에서 작동)
+        # 명령어 핸들러
         application.add_handler(CommandHandler("start", start_command))
         application.add_handler(CommandHandler("help", start_command))
         
-        # 모든 메시지 처리 (명령어 제외, 텍스트 있든 없든 모두 처리)
-        # 일반 메시지
+        # 일반 메시지 처리 (명령어 제외)
         application.add_handler(MessageHandler(~filters.COMMAND, handle_message))
         
-        # 채널 포스트
-        application.add_handler(ChannelPostHandler(~filters.COMMAND, handle_message))
-        
-        # 편집된 메시지
-        application.add_handler(EditedMessageHandler(~filters.COMMAND, handle_message))
-        
-        # 편집된 채널 포스트
-        application.add_handler(EditedChannelPostHandler(~filters.COMMAND, handle_message))
+        # handle_message를 전역에서 접근 가능하도록 저장
+        application._handle_message = handle_message
 
     return application
 
@@ -238,6 +230,23 @@ class handler(BaseHTTPRequestHandler):
                 # 초기화되지 않았으면 초기화
                 if not app._initialized:
                     await app.initialize()
+                
+                # channel_post, edited_message, edited_channel_post를 message로 변환하여 처리
+                # MessageHandler는 update.message만 처리하므로, 다른 타입을 message로 복사
+                if update.channel_post and not update.message:
+                    # channel_post를 message로 복사 (임시로)
+                    update.message = update.channel_post
+                    print("DEBUG: Converted channel_post to message for processing")
+                elif update.edited_message and not update.message:
+                    # edited_message를 message로 복사 (임시로)
+                    update.message = update.edited_message
+                    print("DEBUG: Converted edited_message to message for processing")
+                elif update.edited_channel_post and not update.message:
+                    # edited_channel_post를 message로 복사 (임시로)
+                    update.message = update.edited_channel_post
+                    print("DEBUG: Converted edited_channel_post to message for processing")
+                
+                # process_update로 처리 (이제 모든 메시지가 update.message에 있음)
                 await app.process_update(update)
             
             # 이벤트 루프 안전하게 실행
