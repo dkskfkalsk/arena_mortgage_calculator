@@ -282,24 +282,51 @@ class handler(BaseHTTPRequestHandler):
             
             # 이벤트 루프 안전하게 실행
             # Vercel 서버리스 환경에서는 매 요청마다 새로운 컨텍스트이므로 새 루프 생성
+            # 항상 asyncio.run()을 사용하여 새로운 이벤트 루프에서 실행
             try:
-                # 기존 루프가 닫혔는지 확인
+                # 실행 중인 루프가 있는지 확인
                 try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_closed():
-                        raise RuntimeError("Loop is closed")
+                    loop = asyncio.get_running_loop()
+                    # 실행 중인 루프가 있으면 에러 (이 경우는 발생하지 않아야 함)
+                    print("DEBUG: Warning - event loop already running, creating new loop in thread")
+                    # 강제로 새 루프에서 실행하기 위해 스레드 사용
+                    import threading
+                    import queue
+                    
+                    result_queue = queue.Queue()
+                    
+                    def run_in_thread():
+                        try:
+                            asyncio.run(process())
+                            result_queue.put(("success", None))
+                        except Exception as e:
+                            result_queue.put(("error", e))
+                    
+                    thread = threading.Thread(target=run_in_thread, daemon=False)
+                    thread.start()
+                    thread.join(timeout=30)  # 30초 타임아웃
+                    
+                    if not result_queue.empty():
+                        status, error = result_queue.get()
+                        if status == "error":
+                            raise error
+                    elif thread.is_alive():
+                        raise TimeoutError("Process timeout after 30 seconds")
                 except RuntimeError:
-                    # 루프가 없거나 닫혔으면 새로 생성
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                
-                # 루프 실행
-                loop.run_until_complete(process())
-            except RuntimeError as e:
-                # 모든 방법이 실패하면 asyncio.run() 사용 (새 루프 생성)
-                if "Event loop is closed" in str(e) or "no running event loop" in str(e).lower():
+                    # 실행 중인 루프가 없으면 asyncio.run() 사용
                     asyncio.run(process())
-                else:
+            except Exception as e:
+                # 모든 방법이 실패하면 asyncio.run() 사용 (새 루프 생성)
+                print(f"DEBUG: Event loop error, using asyncio.run(): {str(e)}")
+                import traceback
+                traceback.print_exc()
+                # 마지막 시도: 완전히 새로운 루프에서 실행
+                try:
+                    asyncio.run(process())
+                except Exception as final_e:
+                    print(f"DEBUG: Final error in asyncio.run(): {str(final_e)}")
+                    import traceback
+                    traceback.print_exc()
                     raise
             
             self._send_response(200, {"ok": True})

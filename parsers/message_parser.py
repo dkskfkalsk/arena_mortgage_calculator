@@ -277,7 +277,41 @@ class MessageParser:
         전체 텍스트에서 KB시세를 직접 추출
         "KB시세 : 일반 125,000만원" 형식 등 다양한 형식 처리
         """
-        # "KB시세" 또는 "kb시세"가 포함된 부분 찾기
+        lines = text.split('\n')
+        kb_value = None
+        
+        # KB시세가 포함된 줄 찾기
+        for i, line in enumerate(lines):
+            line_lower = line.lower()
+            if 'kb시세' in line_lower or ('kb' in line_lower and '시세' in line_lower):
+                # KB시세 줄에서 값 추출
+                # "KB시세 : 일반 125,000만원" 형식
+                if ':' in line:
+                    parts = line.split(':', 1)
+                    if len(parts) == 2:
+                        kb_value = parts[1].strip()
+                else:
+                    # "KB시세 일반 125,000만원" 형식
+                    kb_match = re.search(r'kb시세\s+(.+)', line, re.IGNORECASE)
+                    if kb_match:
+                        kb_value = kb_match.group(1).strip()
+                
+                # 다음 줄도 확인 (하한, 상한 정보)
+                if i + 1 < len(lines):
+                    next_line = lines[i + 1].strip()
+                    if next_line:
+                        # 하한, 상한, 일반 키워드가 있거나 숫자가 있으면 추가
+                        if any(kw in next_line for kw in ['하한', '상한', '일반']) or re.search(r'[\d,]+', next_line):
+                            if kb_value:
+                                kb_value += " " + next_line
+                            else:
+                                kb_value = next_line
+                
+                if kb_value:
+                    print(f"DEBUG: KB price extracted - line: {line}, value: {kb_value}")
+                    return kb_value
+        
+        # 패턴 매칭으로 재시도
         kb_patterns = [
             r'kb시세\s*:?\s*일반\s*([\d,]+)\s*만원',  # KB시세 : 일반 125,000만원
             r'kb시세\s*:?\s*([\d,]+)\s*만원',  # KB시세 : 125,000만원
@@ -291,13 +325,11 @@ class MessageParser:
             if match:
                 price_str = match.group(1).replace(",", "").strip()
                 if price_str:
-                    # "일반" 키워드가 포함된 전체 문자열 반환 (나중에 validate에서 처리)
                     # 전체 컨텍스트를 찾아서 반환
                     kb_context = re.search(r'kb시세[^:]*:?\s*(.+?)(?=\n|$)', text, re.IGNORECASE | re.MULTILINE | re.DOTALL)
                     if kb_context:
                         kb_value = kb_context.group(1).strip()
                         # 다음 줄도 포함 (하한 정보 등)
-                        lines = text.split('\n')
                         for i, line in enumerate(lines):
                             if 'kb시세' in line.lower():
                                 if i + 1 < len(lines):
