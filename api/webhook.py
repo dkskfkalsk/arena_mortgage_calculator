@@ -213,6 +213,42 @@ class handler(BaseHTTPRequestHandler):
             print(f"DEBUG: Received update - update_id: {update.update_id}")
             print(f"DEBUG: Update attributes: message={update.message is not None}, edited_message={update.edited_message is not None}, channel_post={update.channel_post is not None}, callback_query={update.callback_query is not None}")
             
+            # 채팅방 ID 가져오기 및 필터링
+            def get_chat_id_from_update(update):
+                """업데이트에서 채팅방 ID 가져오기"""
+                if update.message:
+                    return update.message.chat.id
+                elif update.edited_message:
+                    return update.edited_message.chat.id
+                elif update.channel_post:
+                    return update.channel_post.chat.id
+                elif update.edited_channel_post:
+                    return update.edited_channel_post.chat.id
+                return None
+            
+            chat_id = get_chat_id_from_update(update)
+            
+            # 허용된 채팅방 ID 확인
+            ALLOWED_CHAT_IDS_STR = os.getenv("ALLOWED_CHAT_IDS")
+            if not ALLOWED_CHAT_IDS_STR:
+                try:
+                    from config.telegram_config import ALLOWED_CHAT_IDS  # type: ignore
+                    ALLOWED_CHAT_IDS_STR = ALLOWED_CHAT_IDS
+                except (ModuleNotFoundError, ImportError):
+                    ALLOWED_CHAT_IDS_STR = None
+            
+            allowed_chat_ids = []
+            if ALLOWED_CHAT_IDS_STR:
+                allowed_chat_ids = [int(chat_id.strip()) for chat_id in ALLOWED_CHAT_IDS_STR.split(",") if chat_id.strip()]
+            
+            print(f"DEBUG: chat_id: {chat_id}, allowed_chat_ids: {allowed_chat_ids}")
+            
+            # 허용된 채팅방이 설정되어 있고, 현재 채팅방이 허용 목록에 없으면 무시
+            if allowed_chat_ids and chat_id not in allowed_chat_ids:
+                print(f"DEBUG: Chat {chat_id} is not in allowed list, ignoring update")
+                self._send_response(200, {"ok": True, "skipped": "chat not allowed"})
+                return
+            
             if update.message:
                 print(f"DEBUG: message.chat.id: {update.message.chat.id}, message.text: {update.message.text[:50] if update.message.text else None}")
             elif update.edited_message:
