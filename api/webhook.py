@@ -107,7 +107,12 @@ def get_application():
                 "/help - 도움말 보기\n\n"
                 "이제 담보물건 정보를 보내주시면 계산해드리겠습니다! 🚀"
             )
-            await message.reply_text(welcome_message)
+            try:
+                reply_task = asyncio.create_task(message.reply_text(welcome_message))
+                await reply_task
+            except Exception as e:
+                print(f"DEBUG: Error sending welcome message: {str(e)}")
+                # 오류가 발생해도 조용히 처리 (사용자에게는 이미 처리된 것으로 보임)
 
         async def handle_message(update, context=None):
             # 메시지 또는 채널 포스트 가져오기
@@ -132,12 +137,17 @@ def get_application():
             message_text = message.text
             if not message_text:
                 print("DEBUG: handle_message - No text in message, sending help message")
-                await message.reply_text(
-                    "텍스트 메시지를 보내주세요.\n\n"
-                    "담보물건 정보를 텍스트로 입력해주시면 계산해드립니다.\n\n"
-                    "/start 명령어로 사용 방법을 확인하실 수 있습니다."
-                )
+                try:
+                    await message.reply_text(
+                        "텍스트 메시지를 보내주세요.\n\n"
+                        "담보물건 정보를 텍스트로 입력해주시면 계산해드립니다.\n\n"
+                        "/start 명령어로 사용 방법을 확인하실 수 있습니다."
+                    )
+                except Exception as e:
+                    print(f"DEBUG: Error sending help message: {str(e)}")
                 return
+            
+            reply_task = None
             try:
                 parser = MessageParser()
                 property_data = parser.parse(message_text)
@@ -146,12 +156,32 @@ def get_application():
                 results = BaseCalculator.calculate_all_banks(property_data)
                 print(f"DEBUG: handle_message - results count: {len(results) if results else 0}")
                 formatted_result = format_all_results(results)
-                await message.reply_text(formatted_result)
+                
+                # 메시지 전송을 task로 생성하여 완료까지 기다림
+                reply_task = asyncio.create_task(message.reply_text(formatted_result))
+                await reply_task
+                
             except Exception as e:
-                await message.reply_text(
-                    f"계산 중 오류가 발생했습니다.\n\n"
-                    f"오류 내용: {str(e)}"
-                )
+                error_msg = str(e)
+                print(f"DEBUG: Error in handle_message: {error_msg}")
+                import traceback
+                traceback.print_exc()
+                
+                # 오류 메시지 전송 시도 (오류가 발생해도 최대한 사용자에게 알림)
+                try:
+                    # "Event loop is closed" 같은 오류는 사용자에게 보여주지 않음
+                    if "Event loop is closed" not in error_msg:
+                        error_reply = f"계산 중 오류가 발생했습니다.\n\n오류 내용: {error_msg}"
+                    else:
+                        error_reply = "계산 중 오류가 발생했습니다.\n\n시스템 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+                    
+                    if reply_task and not reply_task.done():
+                        reply_task.cancel()
+                    
+                    await message.reply_text(error_reply)
+                except Exception as send_error:
+                    # 오류 메시지 전송도 실패하면 로그만 남김
+                    print(f"DEBUG: Failed to send error message: {str(send_error)}")
 
         # 명령어 핸들러
         application.add_handler(CommandHandler("start", start_command))
@@ -280,22 +310,39 @@ class handler(BaseHTTPRequestHandler):
                         await app.process_update(update)
 
                     # 텔레그램 HTTP 요청이 완료될 때까지 충분히 대기
-                    # 여러 번 짧게 대기하여 모든 비동기 작업이 완료되도록 함
-                    for _ in range(10):
-                        await asyncio.sleep(0.2)  # 총 2초 대기 (10 * 0.2초)
-                        # pending 작업 확인
+                    # Application의 내부 HTTP 클라이언트가 모든 요청을 완료할 때까지 기다림
+                    loop = asyncio.get_running_loop()
+                    
+                    # 최대 3초 동안 대기하면서 pending tasks 확인
+                    max_wait_time = 3.0
+                    check_interval = 0.1
+                    waited_time = 0.0
+                    
+                    while waited_time < max_wait_time:
+                        await asyncio.sleep(check_interval)
+                        waited_time += check_interval
+                        
                         try:
-                            loop = asyncio.get_running_loop()
                             pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
                             # 현재 작업(process 함수)과 sleep 작업만 남아있으면 완료된 것으로 간주
-                            if len(pending) <= 2:
-                                print(f"DEBUG: All tasks completed")
+                            # 또는 pending task가 없으면 완료
+                            if len(pending) <= 1:
+                                print(f"DEBUG: All tasks completed after {waited_time:.2f}s")
                                 break
-                        except RuntimeError:
+                        except RuntimeError as e:
+                            # 루프가 이미 닫혔으면 중단
+                            print(f"DEBUG: Loop closed during wait: {str(e)}")
+                            break
+                        except Exception as e:
+                            print(f"DEBUG: Error checking pending tasks: {str(e)}")
                             break
                     
                     # 마지막으로 한 번 더 대기하여 HTTP 응답이 완전히 전송되도록 함
-                    await asyncio.sleep(0.3)
+                    try:
+                        await asyncio.sleep(0.5)
+                    except RuntimeError:
+                        # 루프가 이미 닫혔으면 무시
+                        pass
 
                 except Exception as e:
                     print(f"DEBUG: Error in process(): {str(e)}")
@@ -324,21 +371,44 @@ class handler(BaseHTTPRequestHandler):
                             try:
                                 new_loop.run_until_complete(process())
                                 result_queue.put("success")
-                            finally:
-                                # 루프 정리
-                                try:
-                                    # 모든 pending tasks 취소
-                                    pending = asyncio.all_tasks(new_loop)
-                                    for task in pending:
-                                        task.cancel()
-                                    # 취소된 작업들 완료 대기
-                                    if pending:
-                                        new_loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-                                except Exception as cleanup_error:
-                                    print(f"DEBUG: Cleanup error: {str(cleanup_error)}")
                                 finally:
-                                    # 루프 종료
-                                    new_loop.close()
+                                    # 루프 정리 - 더 안전하게 처리
+                                    try:
+                                        # 모든 pending tasks 확인
+                                        pending = [t for t in asyncio.all_tasks(new_loop) if not t.done()]
+                                        
+                                        if pending:
+                                            # 취소 대신 완료될 때까지 잠시 대기
+                                            try:
+                                                new_loop.run_until_complete(asyncio.wait_for(
+                                                    asyncio.gather(*pending, return_exceptions=True),
+                                                    timeout=1.0
+                                                ))
+                                            except asyncio.TimeoutError:
+                                                # 타임아웃되면 취소
+                                                for task in pending:
+                                                    if not task.done():
+                                                        task.cancel()
+                                                # 취소된 작업들 완료 대기 (예외 무시)
+                                                try:
+                                                    new_loop.run_until_complete(
+                                                        asyncio.gather(*pending, return_exceptions=True)
+                                                    )
+                                                except Exception:
+                                                    pass
+                                    except Exception as cleanup_error:
+                                        print(f"DEBUG: Cleanup error (ignored): {str(cleanup_error)}")
+                                    finally:
+                                        # 루프 종료 전에 짧은 대기
+                                        try:
+                                            new_loop.run_until_complete(asyncio.sleep(0.1))
+                                        except Exception:
+                                            pass
+                                        # 루프 종료
+                                        try:
+                                            new_loop.close()
+                                        except Exception as close_error:
+                                            print(f"DEBUG: Error closing loop (ignored): {str(close_error)}")
                         except Exception as e:
                             exception_queue.put(e)
                     
@@ -356,7 +426,13 @@ class handler(BaseHTTPRequestHandler):
                 except RuntimeError:
                     # 실행 중인 루프가 없으면 asyncio.run() 사용
                     print("DEBUG: No running loop, using asyncio.run()")
-                    asyncio.run(process())
+                    try:
+                        asyncio.run(process())
+                    except RuntimeError as e:
+                        # "Event loop is closed" 오류는 무시 (이미 처리 완료된 경우)
+                        if "Event loop is closed" not in str(e):
+                            raise
+                        print(f"DEBUG: Event loop closed (ignored): {str(e)}")
                     
             except Exception as e:
                 print(f"DEBUG: Event loop error: {str(e)}")
