@@ -15,6 +15,78 @@ class BaseCalculator:
     금융사 계산기 베이스 클래스
     """
     
+    # 전체 지역 리스트 (메인 계산기 기준)
+    ALL_REGIONS = [
+        "서울특별시종로구", "서울특별시중구", "서울특별시용산구", "서울특별시성동구",
+        "서울특별시광진구", "서울특별시동대문구", "서울특별시중랑구", "서울특별시성북구",
+        "서울특별시강북구", "서울특별시도봉구", "서울특별시노원구", "서울특별시은평구",
+        "서울특별시서대문구", "서울특별시마포구", "서울특별시양천구", "서울특별시강서구",
+        "서울특별시구로구", "서울특별시금천구", "서울특별시영등포구", "서울특별시동작구",
+        "서울특별시관악구", "서울특별시서초구", "서울특별시강남구", "서울특별시송파구",
+        "서울특별시강동구",
+        "경기도성남시분당구", "경기도광명시", "경기도과천시", "경기도하남시",
+        "경기도수원시장안구", "경기도수원시권선구", "경기도수원시팔달구", "경기도수원시영통구",
+        "경기도성남시수정구", "경기도성남시중원구", "경기도안양시만안구", "경기도안양시동안구",
+        "경기도부천시소사구", "경기도부천시오정구", "경기도부천시원미구", "경기도고양시덕양구",
+        "경기도고양시일산동구", "경기도고양시일산서구", "인천광역시연수구", "인천광역시부평구",
+        "경기도의정부시", "경기도안산시상록구", "경기도안산시단원구", "경기도구리시",
+        "경기도남양주시", "경기도군포시", "경기도의왕시", "경기도용인시처인구",
+        "경기도용인시기흥구", "경기도용인시수지구", "경기도김포시", "경기도화성시",
+        "경기도평택시", "경기도동두천시", "경기도오산시", "경기도시흥시",
+        "경기도파주시", "경기도안성시", "경기도광주시", "경기도양주시",
+        "경기도이천시", "경기도포천시", "경기도여주시", "경기도연천군",
+        "경기도가평군", "경기도양평군",
+        "인천광역시중구", "인천광역시동구", "인천광역시남동구", "인천광역시계양구",
+        "인천광역시서구", "인천광역시미추홀구", "인천광역시강화군", "인천광역시옹진군",
+        "광주광역시동구", "광주광역시서구", "광주광역시남구", "광주광역시북구", "광주광역시광산구",
+        "대전광역시동구", "대전광역시중구", "대전광역시서구", "대전광역시유성구", "대전광역시대덕구",
+        "울산광역시중구", "울산광역시남구", "울산광역시동구", "울산광역시북구", "울산광역시울주군",
+        "세종특별자치시세종시",
+        "강원특별자치도춘천시", "강원특별자치도원주시", "강원특별자치도강릉시",
+        "강원특별자치도동해시", "강원특별자치도태백시", "강원특별자치도속초시", "강원특별자치도삼척시",
+        "강원특별자치도홍천군", "강원특별자치도횡성군", "강원특별자치도영월군", "강원특별자치도평창군",
+        "강원특별자치도정선군", "강원특별자치도철원군", "강원특별자치도화천군", "강원특별자치도양구군",
+        "강원특별자치도인제군", "강원특별자치도고성군", "강원특별자치도양양군",
+        "충청북도충주시", "충청북도제천시", "충청북도청주시상당구", "충청북도청주시서원구",
+        "충청북도청주시흥덕구", "충청북도청주시청원구", "충청북도보은군", "충청북도옥천군",
+        "충청북도영동군", "충청북도진천군", "충청북도괴산군", "충청북도음성군",
+        "충청북도단양군", "충청북도증평군",
+        "충청남도천안시동남구", "충청남도천안시서북구", "충청남도공주시", "충청남도보령시",
+        "충청남도아산시", "충청남도서산시", "충청남도논산시", "충청남도계룡시",
+        "충청남도당진시", "충청남도금산군", "충청남도부여군", "충청남도서천군",
+        "충청남도청양군", "충청남도홍성군", "충청남도예산군", "충청남도태안군",
+        "전북특별자치도전주시완산구", "전북특별자치도전주시덕진구", "전북특별자치도군산시",
+        "전북특별자치도익산시", "전북특별자치도정읍시", "전북특별자치도남원시", "전북특별자치도김제시",
+        "전북특별자치도완주군", "전북특별자치도진안군", "전북특별자치도무주군", "전북특별자치도장수군",
+        "전북특별자치도임실군", "전북특별자치도순창군", "전북특별자치도고창군", "전북특별자치도부안군",
+        "전라남도목포시", "전라남도여수시", "전라남도순천시", "전라남도나주시",
+        "전라남도광양시", "전라남도담양군", "전라남도곡성군", "전라남도구례군",
+        "전라남도고흥군", "전라남도보성군", "전라남도화순군", "전라남도장흥군",
+        "전라남도강진군", "전라남도해남군", "전라남도영암군", "전라남도무안군",
+        "전라남도함평군", "전라남도영광군", "전라남도장성군", "전라남도완도군",
+        "전라남도진도군", "전라남도신안군",
+        "경상북도포항시남구", "경상북도포항시북구", "경상북도경주시", "경상북도김천시",
+        "경상북도안동시", "경상북도구미시", "경상북도영주시", "경상북도영천시",
+        "경상북도상주시", "경상북도문경시", "경상북도경산시", "경상북도의성군",
+        "경상북도청송군", "경상북도영양군", "경상북도영덕군", "경상북도청도군",
+        "경상북도고령군", "경상북도성주군", "경상북도칠곡군", "경상북도예천군",
+        "경상북도봉화군", "경상북도울진군", "경상북도울릉군",
+        "경상남도진주시", "경상남도통영시", "경상남도사천시", "경상남도김해시",
+        "경상남도밀양시", "경상남도거제시", "경상남도양산시", "경상남도창원시의창구",
+        "경상남도창원시성산구", "경상남도창원시마산합포구", "경상남도창원시마산회원구",
+        "경상남도창원시진해구", "경상남도의령군", "경상남도함안군", "경상남도창녕군",
+        "경상남도고성군", "경상남도남해군", "경상남도하동군", "경상남도산청군",
+        "경상남도함양군", "경상남도거창군", "경상남도합천군",
+        "제주특별자치도제주시", "제주특별자치도서귀포시",
+        "부산광역시중구", "부산광역시서구", "부산광역시동구", "부산광역시영도구",
+        "부산광역시부산진구", "부산광역시동래구", "부산광역시남구", "부산광역시북구",
+        "부산광역시해운대구", "부산광역시사하구", "부산광역시금정구", "부산광역시강서구",
+        "부산광역시연제구", "부산광역시수영구", "부산광역시사상구", "부산광역시기장군",
+        "대구광역시중구", "대구광역시동구", "대구광역시서구", "대구광역시남구",
+        "대구광역시북구", "대구광역시수성구", "대구광역시달서구", "대구광역시달성군",
+        "대구광역시군위군"
+    ]
+    
     def __init__(self, config: Union[Dict[str, Any], str]):
         """
         Args:
@@ -76,6 +148,23 @@ class BaseCalculator:
             print(f"DEBUG: BaseCalculator.calculate - region is empty")
             return None
         
+        # 메인 계산기 전체 지역 리스트 기준 검증
+        region_clean = region.replace(" ", "")
+        is_valid_region = False
+        for valid_region in self.ALL_REGIONS:
+            if valid_region.replace(" ", "") == region_clean:
+                is_valid_region = True
+                break
+        
+        if not is_valid_region:
+            print(f"DEBUG: BaseCalculator.calculate - Region {region} is not in ALL_REGIONS list, 취급 불가지역")
+            return {
+                "bank_name": self.bank_name,
+                "results": [],
+                "conditions": self.config.get("conditions", []),
+                "errors": ["취급 불가지역"]
+            }
+        
         # 대상 지역 확인 (광역 단위로 체크)
         target_regions = self.config.get("target_regions", [])
         if target_regions:
@@ -86,21 +175,52 @@ class BaseCalculator:
                     break
             if not is_target_region:
                 print(f"DEBUG: BaseCalculator.calculate - Region {region} is not in target regions: {target_regions}")
-                return None
+                # 취급 불가지역인 경우 특별한 결과 반환
+                return {
+                    "bank_name": self.bank_name,
+                    "results": [],
+                    "conditions": self.config.get("conditions", []),
+                    "errors": ["취급 불가지역"]
+                }
         
         # 급지 확인
         grade = self.get_region_grade(region)
         print(f"DEBUG: BaseCalculator.calculate - region: {region}, grade: {grade}")
         if grade is None:
-            print(f"DEBUG: BaseCalculator.calculate - grade is None for region: {region}")
+            print(f"DEBUG: BaseCalculator.calculate - grade is None for region: {region}, 취급 불가지역")
+            # 급지가 없으면 취급 불가지역으로 처리
+            return {
+                "bank_name": self.bank_name,
+                "results": [],
+                "conditions": self.config.get("conditions", []),
+                "errors": ["취급 불가지역"]
+            }
+        
+        # 6급지인 경우 취급 불가지역으로 처리
+        if grade == 6:
+            print(f"DEBUG: BaseCalculator.calculate - grade 6 for region: {region}, 취급 불가지역")
+            return {
+                "bank_name": self.bank_name,
+                "results": [],
+                "conditions": self.config.get("conditions", []),
+                "errors": ["취급 불가지역"]
+            }
+        
+        # 기준 LTV 이하 지역 확인
+        below_standard_ltv = self.get_below_standard_ltv(region)
+        is_below_standard = below_standard_ltv is not None
+        
+        # 최대 LTV 확인 (1급지인 경우 A/B 그룹 구분)
+        max_ltv = self.get_max_ltv_by_grade(grade, region)
+        print(f"DEBUG: BaseCalculator.calculate - grade: {grade}, max_ltv: {max_ltv}, below_standard_ltv: {below_standard_ltv}")  # 추가
+        if max_ltv is None or max_ltv == 0:
+            print(f"DEBUG: BaseCalculator.calculate - max_ltv is None or 0 for grade {grade}, returning None")  # 추가
             return None
         
-        # 최대 LTV 확인
-        max_ltv = self.get_max_ltv_by_grade(grade)
-        print(f"DEBUG: BaseCalculator.calculate - grade: {grade}, max_ltv: {max_ltv}")  # 추가
-        if max_ltv is None:
-            print(f"DEBUG: BaseCalculator.calculate - max_ltv is None for grade {grade}, returning None")  # 추가
-            return None
+        # 기준 LTV 이하 지역인 경우 해당 LTV를 최대 LTV로 사용
+        if is_below_standard:
+            max_ltv = below_standard_ltv
+            print(f"DEBUG: BaseCalculator.calculate - 기준 LTV 이하 지역: {region}, 적용 LTV: {max_ltv}%")
         
         # 기존 근저당권 총액 계산
         mortgages = property_data.get("mortgages", [])
@@ -169,7 +289,8 @@ class BaseCalculator:
                     "available_amount": required_amount,
                     "total_amount": required_amount,
                     "is_refinance": is_refinance,
-                    "credit_grade": rate_info.get("credit_grade")
+                    "credit_grade": rate_info.get("credit_grade"),
+                    "below_standard_ltv": is_below_standard  # 기준 LTV 이하 지역 여부
                 }
                 
                 results = [result]  # 하나의 결과만 반환
@@ -210,7 +331,8 @@ class BaseCalculator:
                     "available_amount": round(amount_info["available_amount"]),
                     "total_amount": round(amount_info["total_amount"]),
                     "is_refinance": is_refinance,
-                    "credit_grade": rate_info.get("credit_grade")
+                    "credit_grade": rate_info.get("credit_grade"),
+                    "below_standard_ltv": is_below_standard  # 기준 LTV 이하 지역 여부
                 }
                 
                 results.append(result)
@@ -273,7 +395,8 @@ class BaseCalculator:
     def get_region_grade(self, region: str) -> Optional[int]:
         """
         지역별 급지 조회
-        구/시 단위 매핑이 있으면 우선 사용, 없으면 광역 단위로 fallback
+        region_grades에 명시된 지역만 처리 (fallback 없음)
+        명시되지 않은 지역은 None 반환하여 취급 불가지역으로 처리
         """
         region_grades = self.config.get("region_grades", {})
         
@@ -282,62 +405,116 @@ class BaseCalculator:
         
         # 1. 정확한 매칭 시도 (원본)
         if region in region_grades:
-            print(f"DEBUG: get_region_grade - exact match: {region}")
-            return region_grades.get(region)
+            grade = region_grades.get(region)
+            # 광역 단위 키(서울, 경기 등)는 제외 (구체적인 지역만 처리)
+            if grade is not None and not self._is_metropolitan_key(region):
+                print(f"DEBUG: get_region_grade - exact match: {region} -> grade {grade}")
+                return grade
         
         # 2. 공백 제거 버전으로 매칭 시도
         if region_clean in region_grades:
-            print(f"DEBUG: get_region_grade - clean match: {region_clean}")
-            return region_grades.get(region_clean)
+            grade = region_grades.get(region_clean)
+            if grade is not None and not self._is_metropolitan_key(region_clean):
+                print(f"DEBUG: get_region_grade - clean match: {region_clean} -> grade {grade}")
+                return grade
         
         # 3. 키의 공백 제거 버전과 비교
         for key in region_grades.keys():
             if key.replace(" ", "") == region_clean:
-                print(f"DEBUG: get_region_grade - key clean match: {key} -> {region_clean}")
-                return region_grades.get(key)
+                grade = region_grades.get(key)
+                if grade is not None and not self._is_metropolitan_key(key):
+                    print(f"DEBUG: get_region_grade - key clean match: {key} -> {region_clean} -> grade {grade}")
+                    return grade
         
-        # 4. 광역 단위로 fallback
-        fallback_map = {
-            "서울": ["서울"],
-            "경기": ["경기"],
-            "인천": ["인천"],
-            "부산": ["부산"],
-            "대구": ["대구"],
-            "광주": ["광주"],
-            "대전": ["대전"],
-            "울산": ["울산"],
-            "세종": ["세종"],
-            "강원": ["강원"],
-            "충북": ["충북", "청주", "충주", "제천"],
-            "충남": ["충남", "천안", "아산", "공주", "보령", "서산", "논산", "계룡", "당진"],
-            "전북": ["전북", "전주", "군산", "익산", "정읍", "남원", "김제"],
-            "전남": ["전남", "목포", "순천", "여수", "나주", "광양"],
-            "경북": ["경북", "포항", "구미", "경산", "경주", "김천", "안동", "영주", "영천", "상주", "문경"],
-            "경남": ["경남", "창원", "진주", "김해", "양산", "거제", "통영", "사천", "밀양"],
-            "제주": ["제주"]
-        }
-        
-        for fallback_key, keywords in fallback_map.items():
-            for keyword in keywords:
-                if keyword in region:
-                    fallback_grade = region_grades.get(fallback_key)
-                    if fallback_grade is not None:
-                        print(f"DEBUG: get_region_grade - fallback match: {keyword} -> {fallback_key} (grade: {fallback_grade})")
-                        return fallback_grade
-        
-        print(f"DEBUG: get_region_grade - no match found for region: {region}")
+        print(f"DEBUG: get_region_grade - no match found for region: {region} (취급 불가지역)")
         return None
     
-    def get_max_ltv_by_grade(self, grade: int) -> Optional[int]:
+    def _is_metropolitan_key(self, key: str) -> bool:
+        """
+        광역 단위 키인지 확인 (서울, 경기, 인천, 부산 등)
+        """
+        metropolitan_keys = ["서울", "경기", "인천", "부산", "광주", "대전", "울산", "세종", 
+                            "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주", "대구"]
+        return key in metropolitan_keys
+    
+    def get_max_ltv_by_grade(self, grade: int, region: str = None) -> Optional[float]:
         """
         급지별 최대 LTV 조회
+        1급지인 경우 A/B 그룹을 구분하여 반환
+        
+        Args:
+            grade: 급지 번호 (1, 2, 3, 4)
+            region: 지역명 (1급지 A/B 구분용)
+        
+        Returns:
+            최대 LTV (float) 또는 None
         """
         max_ltv_by_grade = self.config.get("max_ltv_by_grade", {})
-        print(f"DEBUG: get_max_ltv_by_grade - grade: {grade} (type: {type(grade)}), max_ltv_by_grade keys: {list(max_ltv_by_grade.keys())}")  # 추가
+        print(f"DEBUG: get_max_ltv_by_grade - grade: {grade} (type: {type(grade)}), region: {region}, max_ltv_by_grade keys: {list(max_ltv_by_grade.keys())}")  # 추가
+        
+        # 1급지인 경우 A/B 그룹 구분
+        if grade == 1 and region:
+            region_clean = region.replace(" ", "")
+            grade_1_group_a = self.config.get("grade_1_group_a", [])
+            grade_1_group_b = self.config.get("grade_1_group_b", [])
+            
+            # A 그룹 확인
+            for a_region in grade_1_group_a:
+                if a_region.replace(" ", "") == region_clean:
+                    result = max_ltv_by_grade.get("1")
+                    print(f"DEBUG: get_max_ltv_by_grade - 1급지 A그룹: {region} -> LTV {result}%")
+                    return result
+            
+            # B 그룹 확인
+            for b_region in grade_1_group_b:
+                if b_region.replace(" ", "") == region_clean:
+                    result = max_ltv_by_grade.get("1_b")
+                    print(f"DEBUG: get_max_ltv_by_grade - 1급지 B그룹: {region} -> LTV {result}%")
+                    return result
+            
+            # 1급지이지만 A/B 그룹에 없으면 기본값 (A 그룹)
+            result = max_ltv_by_grade.get("1")
+            print(f"DEBUG: get_max_ltv_by_grade - 1급지 (기본값 A그룹): {region} -> LTV {result}%")
+            return result
+        
         # JSON 키는 문자열이므로 int를 문자열로 변환하여 조회
         result = max_ltv_by_grade.get(str(grade))
         print(f"DEBUG: get_max_ltv_by_grade - result: {result}")  # 추가
         return result
+    
+    def get_below_standard_ltv(self, region: str) -> Optional[float]:
+        """
+        기준 LTV 이하 지역인지 확인하고 해당 LTV 반환
+        
+        Args:
+            region: 지역명
+        
+        Returns:
+            기준 LTV 이하 지역인 경우 해당 LTV (float), 아니면 None
+        """
+        below_standard_ltv_regions = self.config.get("below_standard_ltv_regions", {})
+        region_clean = region.replace(" ", "")
+        
+        # 정확한 매칭 시도
+        if region in below_standard_ltv_regions:
+            ltv = below_standard_ltv_regions[region]
+            print(f"DEBUG: get_below_standard_ltv - exact match: {region} -> LTV {ltv}%")
+            return ltv
+        
+        # 공백 제거 버전으로 매칭 시도
+        if region_clean in below_standard_ltv_regions:
+            ltv = below_standard_ltv_regions[region_clean]
+            print(f"DEBUG: get_below_standard_ltv - clean match: {region_clean} -> LTV {ltv}%")
+            return ltv
+        
+        # 키의 공백 제거 버전과 비교
+        for key in below_standard_ltv_regions.keys():
+            if key.replace(" ", "") == region_clean:
+                ltv = below_standard_ltv_regions[key]
+                print(f"DEBUG: get_below_standard_ltv - key clean match: {key} -> LTV {ltv}%")
+                return ltv
+        
+        return None
     
     def calculate_total_mortgage(self, mortgages: List[Dict[str, Any]]) -> float:
         """
@@ -512,6 +689,7 @@ class BaseCalculator:
             try:
                 result = calculator.calculate(property_data)
                 if result is not None:
+                    # 취급 불가지역인 경우도 포함 (errors에 "취급 불가지역"이 있으면)
                     results.append(result)
             except Exception as e:
                 print(f"계산기 {calculator.bank_name} 에러: {e}")

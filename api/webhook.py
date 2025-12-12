@@ -280,16 +280,22 @@ class handler(BaseHTTPRequestHandler):
                         await app.process_update(update)
 
                     # 텔레그램 HTTP 요청이 완료될 때까지 충분히 대기
-                    await asyncio.sleep(2.0)  # 0.5초 → 2.0초로 증가
-                    
-                    # Application 종료 전 정리 (중요!)
-                    if app._initialized:
-                        # 모든 pending HTTP 요청이 완료될 때까지 대기
+                    # 여러 번 짧게 대기하여 모든 비동기 작업이 완료되도록 함
+                    for _ in range(10):
+                        await asyncio.sleep(0.2)  # 총 2초 대기 (10 * 0.2초)
+                        # pending 작업 확인
                         try:
-                            await app.stop()
-                            await app.shutdown()
-                        except Exception as shutdown_error:
-                            print(f"DEBUG: Shutdown error (ignored): {str(shutdown_error)}")
+                            loop = asyncio.get_running_loop()
+                            pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+                            # 현재 작업(process 함수)과 sleep 작업만 남아있으면 완료된 것으로 간주
+                            if len(pending) <= 2:
+                                print(f"DEBUG: All tasks completed")
+                                break
+                        except RuntimeError:
+                            break
+                    
+                    # 마지막으로 한 번 더 대기하여 HTTP 응답이 완전히 전송되도록 함
+                    await asyncio.sleep(0.3)
 
                 except Exception as e:
                     print(f"DEBUG: Error in process(): {str(e)}")

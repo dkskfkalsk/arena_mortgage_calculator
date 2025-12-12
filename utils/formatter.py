@@ -43,6 +43,11 @@ def format_result(bank_result: Dict[str, Any]) -> str:
     bank_name = bank_result.get("bank_name", "Unknown")
     results = bank_result.get("results", [])
     conditions = bank_result.get("conditions", [])
+    errors = bank_result.get("errors", [])
+    
+    # 취급 불가지역인 경우
+    if errors and "취급 불가지역" in errors:
+        return f"* {bank_name}\n취급 불가지역"
     
     if not results:
         return f"* {bank_name}\n산출 불가"
@@ -86,6 +91,11 @@ def format_result(bank_result: Dict[str, Any]) -> str:
             line = f"{result_type} {ltv_str} {format_amount(total_amount)}만 / 가용 {format_amount(available_amount)}만 / {rate_str}"
         else:
             line = f"{result_type} {ltv_str} {amount_str} / {rate_str}"
+        
+        # 기준 LTV 이하 지역인 경우 메시지 추가
+        below_standard_ltv = result.get("below_standard_ltv", False)
+        if below_standard_ltv:
+            line += " (기준 LTV이하 지역, 낙찰가율이내로 제한)"
         
         # 3천만원 미만이면 "최소진행금액 부족" 메시지 추가
         if amount < 3000:
