@@ -117,6 +117,7 @@ def get_application():
         async def handle_message(update, context=None):
             # 메시지 또는 채널 포스트 가져오기
             message = update.message or update.channel_post or update.edited_message or update.edited_channel_post
+            
             if not message:
                 print("DEBUG: handle_message - No message found in update")
                 return
@@ -128,60 +129,54 @@ def get_application():
             # 채팅방 ID 확인
             chat_id = get_chat_id(update)
             print(f"DEBUG: handle_message - chat_id: {chat_id}, allowed_chat_ids: {allowed_chat_ids}")
+            
             if not is_allowed_chat(chat_id):
-                # 허용되지 않은 채팅방에서는 조용히 무시
                 print(f"DEBUG: handle_message - Chat {chat_id} is not allowed")
                 return
+            
             print(f"DEBUG: handle_message - Processing message for chat {chat_id}, type: {msg_type}")
             
             message_text = message.text
             if not message_text:
                 print("DEBUG: handle_message - No text in message, sending help message")
-                try:
-                    await message.reply_text(
-                        "텍스트 메시지를 보내주세요.\n\n"
-                        "담보물건 정보를 텍스트로 입력해주시면 계산해드립니다.\n\n"
-                        "/start 명령어로 사용 방법을 확인하실 수 있습니다."
-                    )
-                except Exception as e:
-                    print(f"DEBUG: Error sending help message: {str(e)}")
+                await message.reply_text(
+                    "텍스트 메시지를 보내주세요.\n\n"
+                    "담보물건 정보를 텍스트로 입력해주시면 계산해드립니다.\n\n"
+                    "/start 명령어로 사용 방법을 확인하실 수 있습니다."
+                )
                 return
             
-            reply_task = None
             try:
                 parser = MessageParser()
                 property_data = parser.parse(message_text)
                 print(f"DEBUG: handle_message - property_data: {property_data}")
                 print(f"DEBUG: handle_message - kb_price in property_data: {property_data.get('kb_price')}")
+                
                 results = BaseCalculator.calculate_all_banks(property_data)
                 print(f"DEBUG: handle_message - results count: {len(results) if results else 0}")
+                
                 formatted_result = format_all_results(results)
                 
-                # 메시지 전송을 task로 생성하여 완료까지 기다림
-                reply_task = asyncio.create_task(message.reply_text(formatted_result))
-                await reply_task
+                # 직접 await 호출 (태스크 생성 X)
+                await message.reply_text(formatted_result)
+                
+                # 응답 완료 대기
+                await asyncio.sleep(0.1)
                 
             except Exception as e:
-                error_msg = str(e)
-                print(f"DEBUG: Error in handle_message: {error_msg}")
+                print(f"DEBUG: Error in handle_message: {str(e)}")
                 import traceback
                 traceback.print_exc()
                 
-                # 오류 메시지 전송 시도 (오류가 발생해도 최대한 사용자에게 알림)
                 try:
-                    # "Event loop is closed" 같은 오류는 사용자에게 보여주지 않음
-                    if "Event loop is closed" not in error_msg:
-                        error_reply = f"계산 중 오류가 발생했습니다.\n\n오류 내용: {error_msg}"
-                    else:
-                        error_reply = "계산 중 오류가 발생했습니다.\n\n시스템 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
-                    
-                    if reply_task and not reply_task.done():
-                        reply_task.cancel()
-                    
-                    await message.reply_text(error_reply)
-                except Exception as send_error:
-                    # 오류 메시지 전송도 실패하면 로그만 남김
-                    print(f"DEBUG: Failed to send error message: {str(send_error)}")
+                    # 에러 메시지 전송 시도
+                    await message.reply_text(
+                        f"계산 중 오류가 발생했습니다.\n\n"
+                        f"오류 내용: {str(e)}"
+                    )
+                    await asyncio.sleep(0.1)
+                except Exception as reply_error:
+                    print(f"DEBUG: Failed to send error message: {str(reply_error)}")
 
         # 명령어 핸들러
         application.add_handler(CommandHandler("start", start_command))
@@ -295,7 +290,7 @@ class handler(BaseHTTPRequestHandler):
                     # 초기화되지 않았으면 초기화
                     if not app._initialized:
                         await app.initialize()
-
+                    
                     # channel_post, edited_message, edited_channel_post는 MessageHandler가 처리하지 않으므로 직접 처리
                     if update.channel_post or update.edited_message or update.edited_channel_post:
                         # handle_message 함수 직접 호출 (context는 사용하지 않으므로 None 전달)
@@ -308,47 +303,18 @@ class handler(BaseHTTPRequestHandler):
                     else:
                         # 일반 메시지는 process_update로 처리
                         await app.process_update(update)
-
+                    
                     # 텔레그램 HTTP 요청이 완료될 때까지 충분히 대기
-                    # Application의 내부 HTTP 클라이언트가 모든 요청을 완료할 때까지 기다림
-                    loop = asyncio.get_running_loop()
+                    print("DEBUG: Waiting for all HTTP requests to complete...")
+                    await asyncio.sleep(2.0)  # 2초 대기
                     
-                    # 최대 3초 동안 대기하면서 pending tasks 확인
-                    max_wait_time = 3.0
-                    check_interval = 0.1
-                    waited_time = 0.0
+                    print("DEBUG: All tasks completed")
                     
-                    while waited_time < max_wait_time:
-                        await asyncio.sleep(check_interval)
-                        waited_time += check_interval
-                        
-                        try:
-                            pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
-                            # 현재 작업(process 함수)과 sleep 작업만 남아있으면 완료된 것으로 간주
-                            # 또는 pending task가 없으면 완료
-                            if len(pending) <= 1:
-                                print(f"DEBUG: All tasks completed after {waited_time:.2f}s")
-                                break
-                        except RuntimeError as e:
-                            # 루프가 이미 닫혔으면 중단
-                            print(f"DEBUG: Loop closed during wait: {str(e)}")
-                            break
-                        except Exception as e:
-                            print(f"DEBUG: Error checking pending tasks: {str(e)}")
-                            break
-                    
-                    # 마지막으로 한 번 더 대기하여 HTTP 응답이 완전히 전송되도록 함
-                    try:
-                        await asyncio.sleep(0.5)
-                    except RuntimeError:
-                        # 루프가 이미 닫혔으면 무시
-                        pass
-
                 except Exception as e:
                     print(f"DEBUG: Error in process(): {str(e)}")
                     import traceback
                     traceback.print_exc()
-                    raise
+                    # 에러 발생해도 raise하지 않음 (이미 텔레그램 응답 전송 시도했으므로)
 
             # 이벤트 루프 안전하게 실행 - 단순화된 버전
             try:
