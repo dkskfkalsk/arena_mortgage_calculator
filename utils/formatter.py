@@ -97,6 +97,11 @@ def format_result(bank_result: Dict[str, Any]) -> str:
         if below_standard_ltv:
             line += " (기준 LTV이하 지역, 낙찰가율이내로 제한)"
         
+        # 택시 한도 제한인 경우 메시지 추가
+        taxi_limit_applied = result.get("taxi_limit_applied", False)
+        if taxi_limit_applied:
+            line += " (개인택시, 운수업 1억 제한)"
+        
         # 3천만원 미만이면 "최소진행금액 부족" 메시지 추가
         if amount < 3000:
             line += " (최소진행금액 부족)"

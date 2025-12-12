@@ -252,7 +252,65 @@ class BaseCalculator:
         required_amount = property_data.get("required_amount")
         results = []
         
-        if required_amount:
+        # 택시 한도 제한이 적용되면 1억을 받기 위해 필요한 LTV를 역산
+        if max_amount_limit is not None and not required_amount:
+            print(f"DEBUG: BaseCalculator.calculate - 택시 한도 제한 적용, 1억을 받기 위한 LTV 역산")
+            
+            # 근저당권 원금 계산
+            mortgage_principal = 0.0
+            for mortgage in mortgages:
+                principal = mortgage.get("amount", 0)
+                if isinstance(principal, (int, float)):
+                    mortgage_principal += principal
+            
+            # 1억(원금)을 받기 위한 LTV 역산 (채권최고액 기준)
+            # 1억(원금)의 채권최고액 = 1억 * 1.2 = 1.2억
+            limit_max_amount = max_amount_limit * 1.2
+            # 기존 근저당권 채권최고액 = 원금 * 1.2
+            mortgage_max_amount = mortgage_principal * 1.2
+            
+            # LTV 역산 (채권최고액 기준)
+            required_total = limit_max_amount + mortgage_max_amount
+            calculated_ltv = (required_total / kb_price) * 100
+            
+            print(f"DEBUG: BaseCalculator.calculate - 택시 한도 제한 LTV 역산: mortgage_principal={mortgage_principal}만원, mortgage_max_amount={mortgage_max_amount}만원, limit_max_amount={limit_max_amount}만원, required_total={required_total}만원, calculated_ltv={calculated_ltv:.2f}%")
+            
+            # 계산된 LTV가 max_ltv를 초과하면 불가능
+            if calculated_ltv > max_ltv:
+                print(f"DEBUG: BaseCalculator.calculate - 택시 한도 제한 LTV {calculated_ltv:.2f}% > max_ltv {max_ltv}%, not possible")
+                results = []
+            else:
+                # 금리 조회를 위해 가장 가까운 ltv_steps 값 찾기
+                ltv_steps = self.config.get("ltv_steps", [90, 85, 80, 75, 70, 65])
+                closest_ltv_for_rate = None
+                if ltv_steps:
+                    closest_ltv_for_rate = min(ltv_steps, key=lambda x: abs(x - calculated_ltv))
+                    print(f"DEBUG: BaseCalculator.calculate - 택시 한도 제한, using closest LTV {closest_ltv_for_rate}% for rate lookup (calculated: {calculated_ltv:.2f}%)")
+                else:
+                    closest_ltv_for_rate = int(round(calculated_ltv))
+                
+                # 금리 조회
+                rate_info = self.get_interest_rate(credit_score, credit_grade, int(closest_ltv_for_rate), grade)
+                
+                # 결과 생성 (LTV는 정확히 계산된 값, 금액은 1억)
+                result = {
+                    "ltv": round(calculated_ltv, 2),
+                    "amount": max_amount_limit,
+                    "interest_rate": rate_info.get("interest_rate"),
+                    "interest_rate_range": rate_info.get("interest_rate_range"),
+                    "type": "대환" if is_refinance else "후순위",
+                    "available_amount": max_amount_limit,
+                    "total_amount": max_amount_limit,
+                    "is_refinance": is_refinance,
+                    "credit_grade": rate_info.get("credit_grade"),
+                    "below_standard_ltv": is_below_standard,
+                    "taxi_limit_applied": True  # 택시 한도 제한 적용 플래그
+                }
+                
+                results = [result]  # 하나의 결과만 반환
+                print(f"DEBUG: BaseCalculator.calculate - 택시 한도 제한 결과 생성: LTV {calculated_ltv:.2f}%, amount {max_amount_limit}만원")
+        
+        elif required_amount:
             print(f"DEBUG: BaseCalculator.calculate - required_amount: {required_amount}만원, calculating LTV from required amount (skipping LTV steps)")  # 추가
             
             # LTV 역산 공식 (채권최고액 기준):
@@ -301,8 +359,10 @@ class BaseCalculator:
                 
                 # 택시 관련 한도 제한 적용
                 final_amount = required_amount
+                taxi_limit_applied = False
                 if max_amount_limit is not None and final_amount > max_amount_limit:
                     final_amount = max_amount_limit
+                    taxi_limit_applied = True
                     print(f"DEBUG: BaseCalculator.calculate - 택시 한도 제한 적용: {required_amount}만원 -> {final_amount}만원")
                 
                 # 결과 생성 (LTV는 정확히 계산된 값 사용, 금액은 정확히 필요자금으로)
@@ -316,13 +376,14 @@ class BaseCalculator:
                     "total_amount": final_amount,
                     "is_refinance": is_refinance,
                     "credit_grade": rate_info.get("credit_grade"),
-                    "below_standard_ltv": is_below_standard  # 기준 LTV 이하 지역 여부
+                    "below_standard_ltv": is_below_standard,  # 기준 LTV 이하 지역 여부
+                    "taxi_limit_applied": taxi_limit_applied  # 택시 한도 제한 적용 플래그
                 }
                 
                 results = [result]  # 하나의 결과만 반환
                 print(f"DEBUG: BaseCalculator.calculate - created result with LTV {calculated_ltv:.2f}% and amount {final_amount}만원")  # 추가
         else:
-            # 필요자금이 없으면 기존대로 LTV별 한도 계산
+            # 필요자금이 없고 택시 한도 제한도 없으면 기존대로 LTV별 한도 계산
             ltv_steps = self.config.get("ltv_steps", [90, 85, 80, 75, 70, 65])
             
             print(f"DEBUG: BaseCalculator.calculate - max_ltv: {max_ltv}, ltv_steps: {ltv_steps}")  # 추가
@@ -348,11 +409,8 @@ class BaseCalculator:
                 # 금리 조회 (82% LTV의 경우 region_grade에 따라 다른 금리 적용)
                 rate_info = self.get_interest_rate(credit_score, credit_grade, ltv, grade)
                 
-                # 택시 관련 한도 제한 적용
+                # 택시 관련 한도 제한이 없으면 일반 계산
                 final_amount = round(amount_info["available_amount"])
-                if max_amount_limit is not None and final_amount > max_amount_limit:
-                    final_amount = max_amount_limit
-                    print(f"DEBUG: BaseCalculator.calculate - 택시 한도 제한 적용 (LTV {ltv}%): {round(amount_info['available_amount'])}만원 -> {final_amount}만원")
                 
                 result = {
                     "ltv": ltv,

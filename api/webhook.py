@@ -385,7 +385,6 @@ class handler(BaseHTTPRequestHandler):
                         
                 except RuntimeError:
                     # 실행 중인 루프가 없으면 전역 루프 사용 또는 생성
-                    global _global_loop
                     print("DEBUG: No running loop, using global loop or creating new one")
                     
                     if _global_loop is None or _global_loop.is_closed():
