@@ -192,9 +192,10 @@ class MessageParser:
     
     def _set_field(self, data: Dict[str, Any], key: str, value: str):
         """필드 설정"""
-        key_lower = key.lower().replace(" ", "")
+        # 키에서 공백 제거하여 비교 (더 안정적인 매칭)
+        key_clean = key.replace(" ", "").lower()
         
-        if "성명" in key or "이름" in key:
+        if "성명" in key_clean or "이름" in key_clean:
             # 성명에서 연령 추출 (예: "정종민 (68)")
             match = re.search(r"\((\d+)\)", value)
             if match:
@@ -203,37 +204,38 @@ class MessageParser:
             else:
                 data["name"] = value
         
-        elif "직업" in key:
+        elif "직업" in key_clean:
             data["occupation"] = value
         
-        elif "신용점수" in key or "신용" in key:
+        elif "신용점수" in key_clean or "신용" in key_clean:
             data["credit_score"] = value
         
-        elif "거주여부" in key:
+        elif "거주여부" in key_clean:
             data["residence"] = value
         
-        elif "소유현황" in key:
+        elif "소유현황" in key_clean:
             data["ownership"] = value
         
-        elif "주소" in key:
+        elif "주소" in key_clean:  # 공백 제거된 키로 비교
             data["address"] = value
+            print(f"DEBUG: Address set - key: '{key}', value: '{value}'")
         
-        elif "면적" in key:
+        elif "면적" in key_clean:
             # 면적에서 숫자 추출 (예: "25.95㎡")
             match = re.search(r"([\d.]+)", value)
             if match:
                 data["area"] = float(match.group(1))
         
-        elif "세대수" in key:
+        elif "세대수" in key_clean:
             # 세대수에서 숫자 추출 (예: "16세대 (1개동)")
             match = re.search(r"(\d+)", value)
             if match:
                 data["household_count"] = int(match.group(1))
         
-        elif "구분" in key:
+        elif "구분" in key_clean:
             data["property_type"] = value
         
-        elif "kb시세" in key.lower() or "시세" in key:
+        elif "kb시세" in key_clean or "시세" in key_clean:
             # KB시세는 여러 줄에 걸쳐 있을 수 있음 (일반, 하한 등)
             # 첫 번째 값만 저장 (일반 가격)
             data["kb_price"] = value
@@ -367,6 +369,11 @@ class MessageParser:
     
     def _extract_region(self, address: str) -> Optional[str]:
         """주소에서 행정구역 추출 (구/시/군 단위까지)"""
+        if not address:
+            return None
+        
+        print(f"DEBUG: _extract_region - input address: '{address}'")
+        
         # 행정구역 리스트 (구/시/군 단위)
         regions = [
             # 서울특별시
@@ -458,20 +465,24 @@ class MessageParser:
         ]
         
         # 공백 제거 후 매칭
-        address_clean = address.replace(" ", "").replace("특별", "").replace("광역", "")
+        address_clean = address.replace(" ", "")
         
         # 긴 행정구역부터 매칭 (더 구체적인 매칭 우선)
         for region in sorted(regions, key=len, reverse=True):
-            region_clean = region.replace(" ", "").replace("특별", "").replace("광역", "")
+            region_clean = region.replace(" ", "")
             if region_clean in address_clean:
+                print(f"DEBUG: _extract_region - matched region: '{region}'")
                 return region
         
         # 매칭 실패 시 광역 단위로 fallback
         fallback_regions = ["서울", "경기", "인천", "부산", "대구", "광주", "대전", "울산",
                            "세종", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주"]
+        
         for region in fallback_regions:
-            if region in address:
+            if region in address_clean:
+                print(f"DEBUG: _extract_region - fallback matched: '{region}'")
                 return region
         
+        print(f"DEBUG: _extract_region - no match found")
         return None
 
