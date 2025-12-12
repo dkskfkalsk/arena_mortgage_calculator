@@ -103,6 +103,8 @@ class BaseCalculator:
         # 기존 근저당권 총액 계산
         mortgages = property_data.get("mortgages", [])
         total_mortgage = self.calculate_total_mortgage(mortgages)
+        print(f"DEBUG: BaseCalculator.calculate - mortgages: {mortgages}")  # 추가
+        print(f"DEBUG: BaseCalculator.calculate - total_mortgage: {total_mortgage}")  # 추가
         
         # 신용점수/등급 확인
         credit_score = property_data.get("credit_score")
@@ -115,9 +117,12 @@ class BaseCalculator:
         ltv_steps = self.config.get("ltv_steps", [90, 85, 80, 75, 70, 65])
         results = []
         
+        print(f"DEBUG: BaseCalculator.calculate - max_ltv: {max_ltv}, ltv_steps: {ltv_steps}")  # 추가
+        
         for ltv in ltv_steps:
             # 최대 LTV를 초과하면 스킵
             if ltv > max_ltv:
+                print(f"DEBUG: LTV {ltv} > max_ltv {max_ltv}, skipping")  # 추가
                 continue
             
             # 가용 한도 계산
@@ -125,8 +130,11 @@ class BaseCalculator:
                 kb_price, ltv, total_mortgage, is_refinance
             )
             
+            print(f"DEBUG: LTV {ltv} - amount_info: {amount_info}")  # 추가
+            
             # 가용 한도가 0 이하면 스킵
             if amount_info["available_amount"] <= 0:
+                print(f"DEBUG: LTV {ltv} - available_amount <= 0, skipping")  # 추가
                 continue
             
             # 금리 조회

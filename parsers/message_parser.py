@@ -53,25 +53,31 @@ class MessageParser:
         current_section = None
         skip_next_line = False  # 다음 줄을 건너뛸지 여부
         
-        for i, line in enumerate(lines):
+        i = 0
+        while i < len(lines):
             # 이전 반복에서 이미 처리한 줄이면 건너뛰기
             if skip_next_line:
                 skip_next_line = False
+                i += 1
                 continue
                 
-            line = line.strip()
+            line = lines[i].strip()
             if not line:
+                i += 1
                 continue
             
             # 섹션 구분
             if "설정내역" in line or "=========" in line:
                 current_section = "mortgages"
+                i += 1
                 continue
             elif "특이사항" in line:
                 current_section = "special_notes"
+                i += 1
                 continue
             elif "요청사항" in line:
                 current_section = "requests"
+                i += 1
                 continue
             elif ":" in line and current_section != "mortgages":
                 # 키:값 형식 파싱
@@ -116,11 +122,24 @@ class MessageParser:
                     data["kb_price"] = kb_value
                     print(f"DEBUG: Direct KB price extraction - line: {line}, value: {kb_value}")
             
-            # 설정 내역 파싱
+            # 설정 내역 파싱 (근저당권) - 여러 줄을 합쳐서 파싱
             if current_section == "mortgages":
-                mortgage = self._parse_mortgage_line(line)
-                if mortgage:
-                    data["mortgages"].append(mortgage)
+                # "1순위 : 전세입자" 형태의 줄 찾기
+                if "순위" in line and ":" in line:
+                    # 현재 줄부터 다음 3줄까지 합쳐서 파싱 시도
+                    combined_lines = line
+                    for j in range(1, 4):
+                        if i + j < len(lines):
+                            next_line = lines[i + j].strip()
+                            if next_line and not any(kw in next_line for kw in ["순위", "특이사항", "요청사항", "==="]):
+                                combined_lines += " " + next_line
+                            else:
+                                break
+                    
+                    mortgage = self._parse_mortgage_line(combined_lines)
+                    if mortgage:
+                        data["mortgages"].append(mortgage)
+                        print(f"DEBUG: Parsed mortgage - combined_lines: '{combined_lines}', result: {mortgage}")
             
             # 특이사항 파싱
             elif current_section == "special_notes":
@@ -135,6 +154,8 @@ class MessageParser:
                     data["requests"] += "\n" + line
                 else:
                     data["requests"] = line
+            
+            i += 1
         
         # 지역 추출 (주소에서)
         if data["address"]:
@@ -243,46 +264,49 @@ class MessageParser:
     
     def _parse_mortgage_line(self, line: str) -> Optional[Dict[str, Any]]:
         """근저당권 설정 내역 라인 파싱"""
-        # 예: "1순위 : 전세입자\n           27,000 (27,000)만원"
-        # 예: "2순위 : 보성새마을금고\n           10,800 (9,000)만원"
-        
         # 순위 추출
         priority_match = re.search(r"(\d+)순위", line)
         if not priority_match:
             return None
         
         priority = int(priority_match.group(1))
+        print(f"DEBUG: _parse_mortgage_line - priority: {priority}, line: '{line}'")
         
         # 금액 추출 (괄호 안의 금액이 실제 설정액)
         amount_match = re.search(r"\(([\d,]+)\)", line)
         if amount_match:
-            amount = parse_amount(amount_match.group(1))
+            amount_str = amount_match.group(1)
+            amount = parse_amount(amount_str)
+            print(f"DEBUG: _parse_mortgage_line - amount from parentheses: {amount_str} -> {amount}")
         else:
-            # 괄호가 없으면 첫 번째 숫자
-            amount_match = re.search(r"([\d,]+)", line)
-            if amount_match:
-                amount = parse_amount(amount_match.group(1))
+            # 괄호가 없으면 "숫자,숫자만원" 또는 "숫자,숫자 (숫자,숫자)만원" 패턴에서 첫 번째 큰 숫자
+            # "1순위" 같은 순위 숫자는 제외
+            amount_matches = re.findall(r"(\d{2,}[,\d]*)", line)
+            if amount_matches:
+                # 첫 번째 큰 숫자(2자리 이상) 사용
+                amount_str = amount_matches[0]
+                amount = parse_amount(amount_str)
+                print(f"DEBUG: _parse_mortgage_line - amount from pattern: {amount_str} -> {amount}")
             else:
+                print(f"DEBUG: _parse_mortgage_line - no amount found in line: '{line}'")
                 return None
         
         # 기관명/유형 추출
-        institution_match = re.search(r":\s*([^0-9]+)", line)
+        institution_match = re.search(r":\s*([^0-9\n]+?)(?=\s*\d|\s*$)", line)
         if institution_match:
             institution = institution_match.group(1).strip()
         else:
             institution = None
         
-        # TODO: 대환 여부 판단 로직
-        # 현재는 mortgages 리스트에서 대환 여부를 판단할 수 없음
-        # 나중에 파싱 로직 개선 필요
-        # 예: "대환" 키워드가 있거나, 특정 패턴으로 판단
-        is_refinance = False  # 임시로 False
+        print(f"DEBUG: _parse_mortgage_line - institution: {institution}")
+        
+        is_refinance = False
         
         return {
             "priority": priority,
             "amount": amount,
             "institution": institution,
-            "is_refinance": is_refinance  # TODO: 대환 여부 판단 로직 추가 필요
+            "is_refinance": is_refinance
         }
     
     def _extract_kb_price_from_text(self, text: str) -> Optional[str]:
