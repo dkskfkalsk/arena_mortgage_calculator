@@ -156,6 +156,14 @@ class BaseCalculator:
             
             results.append(result)
         
+        # 필요자금이 있으면 필터링
+        required_amount = property_data.get("required_amount")
+        if required_amount:
+            print(f"DEBUG: BaseCalculator.calculate - filtering by required_amount: {required_amount}만원")  # 추가
+            filtered_results = [r for r in results if r["amount"] >= required_amount]
+            print(f"DEBUG: BaseCalculator.calculate - filtered from {len(results)} to {len(filtered_results)} results")  # 추가
+            results = filtered_results
+        
         # 결과가 없으면 None 반환
         if not results:
             print(f"DEBUG: BaseCalculator.calculate - no results found for {self.bank_name}, returning None")  # 추가

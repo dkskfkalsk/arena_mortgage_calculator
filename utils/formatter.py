@@ -81,6 +81,10 @@ def format_result(bank_result: Dict[str, Any]) -> str:
         else:
             line = f"{result_type} {ltv}% {amount_str} / {rate_str}"
         
+        # 3천만원 미만이면 "최소진행금액 부족" 메시지 추가
+        if amount < 3000:
+            line += " (최소진행금액 부족)"
+        
         lines.append(line)
     
     # 특이 조건 추가
