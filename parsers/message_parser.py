@@ -231,6 +231,42 @@ class MessageParser:
                         data["required_amount"] = float(required_match.group(1).replace(",", ""))
                         print(f"DEBUG: Parsed required_amount (no unit, assuming 만원): {data['required_amount']}만원")
         
+        # 대환 정보 추출 (요청사항에서)
+        if data["requests"] and "대환" in data["requests"]:
+            print(f"DEBUG: Parsing refinance info from requests: {data['requests']}")
+            
+            # 패턴: "N순위 [기관명] 대환" 또는 "[기관명] 대환" 등
+            # 1. "N순위 [기관명] 대환" 패턴
+            refinance_match = re.search(r'(\d+)순위\s*([^\s]+(?:[^\s\s]+)*?)\s*대환', data["requests"])
+            if refinance_match:
+                priority = int(refinance_match.group(1))
+                institution_keyword = refinance_match.group(2).strip()
+                print(f"DEBUG: Found refinance - priority: {priority}, institution_keyword: {institution_keyword}")
+                
+                # 해당 순위의 근저당권 찾기
+                for mortgage in data["mortgages"]:
+                    if mortgage.get("priority") == priority:
+                        # 기관명에 키워드가 포함되어 있는지 확인
+                        institution = mortgage.get("institution", "")
+                        if institution_keyword in institution or institution in institution_keyword:
+                            mortgage["is_refinance"] = True
+                            print(f"DEBUG: Set is_refinance=True for mortgage: priority={priority}, institution={institution}")
+                            break
+            else:
+                # 2. "[기관명] 대환" 패턴 (순위 없이)
+                refinance_match = re.search(r'([^\s]+(?:[^\s\s]+)*?)\s*대환', data["requests"])
+                if refinance_match:
+                    institution_keyword = refinance_match.group(1).strip()
+                    print(f"DEBUG: Found refinance (no priority) - institution_keyword: {institution_keyword}")
+                    
+                    # 기관명이 일치하는 근저당권 찾기
+                    for mortgage in data["mortgages"]:
+                        institution = mortgage.get("institution", "")
+                        if institution_keyword in institution or institution in institution_keyword:
+                            mortgage["is_refinance"] = True
+                            print(f"DEBUG: Set is_refinance=True for mortgage: priority={mortgage.get('priority')}, institution={institution}")
+                            break
+        
         return data
     
     def _parse_key_value(self, line: str) -> tuple:

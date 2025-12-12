@@ -88,7 +88,7 @@ def format_result(bank_result: Dict[str, Any]) -> str:
         if is_refinance:
             total_amount = result.get("total_amount", 0)
             available_amount = result.get("available_amount", 0)
-            line = f"{result_type} {ltv_str} {format_amount(total_amount)}만 / 가용 {format_amount(available_amount)}만 / {rate_str}"
+            line = f"{result_type} {ltv_str} {format_amount(total_amount)} / {rate_str} / 가용 {format_amount(available_amount)}"
         else:
             line = f"{result_type} {ltv_str} {amount_str} / {rate_str}"
         
