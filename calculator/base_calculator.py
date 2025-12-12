@@ -115,56 +115,16 @@ class BaseCalculator:
         # 대환 여부 판단
         is_refinance = property_data.get("is_refinance", False)
         
-        # LTV별 한도 계산
-        ltv_steps = self.config.get("ltv_steps", [90, 85, 80, 75, 70, 65])
+        # 필요자금이 있으면 LTV별 계산을 건너뛰고 필요자금 기준으로 역산 계산
+        required_amount = property_data.get("required_amount")
         results = []
         
-        print(f"DEBUG: BaseCalculator.calculate - max_ltv: {max_ltv}, ltv_steps: {ltv_steps}")  # 추가
-        
-        for ltv in ltv_steps:
-            # 최대 LTV를 초과하면 스킵
-            if ltv > max_ltv:
-                print(f"DEBUG: LTV {ltv} > max_ltv {max_ltv}, skipping")  # 추가
-                continue
-            
-            # 가용 한도 계산
-            amount_info = self.calculate_available_amount(
-                kb_price, ltv, total_mortgage, is_refinance
-            )
-            
-            print(f"DEBUG: LTV {ltv} - amount_info: {amount_info}")  # 추가
-            
-            # 가용 한도가 0 이하면 스킵
-            if amount_info["available_amount"] <= 0:
-                print(f"DEBUG: LTV {ltv} - available_amount <= 0, skipping")  # 추가
-                continue
-            
-            # 금리 조회 (82% LTV의 경우 region_grade에 따라 다른 금리 적용)
-            rate_info = self.get_interest_rate(credit_score, credit_grade, ltv, grade)
-            
-            result = {
-                "ltv": ltv,
-                "amount": round(amount_info["available_amount"]),
-                "interest_rate": rate_info.get("interest_rate"),
-                "interest_rate_range": rate_info.get("interest_rate_range"),
-                "type": "대환" if is_refinance else "후순위",
-                "available_amount": round(amount_info["available_amount"]),
-                "total_amount": round(amount_info["total_amount"]),
-                "is_refinance": is_refinance,
-                "credit_grade": rate_info.get("credit_grade")
-            }
-            
-            results.append(result)
-        
-        # 필요자금이 있으면 필요자금 기준으로 LTV를 역산하여 계산
-        required_amount = property_data.get("required_amount")
         if required_amount:
-            print(f"DEBUG: BaseCalculator.calculate - required_amount: {required_amount}만원, calculating LTV from required amount")  # 추가
+            print(f"DEBUG: BaseCalculator.calculate - required_amount: {required_amount}만원, calculating LTV from required amount (skipping LTV steps)")  # 추가
             
             # LTV 역산 공식: 필요자금 = KB시세 * LTV/100 - 기존 근저당권(원금)
-            # LTV = (필요자금 + 기존 근저당권) / KB시세 * 100
+            # LTV = (필요자금 + 기존 근저당권 원금) / KB시세 * 100
             # 근저당권에서 원금만 사용 (괄호 안의 금액)
-            # 일단 total_mortgage를 사용하되, 나중에 원금만 사용하도록 수정 가능
             
             # 근저당권 원금 계산 (괄호 안의 금액)
             mortgage_principal = 0.0
@@ -187,6 +147,7 @@ class BaseCalculator:
             else:
                 # 계산된 정확한 LTV 사용 (ltv_steps에 없어도 됨)
                 # 금리 조회를 위해 가장 가까운 ltv_steps 값 찾기
+                ltv_steps = self.config.get("ltv_steps", [90, 85, 80, 75, 70, 65])
                 closest_ltv_for_rate = None
                 if ltv_steps:
                     # 계산된 LTV에 가장 가까운 ltv_steps 값 찾기
@@ -213,6 +174,46 @@ class BaseCalculator:
                 
                 results = [result]  # 하나의 결과만 반환
                 print(f"DEBUG: BaseCalculator.calculate - created result with LTV {calculated_ltv:.2f}% and amount {required_amount}만원")  # 추가
+        else:
+            # 필요자금이 없으면 기존대로 LTV별 한도 계산
+            ltv_steps = self.config.get("ltv_steps", [90, 85, 80, 75, 70, 65])
+            
+            print(f"DEBUG: BaseCalculator.calculate - max_ltv: {max_ltv}, ltv_steps: {ltv_steps}")  # 추가
+            
+            for ltv in ltv_steps:
+                # 최대 LTV를 초과하면 스킵
+                if ltv > max_ltv:
+                    print(f"DEBUG: LTV {ltv} > max_ltv {max_ltv}, skipping")  # 추가
+                    continue
+                
+                # 가용 한도 계산
+                amount_info = self.calculate_available_amount(
+                    kb_price, ltv, total_mortgage, is_refinance
+                )
+                
+                print(f"DEBUG: LTV {ltv} - amount_info: {amount_info}")  # 추가
+                
+                # 가용 한도가 0 이하면 스킵
+                if amount_info["available_amount"] <= 0:
+                    print(f"DEBUG: LTV {ltv} - available_amount <= 0, skipping")  # 추가
+                    continue
+                
+                # 금리 조회 (82% LTV의 경우 region_grade에 따라 다른 금리 적용)
+                rate_info = self.get_interest_rate(credit_score, credit_grade, ltv, grade)
+                
+                result = {
+                    "ltv": ltv,
+                    "amount": round(amount_info["available_amount"]),
+                    "interest_rate": rate_info.get("interest_rate"),
+                    "interest_rate_range": rate_info.get("interest_rate_range"),
+                    "type": "대환" if is_refinance else "후순위",
+                    "available_amount": round(amount_info["available_amount"]),
+                    "total_amount": round(amount_info["total_amount"]),
+                    "is_refinance": is_refinance,
+                    "credit_grade": rate_info.get("credit_grade")
+                }
+                
+                results.append(result)
         
         # 결과가 없으면 None 반환
         if not results:
