@@ -235,6 +235,19 @@ class BaseCalculator:
         # 대환 여부 판단
         is_refinance = property_data.get("is_refinance", False)
         
+        # 택시 관련 한도 제한 확인
+        taxi_limit_config = self.config.get("taxi_limit", {})
+        max_amount_limit = None
+        if taxi_limit_config.get("enabled", False):
+            special_notes = property_data.get("special_notes", "")
+            if special_notes:
+                keywords = taxi_limit_config.get("keywords", [])
+                for keyword in keywords:
+                    if keyword in special_notes:
+                        max_amount_limit = taxi_limit_config.get("max_amount", 10000)  # 기본값 1억
+                        print(f"DEBUG: BaseCalculator.calculate - 택시 관련 키워드 '{keyword}' 발견, 한도 제한: {max_amount_limit}만원")
+                        break
+        
         # 필요자금이 있으면 LTV별 계산을 건너뛰고 필요자금 기준으로 역산 계산
         required_amount = property_data.get("required_amount")
         results = []
@@ -286,22 +299,28 @@ class BaseCalculator:
                 # 금리 조회 (가장 가까운 ltv_steps 값 사용)
                 rate_info = self.get_interest_rate(credit_score, credit_grade, int(closest_ltv_for_rate), grade)
                 
+                # 택시 관련 한도 제한 적용
+                final_amount = required_amount
+                if max_amount_limit is not None and final_amount > max_amount_limit:
+                    final_amount = max_amount_limit
+                    print(f"DEBUG: BaseCalculator.calculate - 택시 한도 제한 적용: {required_amount}만원 -> {final_amount}만원")
+                
                 # 결과 생성 (LTV는 정확히 계산된 값 사용, 금액은 정확히 필요자금으로)
                 result = {
                     "ltv": round(calculated_ltv, 2),  # 소수점 2자리까지 표시
-                    "amount": required_amount,
+                    "amount": final_amount,
                     "interest_rate": rate_info.get("interest_rate"),
                     "interest_rate_range": rate_info.get("interest_rate_range"),
                     "type": "대환" if is_refinance else "후순위",
-                    "available_amount": required_amount,
-                    "total_amount": required_amount,
+                    "available_amount": final_amount,
+                    "total_amount": final_amount,
                     "is_refinance": is_refinance,
                     "credit_grade": rate_info.get("credit_grade"),
                     "below_standard_ltv": is_below_standard  # 기준 LTV 이하 지역 여부
                 }
                 
                 results = [result]  # 하나의 결과만 반환
-                print(f"DEBUG: BaseCalculator.calculate - created result with LTV {calculated_ltv:.2f}% and amount {required_amount}만원")  # 추가
+                print(f"DEBUG: BaseCalculator.calculate - created result with LTV {calculated_ltv:.2f}% and amount {final_amount}만원")  # 추가
         else:
             # 필요자금이 없으면 기존대로 LTV별 한도 계산
             ltv_steps = self.config.get("ltv_steps", [90, 85, 80, 75, 70, 65])
@@ -329,14 +348,20 @@ class BaseCalculator:
                 # 금리 조회 (82% LTV의 경우 region_grade에 따라 다른 금리 적용)
                 rate_info = self.get_interest_rate(credit_score, credit_grade, ltv, grade)
                 
+                # 택시 관련 한도 제한 적용
+                final_amount = round(amount_info["available_amount"])
+                if max_amount_limit is not None and final_amount > max_amount_limit:
+                    final_amount = max_amount_limit
+                    print(f"DEBUG: BaseCalculator.calculate - 택시 한도 제한 적용 (LTV {ltv}%): {round(amount_info['available_amount'])}만원 -> {final_amount}만원")
+                
                 result = {
                     "ltv": ltv,
-                    "amount": round(amount_info["available_amount"]),
+                    "amount": final_amount,
                     "interest_rate": rate_info.get("interest_rate"),
                     "interest_rate_range": rate_info.get("interest_rate_range"),
                     "type": "대환" if is_refinance else "후순위",
-                    "available_amount": round(amount_info["available_amount"]),
-                    "total_amount": round(amount_info["total_amount"]),
+                    "available_amount": final_amount,
+                    "total_amount": final_amount,
                     "is_refinance": is_refinance,
                     "credit_grade": rate_info.get("credit_grade"),
                     "below_standard_ltv": is_below_standard  # 기준 LTV 이하 지역 여부

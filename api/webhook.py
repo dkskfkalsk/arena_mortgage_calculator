@@ -15,6 +15,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # 전역 애플리케이션 인스턴스
 application = None
 
+# 전역 이벤트 루프 (웹사이트 참조: 단일 이벤트 루프 재사용)
+_global_loop = None
+
 
 def get_application():
     """텔레그램 애플리케이션 인스턴스 가져오기 (싱글톤)"""
@@ -316,7 +319,9 @@ class handler(BaseHTTPRequestHandler):
                     traceback.print_exc()
                     # 에러 발생해도 raise하지 않음 (이미 텔레그램 응답 전송 시도했으므로)
 
-            # 이벤트 루프 안전하게 실행 - 단순화된 버전
+            # 이벤트 루프 안전하게 실행 (웹사이트 참조: 단일 이벤트 루프 재사용)
+            global _global_loop
+            
             try:
                 # 기존 루프 확인
                 try:
@@ -331,56 +336,45 @@ class handler(BaseHTTPRequestHandler):
                     
                     def run_in_new_thread():
                         try:
-                            # 완전히 새로운 이벤트 루프 생성
-                            new_loop = asyncio.new_event_loop()
-                            asyncio.set_event_loop(new_loop)
+                            # 전역 루프가 없으면 생성, 있으면 재사용
+                            if _global_loop is None or _global_loop.is_closed():
+                                new_loop = asyncio.new_event_loop()
+                                asyncio.set_event_loop(new_loop)
+                            else:
+                                new_loop = _global_loop
+                                asyncio.set_event_loop(new_loop)
+                            
                             try:
                                 new_loop.run_until_complete(process())
                                 result_queue.put("success")
                             finally:
-                                # 루프 정리 - 더 안전하게 처리
+                                # 루프를 닫지 않고 유지 (재사용을 위해)
+                                # 단, pending tasks만 정리
                                 try:
-                                    # 모든 pending tasks 확인
                                     pending = [t for t in asyncio.all_tasks(new_loop) if not t.done()]
-                                    
                                     if pending:
-                                        # 취소 대신 완료될 때까지 잠시 대기
+                                        # 완료될 때까지 짧게 대기
                                         try:
                                             new_loop.run_until_complete(asyncio.wait_for(
                                                 asyncio.gather(*pending, return_exceptions=True),
-                                                timeout=1.0
+                                                timeout=0.5
                                             ))
-                                        except asyncio.TimeoutError:
-                                            # 타임아웃되면 취소
-                                            for task in pending:
-                                                if not task.done():
-                                                    task.cancel()
-                                            # 취소된 작업들 완료 대기 (예외 무시)
-                                            try:
-                                                new_loop.run_until_complete(
-                                                    asyncio.gather(*pending, return_exceptions=True)
-                                                )
-                                            except Exception:
-                                                pass
+                                        except (asyncio.TimeoutError, Exception):
+                                            # 타임아웃이나 오류 발생 시 무시 (루프는 유지)
+                                            pass
                                 except Exception as cleanup_error:
                                     print(f"DEBUG: Cleanup error (ignored): {str(cleanup_error)}")
-                                finally:
-                                    # 루프 종료 전에 짧은 대기
-                                    try:
-                                        new_loop.run_until_complete(asyncio.sleep(0.1))
-                                    except Exception:
-                                        pass
-                                    # 루프 종료
-                                    try:
-                                        new_loop.close()
-                                    except Exception as close_error:
-                                        print(f"DEBUG: Error closing loop (ignored): {str(close_error)}")
+                                
+                                # 전역 루프에 저장 (재사용을 위해)
+                                global _global_loop
+                                if not new_loop.is_closed():
+                                    _global_loop = new_loop
                         except Exception as e:
                             exception_queue.put(e)
                     
                     thread = threading.Thread(target=run_in_new_thread, daemon=False)
                     thread.start()
-                    thread.join(timeout=25)  # Vercel 타임아웃 전에 완료되도록 25초로 설정
+                    thread.join(timeout=25)
                     
                     if not exception_queue.empty():
                         raise exception_queue.get()
@@ -390,21 +384,35 @@ class handler(BaseHTTPRequestHandler):
                         raise TimeoutError("Process timeout after 25 seconds")
                         
                 except RuntimeError:
-                    # 실행 중인 루프가 없으면 asyncio.run() 사용
-                    print("DEBUG: No running loop, using asyncio.run()")
+                    # 실행 중인 루프가 없으면 전역 루프 사용 또는 생성
+                    print("DEBUG: No running loop, using global loop or creating new one")
+                    
+                    if _global_loop is None or _global_loop.is_closed():
+                        # 전역 루프가 없거나 닫혔으면 새로 생성
+                        _global_loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(_global_loop)
+                        print("DEBUG: Created new global event loop")
+                    else:
+                        # 전역 루프 재사용
+                        asyncio.set_event_loop(_global_loop)
+                        print("DEBUG: Reusing existing global event loop")
+                    
                     try:
-                        asyncio.run(process())
+                        _global_loop.run_until_complete(process())
                     except RuntimeError as e:
-                        # "Event loop is closed" 오류는 무시 (이미 처리 완료된 경우)
+                        # "Event loop is closed" 오류는 무시
                         if "Event loop is closed" not in str(e):
                             raise
                         print(f"DEBUG: Event loop closed (ignored): {str(e)}")
+                    except Exception as e:
+                        # 다른 오류는 로그만 남기고 계속 진행
+                        print(f"DEBUG: Error in process (ignored): {str(e)}")
                     
             except Exception as e:
                 print(f"DEBUG: Event loop error: {str(e)}")
                 import traceback
                 traceback.print_exc()
-                raise
+                # 오류가 발생해도 HTTP 응답은 정상 반환 (이미 메시지 전송 시도했으므로)
 
             self._send_response(200, {"ok": True})
 
