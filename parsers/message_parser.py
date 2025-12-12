@@ -67,17 +67,27 @@ class MessageParser:
                 i += 1
                 continue
             
-            # 섹션 구분
+            # 섹션 구분 (키:값 파싱보다 먼저 체크)
             if "설정내역" in line or "=========" in line:
                 current_section = "mortgages"
                 i += 1
                 continue
             elif "특이사항" in line:
                 current_section = "special_notes"
+                # "특이사항 : 내용" 형식인 경우 즉시 내용 추가
+                if ":" in line:
+                    parts = line.split(":", 1)
+                    if len(parts) == 2 and parts[1].strip():
+                        data["special_notes"] = parts[1].strip()
                 i += 1
                 continue
             elif "요청사항" in line:
                 current_section = "requests"
+                # "요청사항 : 내용" 형식인 경우 즉시 내용 추가
+                if ":" in line:
+                    parts = line.split(":", 1)
+                    if len(parts) == 2 and parts[1].strip():
+                        data["requests"] = parts[1].strip()
                 i += 1
                 continue
             elif ":" in line and current_section != "mortgages":
