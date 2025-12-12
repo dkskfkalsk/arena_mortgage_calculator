@@ -279,8 +279,17 @@ class handler(BaseHTTPRequestHandler):
                         # 일반 메시지는 process_update로 처리
                         await app.process_update(update)
 
-                    # Application의 내부 HTTP 작업들이 완료될 때까지 기다리기
-                    await asyncio.sleep(0.5)  # 0.5초 대기로 증가
+                    # 텔레그램 HTTP 요청이 완료될 때까지 충분히 대기
+                    await asyncio.sleep(2.0)  # 0.5초 → 2.0초로 증가
+                    
+                    # Application 종료 전 정리 (중요!)
+                    if app._initialized:
+                        # 모든 pending HTTP 요청이 완료될 때까지 대기
+                        try:
+                            await app.stop()
+                            await app.shutdown()
+                        except Exception as shutdown_error:
+                            print(f"DEBUG: Shutdown error (ignored): {str(shutdown_error)}")
 
                 except Exception as e:
                     print(f"DEBUG: Error in process(): {str(e)}")
