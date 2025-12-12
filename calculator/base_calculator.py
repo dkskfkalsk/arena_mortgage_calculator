@@ -139,8 +139,8 @@ class BaseCalculator:
                 print(f"DEBUG: LTV {ltv} - available_amount <= 0, skipping")  # 추가
                 continue
             
-            # 금리 조회
-            rate_info = self.get_interest_rate(credit_score, credit_grade, ltv)
+            # 금리 조회 (82% LTV의 경우 region_grade에 따라 다른 금리 적용)
+            rate_info = self.get_interest_rate(credit_score, credit_grade, ltv, grade)
             
             result = {
                 "ltv": ltv,
@@ -340,7 +340,8 @@ class BaseCalculator:
         self, 
         credit_score: Optional[int], 
         credit_grade: Optional[int],
-        ltv: int
+        ltv: int,
+        region_grade: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         신용등급별 금리 조회
@@ -349,6 +350,7 @@ class BaseCalculator:
             credit_score: 신용점수 (없으면 None)
             credit_grade: 신용등급 (1-7)
             ltv: LTV 비율
+            region_grade: 지역 급지 (1 또는 2, 82% LTV의 경우 2급지 금리 적용)
         
         Returns:
             {
@@ -358,9 +360,15 @@ class BaseCalculator:
             }
         """
         ltv_rates = self.config.get("interest_rates_by_ltv", {})
-        ltv_key = str(ltv)
         
-        print(f"DEBUG: get_interest_rate - ltv: {ltv}, credit_score: {credit_score}, credit_grade: {credit_grade}")  # 추가
+        # 82% LTV이고 2급지인 경우 특별 처리
+        if ltv == 82 and region_grade == 2:
+            ltv_key = "82_2"
+            print(f"DEBUG: get_interest_rate - 82% LTV with region_grade 2, using key: {ltv_key}")  # 추가
+        else:
+            ltv_key = str(ltv)
+        
+        print(f"DEBUG: get_interest_rate - ltv: {ltv}, credit_score: {credit_score}, credit_grade: {credit_grade}, region_grade: {region_grade}")  # 추가
         print(f"DEBUG: get_interest_rate - ltv_key: {ltv_key}, available ltv_keys: {list(ltv_rates.keys())}")  # 추가
         
         if ltv_key not in ltv_rates:
