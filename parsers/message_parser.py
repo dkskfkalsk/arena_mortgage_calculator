@@ -471,8 +471,10 @@ class MessageParser:
         for region in sorted(regions, key=len, reverse=True):
             region_clean = region.replace(" ", "")
             if region_clean in address_clean:
-                print(f"DEBUG: _extract_region - matched region: '{region}'")
-                return region
+                # 원본 region 형식 반환 (공백 없는 버전)
+                result = region.replace(" ", "")
+                print(f"DEBUG: _extract_region - matched region: '{result}'")
+                return result
         
         # 매칭 실패 시 광역 단위로 fallback
         fallback_regions = ["서울", "경기", "인천", "부산", "대구", "광주", "대전", "울산",

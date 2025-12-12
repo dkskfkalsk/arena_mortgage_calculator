@@ -73,16 +73,26 @@ class BaseCalculator:
         # 지역 확인
         region = property_data.get("region", "")
         if not region:
+            print(f"DEBUG: BaseCalculator.calculate - region is empty")
             return None
         
-        # 대상 지역 확인
+        # 대상 지역 확인 (광역 단위로 체크)
         target_regions = self.config.get("target_regions", [])
-        if target_regions and region not in target_regions:
-            return None
+        if target_regions:
+            is_target_region = False
+            for target in target_regions:
+                if target in region:  # "서울" in "서울특별시광진구"
+                    is_target_region = True
+                    break
+            if not is_target_region:
+                print(f"DEBUG: BaseCalculator.calculate - Region {region} is not in target regions: {target_regions}")
+                return None
         
         # 급지 확인
         grade = self.get_region_grade(region)
+        print(f"DEBUG: BaseCalculator.calculate - region: {region}, grade: {grade}")
         if grade is None:
+            print(f"DEBUG: BaseCalculator.calculate - grade is None for region: {region}")
             return None
         
         # 최대 LTV 확인
@@ -190,46 +200,55 @@ class BaseCalculator:
         """
         region_grades = self.config.get("region_grades", {})
         
-        # 구/시 단위 매핑 확인
+        # 공백 제거 버전으로도 확인
+        region_clean = region.replace(" ", "")
+        
+        # 1. 정확한 매칭 시도 (원본)
         if region in region_grades:
+            print(f"DEBUG: get_region_grade - exact match: {region}")
             return region_grades.get(region)
         
-        # 광역 단위로 fallback
-        if "서울" in region:
-            return region_grades.get("서울")
-        elif "경기" in region:
-            return region_grades.get("경기")
-        elif "인천" in region:
-            return region_grades.get("인천")
-        elif "부산" in region:
-            return region_grades.get("부산")
-        elif "대구" in region:
-            return region_grades.get("대구")
-        elif "광주" in region:
-            return region_grades.get("광주")
-        elif "대전" in region:
-            return region_grades.get("대전")
-        elif "울산" in region:
-            return region_grades.get("울산")
-        elif "세종" in region:
-            return region_grades.get("세종")
-        elif "강원" in region:
-            return region_grades.get("강원")
-        elif "충북" in region or "청주" in region or "충주" in region or "제천" in region:
-            return region_grades.get("충북")
-        elif "충남" in region or "천안" in region or "아산" in region or "공주" in region or "보령" in region or "서산" in region or "논산" in region or "계룡" in region or "당진" in region:
-            return region_grades.get("충남")
-        elif "전북" in region or "전주" in region or "군산" in region or "익산" in region or "정읍" in region or "남원" in region or "김제" in region:
-            return region_grades.get("전북")
-        elif "전남" in region or "목포" in region or "순천" in region or "여수" in region or "나주" in region or "광양" in region:
-            return region_grades.get("전남")
-        elif "경북" in region or "포항" in region or "구미" in region or "경산" in region or "경주" in region or "김천" in region or "안동" in region or "영주" in region or "영천" in region or "상주" in region or "문경" in region:
-            return region_grades.get("경북")
-        elif "경남" in region or "창원" in region or "진주" in region or "김해" in region or "양산" in region or "거제" in region or "통영" in region or "사천" in region or "밀양" in region:
-            return region_grades.get("경남")
-        elif "제주" in region:
-            return region_grades.get("제주")
+        # 2. 공백 제거 버전으로 매칭 시도
+        if region_clean in region_grades:
+            print(f"DEBUG: get_region_grade - clean match: {region_clean}")
+            return region_grades.get(region_clean)
         
+        # 3. 키의 공백 제거 버전과 비교
+        for key in region_grades.keys():
+            if key.replace(" ", "") == region_clean:
+                print(f"DEBUG: get_region_grade - key clean match: {key} -> {region_clean}")
+                return region_grades.get(key)
+        
+        # 4. 광역 단위로 fallback
+        fallback_map = {
+            "서울": ["서울"],
+            "경기": ["경기"],
+            "인천": ["인천"],
+            "부산": ["부산"],
+            "대구": ["대구"],
+            "광주": ["광주"],
+            "대전": ["대전"],
+            "울산": ["울산"],
+            "세종": ["세종"],
+            "강원": ["강원"],
+            "충북": ["충북", "청주", "충주", "제천"],
+            "충남": ["충남", "천안", "아산", "공주", "보령", "서산", "논산", "계룡", "당진"],
+            "전북": ["전북", "전주", "군산", "익산", "정읍", "남원", "김제"],
+            "전남": ["전남", "목포", "순천", "여수", "나주", "광양"],
+            "경북": ["경북", "포항", "구미", "경산", "경주", "김천", "안동", "영주", "영천", "상주", "문경"],
+            "경남": ["경남", "창원", "진주", "김해", "양산", "거제", "통영", "사천", "밀양"],
+            "제주": ["제주"]
+        }
+        
+        for fallback_key, keywords in fallback_map.items():
+            for keyword in keywords:
+                if keyword in region:
+                    fallback_grade = region_grades.get(fallback_key)
+                    if fallback_grade is not None:
+                        print(f"DEBUG: get_region_grade - fallback match: {keyword} -> {fallback_key} (grade: {fallback_grade})")
+                        return fallback_grade
+        
+        print(f"DEBUG: get_region_grade - no match found for region: {region}")
         return None
     
     def get_max_ltv_by_grade(self, grade: int) -> Optional[int]:
