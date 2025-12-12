@@ -282,9 +282,25 @@ class handler(BaseHTTPRequestHandler):
                         await app.process_update(update)
                     
                     # Application의 내부 HTTP 작업들이 완료될 때까지 기다리기
-                    # 여러 번 짧게 대기하여 모든 비동기 작업이 완료되도록 함
-                    for _ in range(5):
-                        await asyncio.sleep(0.05)  # 총 0.25초 대기
+                    # 텔레그램 봇의 HTTP 클라이언트가 모든 요청을 완료할 때까지 대기
+                    # pending 작업이 없을 때까지 반복적으로 확인
+                    max_wait_iterations = 20  # 최대 2초 대기 (20 * 0.1초)
+                    for i in range(max_wait_iterations):
+                        await asyncio.sleep(0.1)
+                        # 현재 루프의 모든 작업 확인
+                        try:
+                            loop = asyncio.get_running_loop()
+                            pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+                            # 현재 작업(process 함수)과 sleep 작업만 남아있으면 완료된 것으로 간주
+                            if len(pending) <= 2:  # process 함수와 현재 sleep 작업
+                                print(f"DEBUG: All tasks completed after {i+1} iterations")
+                                break
+                        except RuntimeError:
+                            # 루프를 가져올 수 없으면 중단
+                            break
+                    
+                    # 마지막으로 한 번 더 짧게 대기하여 HTTP 응답이 완전히 전송되도록 함
+                    await asyncio.sleep(0.2)
                     
                 except Exception as e:
                     print(f"DEBUG: Error in process(): {str(e)}")
@@ -294,13 +310,13 @@ class handler(BaseHTTPRequestHandler):
             
             # 이벤트 루프 안전하게 실행
             # Vercel 서버리스 환경에서는 매 요청마다 새로운 컨텍스트이므로 새 루프 생성
-            # 항상 asyncio.run()을 사용하여 새로운 이벤트 루프에서 실행
+            # asyncio.run()을 사용하여 새로운 이벤트 루프에서 실행하고 자동으로 정리
             try:
                 # 실행 중인 루프가 있는지 확인
                 try:
                     loop = asyncio.get_running_loop()
                     # 실행 중인 루프가 있으면 에러 (이 경우는 발생하지 않아야 함)
-                    print("DEBUG: Warning - event loop already running, creating new loop in thread")
+                    print("DEBUG: Warning - event loop already running, this should not happen in Vercel")
                     # 강제로 새 루프에서 실행하기 위해 스레드 사용
                     import threading
                     import queue
@@ -314,24 +330,28 @@ class handler(BaseHTTPRequestHandler):
                             asyncio.set_event_loop(new_loop)
                             try:
                                 new_loop.run_until_complete(process())
-                                # 루프가 닫히기 전에 모든 작업이 완료되도록 짧게 대기
-                                new_loop.run_until_complete(asyncio.sleep(0.1))
                                 result_queue.put(("success", None))
                             finally:
-                                # 루프 정리
+                                # 루프 정리 전에 모든 pending 작업 완료 대기
                                 try:
-                                    # 루프가 닫히기 전에 모든 pending 작업 완료 대기
-                                    # 하지만 자기 자신은 제외해야 함
                                     pending = [t for t in asyncio.all_tasks(new_loop) if not t.done()]
                                     if pending:
                                         # 타임아웃 설정하여 무한 대기 방지
-                                        new_loop.run_until_complete(asyncio.wait_for(
-                                            asyncio.gather(*pending, return_exceptions=True),
-                                            timeout=1.0
-                                        ))
-                                except (asyncio.TimeoutError, Exception) as cleanup_e:
+                                        try:
+                                            new_loop.run_until_complete(asyncio.wait_for(
+                                                asyncio.gather(*pending, return_exceptions=True),
+                                                timeout=2.0
+                                            ))
+                                        except asyncio.TimeoutError:
+                                            print("DEBUG: Timeout waiting for pending tasks, closing loop anyway")
+                                except Exception as cleanup_e:
                                     print(f"DEBUG: Cleanup warning: {str(cleanup_e)}")
                                 finally:
+                                    # 루프를 닫기 전에 짧게 대기
+                                    try:
+                                        new_loop.run_until_complete(asyncio.sleep(0.1))
+                                    except:
+                                        pass
                                     new_loop.close()
                         except Exception as e:
                             result_queue.put(("error", e))
@@ -362,7 +382,8 @@ class handler(BaseHTTPRequestHandler):
                     print(f"DEBUG: Final error in asyncio.run(): {str(final_e)}")
                     import traceback
                     traceback.print_exc()
-                    raise
+                    # 오류가 발생해도 사용자에게는 성공 메시지 전송 (이미 처리되었을 수 있음)
+                    pass
             
             self._send_response(200, {"ok": True})
             
