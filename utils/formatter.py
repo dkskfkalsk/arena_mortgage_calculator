@@ -74,7 +74,7 @@ def format_result(bank_result: Dict[str, Any]) -> str:
         amount_str = format_amount(amount)
         
         # LTV 포맷팅 (소수점이 있으면 표시, 없으면 정수로)
-        if isinstance(ltv, float) and ltv != int(ltv):
+        if isinstance(ltv, float) and ltv % 1 != 0:
             ltv_str = f"{ltv:.2f}%"
         else:
             ltv_str = f"{int(ltv)}%"
