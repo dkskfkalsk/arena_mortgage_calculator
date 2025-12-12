@@ -371,44 +371,44 @@ class handler(BaseHTTPRequestHandler):
                             try:
                                 new_loop.run_until_complete(process())
                                 result_queue.put("success")
-                                finally:
-                                    # 루프 정리 - 더 안전하게 처리
-                                    try:
-                                        # 모든 pending tasks 확인
-                                        pending = [t for t in asyncio.all_tasks(new_loop) if not t.done()]
-                                        
-                                        if pending:
-                                            # 취소 대신 완료될 때까지 잠시 대기
+                            finally:
+                                # 루프 정리 - 더 안전하게 처리
+                                try:
+                                    # 모든 pending tasks 확인
+                                    pending = [t for t in asyncio.all_tasks(new_loop) if not t.done()]
+                                    
+                                    if pending:
+                                        # 취소 대신 완료될 때까지 잠시 대기
+                                        try:
+                                            new_loop.run_until_complete(asyncio.wait_for(
+                                                asyncio.gather(*pending, return_exceptions=True),
+                                                timeout=1.0
+                                            ))
+                                        except asyncio.TimeoutError:
+                                            # 타임아웃되면 취소
+                                            for task in pending:
+                                                if not task.done():
+                                                    task.cancel()
+                                            # 취소된 작업들 완료 대기 (예외 무시)
                                             try:
-                                                new_loop.run_until_complete(asyncio.wait_for(
-                                                    asyncio.gather(*pending, return_exceptions=True),
-                                                    timeout=1.0
-                                                ))
-                                            except asyncio.TimeoutError:
-                                                # 타임아웃되면 취소
-                                                for task in pending:
-                                                    if not task.done():
-                                                        task.cancel()
-                                                # 취소된 작업들 완료 대기 (예외 무시)
-                                                try:
-                                                    new_loop.run_until_complete(
-                                                        asyncio.gather(*pending, return_exceptions=True)
-                                                    )
-                                                except Exception:
-                                                    pass
-                                    except Exception as cleanup_error:
-                                        print(f"DEBUG: Cleanup error (ignored): {str(cleanup_error)}")
-                                    finally:
-                                        # 루프 종료 전에 짧은 대기
-                                        try:
-                                            new_loop.run_until_complete(asyncio.sleep(0.1))
-                                        except Exception:
-                                            pass
-                                        # 루프 종료
-                                        try:
-                                            new_loop.close()
-                                        except Exception as close_error:
-                                            print(f"DEBUG: Error closing loop (ignored): {str(close_error)}")
+                                                new_loop.run_until_complete(
+                                                    asyncio.gather(*pending, return_exceptions=True)
+                                                )
+                                            except Exception:
+                                                pass
+                                except Exception as cleanup_error:
+                                    print(f"DEBUG: Cleanup error (ignored): {str(cleanup_error)}")
+                                finally:
+                                    # 루프 종료 전에 짧은 대기
+                                    try:
+                                        new_loop.run_until_complete(asyncio.sleep(0.1))
+                                    except Exception:
+                                        pass
+                                    # 루프 종료
+                                    try:
+                                        new_loop.close()
+                                    except Exception as close_error:
+                                        print(f"DEBUG: Error closing loop (ignored): {str(close_error)}")
                         except Exception as e:
                             exception_queue.put(e)
                     
