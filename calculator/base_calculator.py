@@ -242,11 +242,12 @@ class BaseCalculator:
         if required_amount:
             print(f"DEBUG: BaseCalculator.calculate - required_amount: {required_amount}만원, calculating LTV from required amount (skipping LTV steps)")  # 추가
             
-            # LTV 역산 공식: 필요자금 = KB시세 * LTV/100 - 기존 근저당권(원금)
-            # LTV = (필요자금 + 기존 근저당권 원금) / KB시세 * 100
-            # 근저당권에서 원금만 사용 (괄호 안의 금액)
+            # LTV 역산 공식 (채권최고액 기준):
+            # 필요자금(원금)의 채권최고액 = 필요자금 * 1.2
+            # 기존 근저당권 채권최고액 = 원금 * 1.2
+            # LTV = (필요자금 채권최고액 + 기존 근저당권 채권최고액) / KB시세 * 100
             
-            # 근저당권 원금 계산 (괄호 안의 금액)
+            # 근저당권 채권최고액 계산 (원금 * 1.2)
             mortgage_principal = 0.0
             for mortgage in mortgages:
                 # amount가 원금 (괄호 안의 금액)
@@ -254,11 +255,17 @@ class BaseCalculator:
                 if isinstance(principal, (int, float)):
                     mortgage_principal += principal
             
-            # LTV 역산
-            required_total = required_amount + mortgage_principal
+            # 채권최고액 기준으로 계산
+            # 필요자금의 채권최고액 = 필요자금(원금) * 1.2
+            required_max_amount = required_amount * 1.2
+            # 기존 근저당권 채권최고액 = 원금 * 1.2
+            mortgage_max_amount = mortgage_principal * 1.2
+            
+            # LTV 역산 (채권최고액 기준)
+            required_total = required_max_amount + mortgage_max_amount
             calculated_ltv = (required_total / kb_price) * 100
             
-            print(f"DEBUG: BaseCalculator.calculate - mortgage_principal: {mortgage_principal}만원, required_total: {required_total}만원, calculated_ltv: {calculated_ltv:.2f}%")  # 추가
+            print(f"DEBUG: BaseCalculator.calculate - mortgage_principal: {mortgage_principal}만원, mortgage_max_amount(채권최고액): {mortgage_max_amount}만원, required_max_amount(채권최고액): {required_max_amount}만원, required_total: {required_total}만원, calculated_ltv: {calculated_ltv:.2f}%")  # 추가
             
             # 계산된 LTV가 max_ltv를 초과하면 불가능
             if calculated_ltv > max_ltv:
@@ -518,13 +525,15 @@ class BaseCalculator:
     
     def calculate_total_mortgage(self, mortgages: List[Dict[str, Any]]) -> float:
         """
-        기존 근저당권 총액 계산 (만원 단위)
+        기존 근저당권 총액 계산 (채권최고액 기준, 만원 단위)
+        채권최고액 = 원금 * 1.2
         """
         total = 0.0
         for mortgage in mortgages:
             amount = mortgage.get("amount", 0)
             if isinstance(amount, (int, float)):
-                total += amount
+                # 채권최고액 = 원금 * 1.2
+                total += amount * 1.2
         return total
     
     def calculate_available_amount(
@@ -535,41 +544,48 @@ class BaseCalculator:
         is_refinance: bool = False
     ) -> Dict[str, float]:
         """
-        가용 한도 계산
+        가용 한도 계산 (채권최고액 기준)
         
         Args:
             kb_price: KB시세 (만원)
-            ltv: LTV 비율 (예: 87)
-            total_mortgage: 기존 근저당권 총액 (만원)
+            ltv: LTV 비율 (예: 87) - 채권최고액 기준
+            total_mortgage: 기존 근저당권 총액 (채권최고액, 만원)
             is_refinance: 대환 여부
         
         Returns:
             {
-                "total_amount": 전체 대출 금액,
-                "available_amount": 가용 한도
+                "total_amount": 전체 대출 금액 (채권최고액),
+                "available_amount": 가용 한도 (원금)
             }
         """
-        max_amount = kb_price * (ltv / 100)
-        print(f"DEBUG: calculate_available_amount - kb_price: {kb_price}, ltv: {ltv}, total_mortgage: {total_mortgage}, is_refinance: {is_refinance}")  # 추가
-        print(f"DEBUG: calculate_available_amount - max_amount (kb_price * ltv/100): {max_amount}")  # 추가
+        # LTV는 채권최고액 기준이므로, 최대 채권최고액 계산
+        max_max_amount = kb_price * (ltv / 100)
+        print(f"DEBUG: calculate_available_amount - kb_price: {kb_price}, ltv: {ltv}, total_mortgage(채권최고액): {total_mortgage}, is_refinance: {is_refinance}")  # 추가
+        print(f"DEBUG: calculate_available_amount - max_max_amount(최대 채권최고액, kb_price * ltv/100): {max_max_amount}")  # 추가
         
         if is_refinance:
-            # 대환인 경우: 전체 금액과 가용한도 구분
-            available = max_amount - total_mortgage
+            # 대환인 경우: 전체 채권최고액과 가용한도 구분
+            # 가용한 채권최고액 = 최대 채권최고액 - 기존 근저당권 채권최고액
+            available_max_amount = max_max_amount - total_mortgage
+            # 가용한 원금 = 가용한 채권최고액 / 1.2
+            available_principal = max(0, available_max_amount) / 1.2
             result = {
-                "total_amount": max_amount,
-                "available_amount": max(0, available)
+                "total_amount": max_max_amount,  # 전체 채권최고액
+                "available_amount": available_principal  # 가용 원금
             }
-            print(f"DEBUG: calculate_available_amount - 대환: available={available}, result={result}")  # 추가
+            print(f"DEBUG: calculate_available_amount - 대환: available_max_amount={available_max_amount}, available_principal={available_principal}, result={result}")  # 추가
             return result
         else:
             # 후순위인 경우
-            available = max_amount - total_mortgage
+            # 가용한 채권최고액 = 최대 채권최고액 - 기존 근저당권 채권최고액
+            available_max_amount = max_max_amount - total_mortgage
+            # 가용한 원금 = 가용한 채권최고액 / 1.2
+            available_principal = max(0, available_max_amount) / 1.2
             result = {
-                "total_amount": max(0, available),
-                "available_amount": max(0, available)
+                "total_amount": available_principal,  # 가용 원금
+                "available_amount": available_principal  # 가용 원금
             }
-            print(f"DEBUG: calculate_available_amount - 후순위: available={available}, result={result}")  # 추가
+            print(f"DEBUG: calculate_available_amount - 후순위: available_max_amount={available_max_amount}, available_principal={available_principal}, result={result}")  # 추가
             return result
     
     def get_interest_rate(
