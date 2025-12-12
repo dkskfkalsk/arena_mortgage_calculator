@@ -144,6 +144,7 @@ def get_application():
                     "담보물건 정보를 텍스트로 입력해주시면 계산해드립니다.\n\n"
                     "/start 명령어로 사용 방법을 확인하실 수 있습니다."
                 )
+                print("DEBUG: handle_message - Help message sent, returning immediately")
                 return
             
             try:
@@ -157,11 +158,10 @@ def get_application():
                 
                 formatted_result = format_all_results(results)
                 
-                # 직접 await 호출 (태스크 생성 X)
+                # 메시지 전송 후 즉시 종료 (대기 없음)
                 await message.reply_text(formatted_result)
-                
-                # 응답 완료 대기
-                await asyncio.sleep(0.1)
+                print("DEBUG: handle_message - Message sent, returning immediately")
+                return
                 
             except Exception as e:
                 print(f"DEBUG: Error in handle_message: {str(e)}")
@@ -169,14 +169,17 @@ def get_application():
                 traceback.print_exc()
                 
                 try:
-                    # 에러 메시지 전송 시도
+                    # 에러 메시지 전송 시도 후 즉시 종료
                     await message.reply_text(
                         f"계산 중 오류가 발생했습니다.\n\n"
                         f"오류 내용: {str(e)}"
                     )
-                    await asyncio.sleep(0.1)
+                    print("DEBUG: handle_message - Error message sent, returning immediately")
+                    return
                 except Exception as reply_error:
                     print(f"DEBUG: Failed to send error message: {str(reply_error)}")
+                    # 전송 실패해도 즉시 종료
+                    return
 
         # 명령어 핸들러
         application.add_handler(CommandHandler("start", start_command))
@@ -304,11 +307,8 @@ class handler(BaseHTTPRequestHandler):
                         # 일반 메시지는 process_update로 처리
                         await app.process_update(update)
                     
-                    # 텔레그램 HTTP 요청이 완료될 때까지 충분히 대기
-                    print("DEBUG: Waiting for all HTTP requests to complete...")
-                    await asyncio.sleep(2.0)  # 2초 대기
-                    
-                    print("DEBUG: All tasks completed")
+                    # 메시지 전송 완료 후 즉시 종료 (대기 없음)
+                    print("DEBUG: Message processing completed, returning immediately")
                     
                 except Exception as e:
                     print(f"DEBUG: Error in process(): {str(e)}")
