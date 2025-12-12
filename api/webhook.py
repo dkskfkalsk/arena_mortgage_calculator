@@ -335,6 +335,7 @@ class handler(BaseHTTPRequestHandler):
                     exception_queue = queue.Queue()
                     
                     def run_in_new_thread():
+                        global _global_loop
                         try:
                             # 전역 루프가 없으면 생성, 있으면 재사용
                             if _global_loop is None or _global_loop.is_closed():
@@ -366,7 +367,6 @@ class handler(BaseHTTPRequestHandler):
                                     print(f"DEBUG: Cleanup error (ignored): {str(cleanup_error)}")
                                 
                                 # 전역 루프에 저장 (재사용을 위해)
-                                global _global_loop
                                 if not new_loop.is_closed():
                                     _global_loop = new_loop
                         except Exception as e:
@@ -385,6 +385,7 @@ class handler(BaseHTTPRequestHandler):
                         
                 except RuntimeError:
                     # 실행 중인 루프가 없으면 전역 루프 사용 또는 생성
+                    global _global_loop
                     print("DEBUG: No running loop, using global loop or creating new one")
                     
                     if _global_loop is None or _global_loop.is_closed():
