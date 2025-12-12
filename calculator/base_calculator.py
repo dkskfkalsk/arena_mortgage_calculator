@@ -156,13 +156,63 @@ class BaseCalculator:
             
             results.append(result)
         
-        # 필요자금이 있으면 필터링
+        # 필요자금이 있으면 필요자금 기준으로 LTV를 역산하여 계산
         required_amount = property_data.get("required_amount")
         if required_amount:
-            print(f"DEBUG: BaseCalculator.calculate - filtering by required_amount: {required_amount}만원")  # 추가
-            filtered_results = [r for r in results if r["amount"] >= required_amount]
-            print(f"DEBUG: BaseCalculator.calculate - filtered from {len(results)} to {len(filtered_results)} results")  # 추가
-            results = filtered_results
+            print(f"DEBUG: BaseCalculator.calculate - required_amount: {required_amount}만원, calculating LTV from required amount")  # 추가
+            
+            # LTV 역산 공식: 필요자금 = KB시세 * LTV/100 - 기존 근저당권(원금)
+            # LTV = (필요자금 + 기존 근저당권) / KB시세 * 100
+            # 근저당권에서 원금만 사용 (괄호 안의 금액)
+            # 일단 total_mortgage를 사용하되, 나중에 원금만 사용하도록 수정 가능
+            
+            # 근저당권 원금 계산 (괄호 안의 금액)
+            mortgage_principal = 0.0
+            for mortgage in mortgages:
+                # amount가 원금 (괄호 안의 금액)
+                principal = mortgage.get("amount", 0)
+                if isinstance(principal, (int, float)):
+                    mortgage_principal += principal
+            
+            # LTV 역산
+            required_total = required_amount + mortgage_principal
+            calculated_ltv = (required_total / kb_price) * 100
+            
+            print(f"DEBUG: BaseCalculator.calculate - mortgage_principal: {mortgage_principal}만원, required_total: {required_total}만원, calculated_ltv: {calculated_ltv:.2f}%")  # 추가
+            
+            # 계산된 LTV가 max_ltv를 초과하면 불가능
+            if calculated_ltv > max_ltv:
+                print(f"DEBUG: BaseCalculator.calculate - calculated_ltv {calculated_ltv:.2f}% > max_ltv {max_ltv}%, not possible")  # 추가
+                results = []
+            else:
+                # 계산된 정확한 LTV 사용 (ltv_steps에 없어도 됨)
+                # 금리 조회를 위해 가장 가까운 ltv_steps 값 찾기
+                closest_ltv_for_rate = None
+                if ltv_steps:
+                    # 계산된 LTV에 가장 가까운 ltv_steps 값 찾기
+                    closest_ltv_for_rate = min(ltv_steps, key=lambda x: abs(x - calculated_ltv))
+                    print(f"DEBUG: BaseCalculator.calculate - using closest LTV {closest_ltv_for_rate}% for rate lookup (calculated: {calculated_ltv:.2f}%)")  # 추가
+                else:
+                    closest_ltv_for_rate = int(round(calculated_ltv))
+                
+                # 금리 조회 (가장 가까운 ltv_steps 값 사용)
+                rate_info = self.get_interest_rate(credit_score, credit_grade, int(closest_ltv_for_rate), grade)
+                
+                # 결과 생성 (LTV는 정확히 계산된 값 사용, 금액은 정확히 필요자금으로)
+                result = {
+                    "ltv": round(calculated_ltv, 2),  # 소수점 2자리까지 표시
+                    "amount": required_amount,
+                    "interest_rate": rate_info.get("interest_rate"),
+                    "interest_rate_range": rate_info.get("interest_rate_range"),
+                    "type": "대환" if is_refinance else "후순위",
+                    "available_amount": required_amount,
+                    "total_amount": required_amount,
+                    "is_refinance": is_refinance,
+                    "credit_grade": rate_info.get("credit_grade")
+                }
+                
+                results = [result]  # 하나의 결과만 반환
+                print(f"DEBUG: BaseCalculator.calculate - created result with LTV {calculated_ltv:.2f}% and amount {required_amount}만원")  # 추가
         
         # 결과가 없으면 None 반환
         if not results:
