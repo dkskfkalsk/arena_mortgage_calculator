@@ -196,12 +196,21 @@ class MessageParser:
             validated_score = validate_credit_score(data["credit_score"])
             data["credit_score"] = validated_score
         
-        # 요청사항에서 필요자금 추출
+        # 필요자금 추출 (요청사항에서)
         if data["requests"]:
-            required_amount = self._extract_required_amount(data["requests"])
-            if required_amount:
-                data["required_amount"] = required_amount
-                print(f"DEBUG: Extracted required_amount: {required_amount}")
+            # "필요자금 1억" 또는 "필요자금 10000만원" 패턴 찾기
+            required_match = re.search(r'필요자금[:\s]*(\d+(?:,\d+)*)\s*억', data["requests"])
+            if required_match:
+                # 억 단위를 만원으로 변환
+                amount_eok = float(required_match.group(1).replace(",", ""))
+                data["required_amount"] = amount_eok * 10000  # 1억 = 10,000만원
+                print(f"DEBUG: Parsed required_amount from 억: {data['required_amount']}만원")
+            else:
+                # "필요자금 10000만원" 패턴
+                required_match = re.search(r'필요자금[:\s]*(\d+(?:,\d+)*)\s*만', data["requests"])
+                if required_match:
+                    data["required_amount"] = float(required_match.group(1).replace(",", ""))
+                    print(f"DEBUG: Parsed required_amount from 만원: {data['required_amount']}만원")
         
         return data
     
