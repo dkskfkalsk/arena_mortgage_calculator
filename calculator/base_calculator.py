@@ -97,7 +97,9 @@ class BaseCalculator:
         
         # 최대 LTV 확인
         max_ltv = self.get_max_ltv_by_grade(grade)
+        print(f"DEBUG: BaseCalculator.calculate - grade: {grade}, max_ltv: {max_ltv}")  # 추가
         if max_ltv is None:
+            print(f"DEBUG: BaseCalculator.calculate - max_ltv is None for grade {grade}, returning None")  # 추가
             return None
         
         # 기존 근저당권 총액 계산
@@ -156,8 +158,10 @@ class BaseCalculator:
         
         # 결과가 없으면 None 반환
         if not results:
+            print(f"DEBUG: BaseCalculator.calculate - no results found for {self.bank_name}, returning None")  # 추가
             return None
         
+        print(f"DEBUG: BaseCalculator.calculate - {self.bank_name} found {len(results)} results")  # 추가
         return {
             "bank_name": self.bank_name,
             "results": results,
@@ -171,11 +175,14 @@ class BaseCalculator:
         금융사별 설정 파일의 credit_score_to_grade를 사용하고,
         없으면 전역 설정을 fallback으로 사용
         """
+        print(f"DEBUG: credit_score_to_grade - credit_score: {credit_score}")  # 추가
         if credit_score is None:
+            print(f"DEBUG: credit_score_to_grade - credit_score is None, returning None")  # 추가
             return None
         
         # 금융사별 설정 파일의 매핑 확인
         score_map = self.config.get("credit_score_to_grade", {})
+        print(f"DEBUG: credit_score_to_grade - score_map: {score_map}")  # 추가
         if score_map:
             for range_str, grade in score_map.items():
                 # "920-1000" 형식을 파싱
@@ -184,11 +191,14 @@ class BaseCalculator:
                     try:
                         min_score = int(parts[0])
                         max_score = int(parts[1])
+                        print(f"DEBUG: credit_score_to_grade - checking range {range_str}: {min_score} <= {credit_score} <= {max_score}")  # 추가
                         if min_score <= credit_score <= max_score:
+                            print(f"DEBUG: credit_score_to_grade - matched! returning grade: {grade}")  # 추가
                             return grade
                     except ValueError:
                         continue
         
+        print(f"DEBUG: credit_score_to_grade - no match found, returning None")  # 추가
         return None
     
     def validate_kb_price(self, kb_price: Any) -> Optional[float]:
@@ -264,7 +274,11 @@ class BaseCalculator:
         급지별 최대 LTV 조회
         """
         max_ltv_by_grade = self.config.get("max_ltv_by_grade", {})
-        return max_ltv_by_grade.get(grade)
+        print(f"DEBUG: get_max_ltv_by_grade - grade: {grade} (type: {type(grade)}), max_ltv_by_grade keys: {list(max_ltv_by_grade.keys())}")  # 추가
+        # JSON 키는 문자열이므로 int를 문자열로 변환하여 조회
+        result = max_ltv_by_grade.get(str(grade))
+        print(f"DEBUG: get_max_ltv_by_grade - result: {result}")  # 추가
+        return result
     
     def calculate_total_mortgage(self, mortgages: List[Dict[str, Any]]) -> float:
         """
@@ -300,21 +314,27 @@ class BaseCalculator:
             }
         """
         max_amount = kb_price * (ltv / 100)
+        print(f"DEBUG: calculate_available_amount - kb_price: {kb_price}, ltv: {ltv}, total_mortgage: {total_mortgage}, is_refinance: {is_refinance}")  # 추가
+        print(f"DEBUG: calculate_available_amount - max_amount (kb_price * ltv/100): {max_amount}")  # 추가
         
         if is_refinance:
             # 대환인 경우: 전체 금액과 가용한도 구분
             available = max_amount - total_mortgage
-            return {
+            result = {
                 "total_amount": max_amount,
                 "available_amount": max(0, available)
             }
+            print(f"DEBUG: calculate_available_amount - 대환: available={available}, result={result}")  # 추가
+            return result
         else:
             # 후순위인 경우
             available = max_amount - total_mortgage
-            return {
+            result = {
                 "total_amount": max(0, available),
                 "available_amount": max(0, available)
             }
+            print(f"DEBUG: calculate_available_amount - 후순위: available={available}, result={result}")  # 추가
+            return result
     
     def get_interest_rate(
         self, 
@@ -340,7 +360,11 @@ class BaseCalculator:
         ltv_rates = self.config.get("interest_rates_by_ltv", {})
         ltv_key = str(ltv)
         
+        print(f"DEBUG: get_interest_rate - ltv: {ltv}, credit_score: {credit_score}, credit_grade: {credit_grade}")  # 추가
+        print(f"DEBUG: get_interest_rate - ltv_key: {ltv_key}, available ltv_keys: {list(ltv_rates.keys())}")  # 추가
+        
         if ltv_key not in ltv_rates:
+            print(f"DEBUG: get_interest_rate - LTV {ltv_key} not found in interest_rates_by_ltv")  # 추가
             return {
                 "interest_rate": None,
                 "interest_rate_range": None,
@@ -348,29 +372,36 @@ class BaseCalculator:
             }
         
         grade_rates = ltv_rates[ltv_key]
+        print(f"DEBUG: get_interest_rate - grade_rates for LTV {ltv_key}: {grade_rates}")  # 추가
         
         if credit_grade is not None:
             # 신용등급이 있으면 해당 등급의 금리 반환
             grade_key = str(credit_grade)
+            print(f"DEBUG: get_interest_rate - looking for grade_key: {grade_key}")  # 추가
             if grade_key in grade_rates:
                 rate = grade_rates[grade_key]
+                print(f"DEBUG: get_interest_rate - found rate: {rate} for grade {credit_grade}")  # 추가
                 return {
                     "interest_rate": rate,
                     "interest_rate_range": None,
                     "credit_grade": credit_grade
                 }
+            else:
+                print(f"DEBUG: get_interest_rate - grade_key {grade_key} not found in grade_rates")  # 추가
         
         # 신용점수/등급이 없으면 최저~최고 금리 범위 반환
         all_rates = [v for v in grade_rates.values() if isinstance(v, (int, float))]
         if all_rates:
             min_rate = min(all_rates)
             max_rate = max(all_rates)
+            print(f"DEBUG: get_interest_rate - no credit_grade, returning range: {min_rate}~{max_rate}")  # 추가
             return {
                 "interest_rate": None,
                 "interest_rate_range": (min_rate, max_rate),
                 "credit_grade": None
             }
         
+        print(f"DEBUG: get_interest_rate - no rates found, returning None")  # 추가
         return {
             "interest_rate": None,
             "interest_rate_range": None,
