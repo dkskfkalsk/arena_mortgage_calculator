@@ -308,24 +308,45 @@ class MessageParser:
         priority = int(priority_match.group(1))
         print(f"DEBUG: _parse_mortgage_line - priority: {priority}, line: '{line}'")
         
-        # 금액 추출 (괄호 안의 금액이 실제 설정액)
+        # 채권최고액과 원금 추출
+        # 패턴: "44,200 (34,000)만원" 형식
+        # 괄호 밖의 금액 = 채권최고액, 괄호 안의 금액 = 원금
+        max_amount = None  # 채권최고액
+        amount = None  # 원금
+        
+        # 괄호 안의 금액 (원금) 추출
         amount_match = re.search(r"\(([\d,]+)\)", line)
         if amount_match:
             amount_str = amount_match.group(1)
             amount = parse_amount(amount_str)
-            print(f"DEBUG: _parse_mortgage_line - amount from parentheses: {amount_str} -> {amount}")
+            print(f"DEBUG: _parse_mortgage_line - amount(원금) from parentheses: {amount_str} -> {amount}")
+        
+        # 괄호 밖의 금액 (채권최고액) 추출
+        # "44,200 (34,000)만원" 형식에서 괄호 앞의 숫자 추출
+        max_amount_match = re.search(r"(\d{2,}[,\d]*)\s*\([\d,]+\)", line)
+        if max_amount_match:
+            max_amount_str = max_amount_match.group(1)
+            max_amount = parse_amount(max_amount_str)
+            print(f"DEBUG: _parse_mortgage_line - max_amount(채권최고액) from pattern: {max_amount_str} -> {max_amount}")
         else:
-            # 괄호가 없으면 "숫자,숫자만원" 또는 "숫자,숫자 (숫자,숫자)만원" 패턴에서 첫 번째 큰 숫자
-            # "1순위" 같은 순위 숫자는 제외
+            # 괄호가 없으면 첫 번째 큰 숫자를 채권최고액으로 사용
             amount_matches = re.findall(r"(\d{2,}[,\d]*)", line)
             if amount_matches:
-                # 첫 번째 큰 숫자(2자리 이상) 사용
-                amount_str = amount_matches[0]
-                amount = parse_amount(amount_str)
-                print(f"DEBUG: _parse_mortgage_line - amount from pattern: {amount_str} -> {amount}")
-            else:
-                print(f"DEBUG: _parse_mortgage_line - no amount found in line: '{line}'")
-                return None
+                max_amount_str = amount_matches[0]
+                max_amount = parse_amount(max_amount_str)
+                print(f"DEBUG: _parse_mortgage_line - max_amount(채권최고액) from pattern (no parentheses): {max_amount_str} -> {max_amount}")
+                # 원금이 없으면 채권최고액을 원금으로도 사용
+                if amount is None:
+                    amount = max_amount
+        
+        if amount is None:
+            print(f"DEBUG: _parse_mortgage_line - no amount found in line: '{line}'")
+            return None
+        
+        # 채권최고액이 없으면 원금에 1.2를 곱해서 추정 (기본값)
+        if max_amount is None:
+            max_amount = amount * 1.2
+            print(f"DEBUG: _parse_mortgage_line - max_amount(채권최고액) estimated from amount: {max_amount}")
         
         # 기관명/유형 추출
         institution_match = re.search(r":\s*([^0-9\n]+?)(?=\s*\d|\s*$)", line)
@@ -334,13 +355,14 @@ class MessageParser:
         else:
             institution = None
         
-        print(f"DEBUG: _parse_mortgage_line - institution: {institution}")
+        print(f"DEBUG: _parse_mortgage_line - institution: {institution}, amount(원금): {amount}, max_amount(채권최고액): {max_amount}")
         
         is_refinance = False
         
         return {
             "priority": priority,
-            "amount": amount,
+            "amount": amount,  # 원금 (기존 호환성 유지)
+            "max_amount": max_amount,  # 채권최고액 (새로 추가)
             "institution": institution,
             "is_refinance": is_refinance
         }
