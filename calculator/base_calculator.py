@@ -465,10 +465,23 @@ class BaseCalculator:
                 
                 results.append(result)
         
-        # 결과가 없으면 None 반환
+        # 결과가 없으면 에러 메시지와 함께 반환 (가용 한도 부족 등)
         if not results:
-            print(f"DEBUG: BaseCalculator.calculate - no results found for {self.bank_name}, returning None")  # 추가
-            return None
+            print(f"DEBUG: BaseCalculator.calculate - no results found for {self.bank_name}")
+            # 최대 LTV로 계산했을 때 가용 한도 확인
+            max_ltv_amount = kb_price * (max_ltv / 100)
+            if total_mortgage > max_ltv_amount:
+                shortage = total_mortgage - max_ltv_amount
+                print(f"DEBUG: BaseCalculator.calculate - 기존 근저당권이 최대 LTV 한도를 초과: {shortage:.0f}만원 초과")
+                return {
+                    "bank_name": self.bank_name,
+                    "results": [],
+                    "conditions": self.config.get("conditions", []),
+                    "errors": [f"기존 근저당권 채권최고액({total_mortgage:,.0f}만원)이 최대 한도({max_ltv_amount:,.0f}만원, LTV {max_ltv}%)를 초과하여 추가 대출 불가능"]
+                }
+            else:
+                print(f"DEBUG: BaseCalculator.calculate - no results found for {self.bank_name}, returning None")
+                return None
         
         print(f"DEBUG: BaseCalculator.calculate - {self.bank_name} found {len(results)} results")  # 추가
         return {
@@ -804,7 +817,7 @@ class BaseCalculator:
             property_data: 파싱된 담보물건 정보
         
         Returns:
-            계산 결과 리스트 (산출 불가한 금융사는 제외)
+            계산 결과 리스트 (에러 메시지가 있는 경우도 포함)
         """
         # data/banks 폴더 경로
         current_dir = os.path.dirname(os.path.abspath(__file__))

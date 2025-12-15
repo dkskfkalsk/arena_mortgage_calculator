@@ -49,6 +49,11 @@ def format_result(bank_result: Dict[str, Any]) -> str:
     if errors and "취급 불가지역" in errors:
         return f"* {bank_name}\n취급 불가지역"
     
+    # 가용 한도 부족 등 에러가 있는 경우
+    if errors and len(errors) > 0:
+        error_msg = "\n".join(errors)
+        return f"* {bank_name}\n{error_msg}"
+    
     if not results:
         return f"* {bank_name}\n산출 불가"
     
