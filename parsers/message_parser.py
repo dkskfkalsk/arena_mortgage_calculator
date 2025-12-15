@@ -241,9 +241,9 @@ class MessageParser:
             
             # 패턴: "N순위 [기관명] 대환" 또는 "[기관명] 대환" 등
             # 1. "N순위 [기관명] 대환" 또는 "N순위 [기관명] 대환조건" 패턴
-            # 정규식 개선: 기관명 부분을 더 정확하게 캡처
+            # 정규식 개선: "대환" 전까지 모든 문자를 캡처 (non-greedy)
             # 예: "2순위 도원캐피탈대부 대환조건" -> priority=2, institution="도원캐피탈대부"
-            refinance_match = re.search(r'(\d+)순위\s+([^\s대환]+(?:\s+[^\s대환]+)*?)\s*대환', data["requests"])
+            refinance_match = re.search(r'(\d+)순위\s+([^대환]+?)\s*대환', data["requests"])
             if refinance_match:
                 priority = int(refinance_match.group(1))
                 institution_keyword = refinance_match.group(2).strip()
