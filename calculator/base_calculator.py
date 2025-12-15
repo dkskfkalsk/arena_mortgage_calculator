@@ -225,26 +225,25 @@ class BaseCalculator:
         # 기존 근저당권 총액 계산 (채권최고액 기준)
         mortgages = property_data.get("mortgages", [])
         
-        # 대환할 근저당권 찾기
-        refinance_mortgage = None
-        refinance_principal = 0.0  # 대환할 근저당권 원금
+        # 대환할 근저당권 찾기 (여러 개 대비하여 누적합으로 처리)
+        refinance_principal = 0.0  # 대환할 근저당권 원금 합계
         other_mortgages = []  # 나머지 근저당권들
         
         for mortgage in mortgages:
             if mortgage.get("is_refinance", False):
-                refinance_mortgage = mortgage
-                refinance_principal = mortgage.get("amount", 0)
-                print(f"DEBUG: BaseCalculator.calculate - 대환할 근저당권 발견: priority={mortgage.get('priority')}, institution={mortgage.get('institution')}, principal={refinance_principal}만원")
+                mortgage_amount = float(mortgage.get("amount", 0) or 0)
+                refinance_principal += mortgage_amount
+                print(f"DEBUG: BaseCalculator.calculate - 대환할 근저당권 발견: priority={mortgage.get('priority')}, institution={mortgage.get('institution')}, principal={mortgage_amount}만원")
             else:
                 other_mortgages.append(mortgage)
         
         # 나머지 근저당권의 채권최고액만 합산
         total_mortgage = self.calculate_total_mortgage(other_mortgages)
         print(f"DEBUG: BaseCalculator.calculate - mortgages: {mortgages}")  # 추가
-        print(f"DEBUG: BaseCalculator.calculate - refinance_principal(대환 원금): {refinance_principal}만원, total_mortgage(나머지 채권최고액): {total_mortgage}")  # 추가
+        print(f"DEBUG: BaseCalculator.calculate - refinance_principal(대환 원금 합계): {refinance_principal}만원, total_mortgage(나머지 채권최고액): {total_mortgage}")  # 추가
         
         # 대환 여부 판단
-        is_refinance = refinance_mortgage is not None
+        is_refinance = refinance_principal > 0
         
         # 신용점수/등급 확인
         credit_score = property_data.get("credit_score")
@@ -708,14 +707,18 @@ class BaseCalculator:
         
         if is_refinance:
             # 대환인 경우:
-            # 전체 금액 = LTV로 계산된 최대 금액 (원금)
-            # 가용 한도 = 전체 금액 - 대환할 근저당권 원금 - 나머지 근저당권 채권최고액
+            # 추가로 받을 수 있는 금액(원금) = LTV 최대 금액 - 대환할 근저당권 원금 - 나머지 근저당권 채권최고액
             available_principal = max_amount_principal - refinance_principal - total_mortgage
+            available_principal = max(0, available_principal)
+            
+            # 대환 총 실행금액(원금) = 대환원금 + 추가금
+            total_refinance_amount = refinance_principal + available_principal
+            
             result = {
-                "total_amount": max_amount_principal,
-                "available_amount": max(0, available_principal)
+                "total_amount": total_refinance_amount,
+                "available_amount": available_principal
             }
-            print(f"DEBUG: calculate_available_amount - 대환: available_principal={available_principal}, result={result}")  # 추가
+            print(f"DEBUG: calculate_available_amount - 대환: available_principal={available_principal}, total_refinance_amount={total_refinance_amount}, result={result}")  # 추가
             return result
         else:
             # 후순위인 경우: 채권최고액 기준으로 차감
