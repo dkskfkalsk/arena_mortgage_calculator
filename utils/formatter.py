@@ -57,6 +57,25 @@ def format_result(bank_result: Dict[str, Any]) -> str:
     if not results:
         return f"* {bank_name}\n산출 불가"
     
+    # 모든 결과가 최소진행금액 부족(3천만원 미만)인지 확인
+    # available_amount 또는 amount 중 하나라도 있으면 확인 (대환은 available_amount, 후순위는 amount)
+    all_below_minimum = all(
+        (result.get("available_amount") or result.get("amount", 0)) < 3000
+        for result in results
+    )
+    if all_below_minimum:
+        # 첫 번째 결과의 신용등급 확인
+        first_result = results[0]
+        credit_grade = first_result.get("credit_grade")
+        
+        # 헤더 (신용등급이 있으면 표시)
+        if credit_grade:
+            header = f"* {bank_name} ({credit_grade}등급기준)"
+        else:
+            header = f"* {bank_name}"
+        
+        return f"{header}\n최소진행금액 부족으로 진행 어렵습니다"
+    
     # 첫 번째 결과의 신용등급 확인
     first_result = results[0]
     credit_grade = first_result.get("credit_grade")
