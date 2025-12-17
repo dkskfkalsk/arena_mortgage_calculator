@@ -127,8 +127,8 @@ def format_result(bank_result: Dict[str, Any]) -> str:
         if taxi_limit_applied:
             line += " (개인택시, 운수업 1억 제한)"
         
-        # 3천만원 미만이면 "최소진행금액 부족" 메시지 추가
-        if amount < 3000:
+        # 3천만원 미만이면 "최소진행금액 부족" 메시지 추가 (대환인 경우는 제외)
+        if not is_refinance and amount < 3000:
             line += " (최소진행금액 부족)"
         
         lines.append(line)

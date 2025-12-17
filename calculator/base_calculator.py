@@ -457,8 +457,8 @@ class BaseCalculator:
                 
                 print(f"DEBUG: LTV {ltv} - amount_info: {amount_info}")  # 추가
                 
-                # 가용 한도가 0 이하면 스킵
-                if amount_info["available_amount"] <= 0:
+                # 가용 한도가 0 이하면 스킵 (대환인 경우는 마이너스여도 산출)
+                if not is_refinance and amount_info["available_amount"] <= 0:
                     print(f"DEBUG: LTV {ltv} - available_amount <= 0, skipping")  # 추가
                     continue
                 
@@ -729,8 +729,8 @@ class BaseCalculator:
         if is_refinance:
             # 대환인 경우:
             # 추가로 받을 수 있는 금액(원금) = LTV 최대 금액 - 대환할 근저당권 원금 - 나머지 근저당권 채권최고액
+            # 마이너스도 허용 (대환 한도 부족해도 산출)
             available_principal = max_amount_principal - refinance_principal - total_mortgage
-            available_principal = max(0, available_principal)
             
             # 대환 총 실행금액(원금) = 대환원금 + 추가금
             total_refinance_amount = refinance_principal + available_principal
