@@ -58,9 +58,10 @@ def format_result(bank_result: Dict[str, Any]) -> str:
         return f"* {bank_name}\n산출 불가"
     
     # 모든 결과가 최소진행금액 부족(3천만원 미만)인지 확인
-    # available_amount 또는 amount 중 하나라도 있으면 확인 (대환은 available_amount, 후순위는 amount)
+    # 대환인 경우: total_amount(전체 대출 금액) 기준
+    # 후순위인 경우: amount 기준
     all_below_minimum = all(
-        (result.get("available_amount") or result.get("amount", 0)) < 3000
+        (result.get("total_amount") if result.get("is_refinance", False) else result.get("amount", 0)) < 3000
         for result in results
     )
     if all_below_minimum:
