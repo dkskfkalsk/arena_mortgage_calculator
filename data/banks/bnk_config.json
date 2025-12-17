@@ -422,6 +422,11 @@
     "enabled": true,
     "keywords": ["개인택시", "택시", "운수"],
     "max_amount": 10000
+  },
+  "area_limit": {
+    "enabled": true,
+    "max_area": 135,
+    "excluded_regions": ["서울"]
   }
 }
 

@@ -131,6 +131,11 @@ def format_result(bank_result: Dict[str, Any]) -> str:
         if not is_refinance and amount < 3000:
             line += " (최소진행금액 부족)"
         
+        # 고정금리 코멘트 추가 (사업자 상품)
+        fixed_rate_comment = result.get("fixed_rate_comment")
+        if fixed_rate_comment:
+            line += f" / {fixed_rate_comment}"
+        
         lines.append(line)
     
     # 특이 조건 추가

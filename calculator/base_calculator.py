@@ -220,6 +220,30 @@ class BaseCalculator:
                 "errors": ["취급 불가지역"]
             }
         
+        # 면적 제한 확인 (BNK캐피탈 등 특정 금융사만)
+        area_limit_config = self.config.get("area_limit", {})
+        if area_limit_config.get("enabled", False):
+            area = property_data.get("area")
+            if area is not None:
+                max_area = area_limit_config.get("max_area", 135)
+                excluded_regions = area_limit_config.get("excluded_regions", [])
+                
+                # 제외 지역(서울 등)이 아니고 면적이 제한을 초과하면 불가
+                is_excluded_region = False
+                for excluded in excluded_regions:
+                    if excluded in region:
+                        is_excluded_region = True
+                        break
+                
+                if not is_excluded_region and area > max_area:
+                    print(f"DEBUG: BaseCalculator.calculate - area {area}㎡ > max_area {max_area}㎡ for region {region}, 취급 불가")
+                    return {
+                        "bank_name": self.bank_name,
+                        "results": [],
+                        "conditions": self.config.get("conditions", []),
+                        "errors": [f"면적 {area}㎡는 서울지역 이외에서는 135㎡ 초과로 취급 불가"]
+                    }
+        
         # 기준 LTV 이하 지역 확인
         below_standard_ltv = self.get_below_standard_ltv(region)
         is_below_standard = below_standard_ltv is not None
@@ -259,6 +283,61 @@ class BaseCalculator:
         # 대환 여부 판단
         is_refinance = refinance_principal > 0
         
+        # OK 저축은행 사업자/가계 상품 구분
+        is_ok_bank = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
+        is_business_product = False
+        is_household_product = False
+        
+        if is_ok_bank:
+            # bank_name이 사업자 상품명 리스트에 있는지 확인
+            business_product_names = self.config.get("business_product_names", [])
+            bank_name_clean = self.bank_name.replace(" ", "")
+            
+            # 사업자 상품명 확인 (현대캐피탈 가계/가계자금 제외)
+            for product_name in business_product_names:
+                product_name_clean = product_name.replace(" ", "")
+                if product_name_clean in bank_name_clean:
+                    # "가계" 또는 "가계자금"이 포함되어 있으면 가계 상품
+                    if "가계" in bank_name_clean or "가계자금" in bank_name_clean:
+                        is_household_product = True
+                    else:
+                        is_business_product = True
+                    break
+            
+            # OK저축은행이지만 사업자 상품명 리스트에 없으면 가계 상품으로 간주
+            if not is_business_product and not is_household_product:
+                is_household_product = True
+            
+            # 사업자 상품인 경우 대환 불가
+            if is_business_product and is_refinance:
+                print(f"DEBUG: BaseCalculator.calculate - OK 저축은행 사업자 상품은 대환 불가")
+                return {
+                    "bank_name": self.bank_name,
+                    "results": [],
+                    "conditions": self.config.get("conditions", []),
+                    "errors": ["사업자 상품은 대환 불가"]
+                }
+        
+        # 사업자/가계 상품 정보를 인스턴스 변수로 저장 (get_interest_rate에서 사용)
+        self._is_business_product = is_business_product
+        self._is_household_product = is_household_product
+        self._is_subordinate = len(other_mortgages) > 0  # 후순위 여부
+        self._current_property_data = property_data
+        
+        # 가계 상품: 빌라인 경우 선순위만 산출
+        if is_household_product:
+            property_type = property_data.get("property_type", "")
+            if property_type and "빌라" in property_type:
+                # 선순위만 산출 (기존 근저당권이 없어야 함)
+                if len(other_mortgages) > 0:
+                    print(f"DEBUG: BaseCalculator.calculate - OK 저축은행 가계 상품, 빌라인 경우 선순위만 산출 가능")
+                    return {
+                        "bank_name": self.bank_name,
+                        "results": [],
+                        "conditions": self.config.get("conditions", []),
+                        "errors": ["빌라인 경우 선순위만 산출 가능"]
+                    }
+        
         # 신용점수/등급 확인
         credit_score = property_data.get("credit_score")
         credit_grade = self.credit_score_to_grade(credit_score)
@@ -275,6 +354,23 @@ class BaseCalculator:
                         max_amount_limit = taxi_limit_config.get("max_amount", 10000)  # 기본값 1억
                         print(f"DEBUG: BaseCalculator.calculate - 택시 관련 키워드 '{keyword}' 발견, 한도 제한: {max_amount_limit}만원")
                         break
+        
+        # 가계 상품: 서울 수도권 한도 제한 (1억)
+        if is_household_product:
+            household_limit_regions = self.config.get("household_limit_regions", ["서울", "경기", "인천"])
+            household_limit_amount = self.config.get("household_limit_amount", 10000)  # 1억
+            
+            is_limit_region = False
+            for limit_region in household_limit_regions:
+                if limit_region in region:
+                    is_limit_region = True
+                    break
+            
+            if is_limit_region:
+                # 기존 한도 제한이 없거나 더 큰 경우에만 적용
+                if max_amount_limit is None or max_amount_limit > household_limit_amount:
+                    max_amount_limit = household_limit_amount
+                    print(f"DEBUG: BaseCalculator.calculate - OK 저축은행 가계 상품, 서울 수도권 한도 제한: {max_amount_limit}만원")
         
         # 필요자금이 있으면 LTV별 계산을 건너뛰고 필요자금 기준으로 역산 계산
         required_amount = property_data.get("required_amount")
@@ -433,7 +529,8 @@ class BaseCalculator:
                     "is_refinance": is_refinance,
                     "credit_grade": rate_info.get("credit_grade"),
                     "below_standard_ltv": is_below_standard,  # 기준 LTV 이하 지역 여부
-                    "taxi_limit_applied": taxi_limit_applied  # 택시 한도 제한 적용 플래그
+                    "taxi_limit_applied": taxi_limit_applied,  # 택시 한도 제한 적용 플래그
+                    "fixed_rate_comment": rate_info.get("fixed_rate_comment")  # 고정금리 코멘트
                 }
                 
                 results = [result]  # 하나의 결과만 반환
@@ -465,9 +562,14 @@ class BaseCalculator:
                 # 금리 조회 (82% LTV의 경우 region_grade에 따라 다른 금리 적용)
                 rate_info = self.get_interest_rate(credit_score, credit_grade, ltv, grade)
                 
-                # 택시 관련 한도 제한이 없으면 일반 계산
+                # 가계 상품 한도 제한 적용
+                final_amount = amount_info["available_amount"]
+                if max_amount_limit is not None and final_amount > max_amount_limit:
+                    final_amount = max_amount_limit
+                    print(f"DEBUG: BaseCalculator.calculate - 가계 상품 한도 제한 적용: {amount_info['available_amount']}만원 -> {final_amount}만원")
+                
                 # 100만 단위로 절삭
-                final_amount = self.round_down_to_hundred_thousand(amount_info["available_amount"])
+                final_amount = self.round_down_to_hundred_thousand(final_amount)
                 final_total_amount = self.round_down_to_hundred_thousand(amount_info["total_amount"])
                 
                 result = {
@@ -480,7 +582,8 @@ class BaseCalculator:
                     "total_amount": final_total_amount,
                     "is_refinance": is_refinance,
                     "credit_grade": rate_info.get("credit_grade"),
-                    "below_standard_ltv": is_below_standard  # 기준 LTV 이하 지역 여부
+                    "below_standard_ltv": is_below_standard,  # 기준 LTV 이하 지역 여부
+                    "fixed_rate_comment": rate_info.get("fixed_rate_comment")  # 고정금리 코멘트
                 }
                 
                 results.append(result)
@@ -490,18 +593,39 @@ class BaseCalculator:
             print(f"DEBUG: BaseCalculator.calculate - no results found for {self.bank_name}")
             # 최대 LTV로 계산했을 때 가용 한도 확인
             max_ltv_amount = kb_price * (max_ltv / 100)
-            if total_mortgage > max_ltv_amount:
-                shortage = total_mortgage - max_ltv_amount
-                print(f"DEBUG: BaseCalculator.calculate - 기존 근저당권이 최대 LTV 한도를 초과: {shortage:.0f}만원 초과")
-                return {
-                    "bank_name": self.bank_name,
-                    "results": [],
-                    "conditions": self.config.get("conditions", []),
-                    "errors": [f"기존 근저당권 채권최고액({total_mortgage:,.0f}만원)이 최대 한도({max_ltv_amount:,.0f}만원, LTV {max_ltv}%)를 초과하여 추가 대출 불가능"]
-                }
+            
+            # 대환인 경우: 대환할 근저당권의 원금 + 나머지 근저당권의 채권최고액을 합산하여 체크
+            # 대환이 아닌 경우: 기존 근저당권의 채권최고액만 체크
+            if is_refinance:
+                # 대환할 근저당권의 원금을 채권최고액으로 추정 (원금 × 1.2)
+                refinance_max_amount = refinance_principal * 1.2
+                # 대환할 근저당권의 채권최고액 + 나머지 근저당권의 채권최고액
+                total_mortgage_for_check = refinance_max_amount + total_mortgage
+                print(f"DEBUG: BaseCalculator.calculate - 대환인 경우: refinance_principal={refinance_principal}만원, refinance_max_amount={refinance_max_amount}만원, total_mortgage={total_mortgage}만원, total_mortgage_for_check={total_mortgage_for_check}만원")
+                
+                if total_mortgage_for_check > max_ltv_amount:
+                    shortage = total_mortgage_for_check - max_ltv_amount
+                    print(f"DEBUG: BaseCalculator.calculate - 대환 시 기존 근저당권이 최대 LTV 한도를 초과: {shortage:.0f}만원 초과")
+                    return {
+                        "bank_name": self.bank_name,
+                        "results": [],
+                        "conditions": self.config.get("conditions", []),
+                        "errors": [f"기존 근저당권 채권최고액({total_mortgage_for_check:,.0f}만원)이 최대 한도({max_ltv_amount:,.0f}만원, LTV {max_ltv}%)를 초과하여 추가 대출 불가능"]
+                    }
             else:
-                print(f"DEBUG: BaseCalculator.calculate - no results found for {self.bank_name}, returning None")
-                return None
+                # 대환이 아닌 경우: 기존 로직 유지
+                if total_mortgage > max_ltv_amount:
+                    shortage = total_mortgage - max_ltv_amount
+                    print(f"DEBUG: BaseCalculator.calculate - 기존 근저당권이 최대 LTV 한도를 초과: {shortage:.0f}만원 초과")
+                    return {
+                        "bank_name": self.bank_name,
+                        "results": [],
+                        "conditions": self.config.get("conditions", []),
+                        "errors": [f"기존 근저당권 채권최고액({total_mortgage:,.0f}만원)이 최대 한도({max_ltv_amount:,.0f}만원, LTV {max_ltv}%)를 초과하여 추가 대출 불가능"]
+                    }
+            
+            print(f"DEBUG: BaseCalculator.calculate - no results found for {self.bank_name}, returning None")
+            return None
         
         print(f"DEBUG: BaseCalculator.calculate - {self.bank_name} found {len(results)} results")  # 추가
         return {
@@ -598,13 +722,14 @@ class BaseCalculator:
                             "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주", "대구"]
         return key in metropolitan_keys
     
-    def get_max_ltv_by_grade(self, grade: int, region: str = None) -> Optional[float]:
+    def get_max_ltv_by_grade(self, grade: Union[int, str], region: str = None) -> Optional[float]:
         """
         급지별 최대 LTV 조회
         1급지인 경우 A/B 그룹을 구분하여 반환
+        문자 급지(A, B, C, D)도 지원
         
         Args:
-            grade: 급지 번호 (1, 2, 3, 4)
+            grade: 급지 번호 (1, 2, 3, 4) 또는 문자 급지 (A, B, C, D)
             region: 지역명 (1급지 A/B 구분용)
         
         Returns:
@@ -612,6 +737,12 @@ class BaseCalculator:
         """
         max_ltv_by_grade = self.config.get("max_ltv_by_grade", {})
         print(f"DEBUG: get_max_ltv_by_grade - grade: {grade} (type: {type(grade)}), region: {region}, max_ltv_by_grade keys: {list(max_ltv_by_grade.keys())}")  # 추가
+        
+        # 문자 급지인 경우 (OK 저축은행 등)
+        if isinstance(grade, str):
+            result = max_ltv_by_grade.get(grade)
+            print(f"DEBUG: get_max_ltv_by_grade - 문자 급지: {grade} -> LTV {result}%")
+            return result
         
         # 1급지인 경우 A/B 그룹 구분
         if grade == 1 and region:
@@ -757,16 +888,17 @@ class BaseCalculator:
         credit_score: Optional[int], 
         credit_grade: Optional[int],
         ltv: int,
-        region_grade: Optional[int] = None
+        region_grade: Optional[Union[int, str]] = None
     ) -> Dict[str, Any]:
         """
         신용등급별 금리 조회
+        OK 저축은행의 경우 신용점수 범위별 스프레드 + CoFix + 급지별 가산금리 방식 지원
         
         Args:
             credit_score: 신용점수 (없으면 None)
-            credit_grade: 신용등급 (1-7)
+            credit_grade: 신용등급 (1-7) 또는 신용점수 범위 문자열 (OK 저축은행)
             ltv: LTV 비율
-            region_grade: 지역 급지 (1 또는 2, 82% LTV의 경우 2급지 금리 적용)
+            region_grade: 지역 급지 (1, 2, 3, 4 또는 A, B, C, D)
         
         Returns:
             {
@@ -775,6 +907,19 @@ class BaseCalculator:
                 "credit_grade": 신용등급
             }
         """
+        # OK 저축은행인지 확인 (cofix_rate가 있으면 OK 저축은행)
+        cofix_rate = self.config.get("cofix_rate")
+        if cofix_rate is not None:
+            # 사업자/가계 상품 구분 (property_data에서 확인)
+            is_business_product = getattr(self, '_is_business_product', False)
+            is_household_product = getattr(self, '_is_household_product', False)
+            is_subordinate = getattr(self, '_is_subordinate', False)
+            property_data = getattr(self, '_current_property_data', None)
+            return self._get_ok_interest_rate(
+                credit_score, ltv, region_grade, cofix_rate,
+                is_business_product, is_household_product, is_subordinate, property_data
+            )
+        
         ltv_rates = self.config.get("interest_rates_by_ltv", {})
         
         # 82% LTV이고 2급지인 경우 특별 처리
@@ -830,6 +975,159 @@ class BaseCalculator:
             "interest_rate": None,
             "interest_rate_range": None,
             "credit_grade": credit_grade
+        }
+    
+    def _get_ok_interest_rate(
+        self,
+        credit_score: Optional[int],
+        ltv: int,
+        region_grade: Optional[Union[int, str]],
+        cofix_rate: float,
+        is_business_product: bool = False,
+        is_household_product: bool = False,
+        is_subordinate: bool = False,
+        property_data: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        OK 저축은행 금리 계산
+        사업자 상품: 스프레드 금리 + CoFix + 급지별 가산금리
+        가계 상품: 스프레드 금리 + CoFix + 조정금리(거치식/원리금분할상환, 6개월 변동금리, 후순위)
+        
+        Args:
+            credit_score: 신용점수
+            ltv: LTV 비율
+            region_grade: 지역 급지 (1, 2, 3, 4) - 숫자로 통일됨
+            cofix_rate: CoFix 금리
+            is_business_product: 사업자 상품 여부
+            is_household_product: 가계 상품 여부
+            is_subordinate: 후순위 여부
+            property_data: 담보물건 정보 (가계 상품 조정금리 확인용)
+        
+        Returns:
+            {
+                "interest_rate": 최종 금리,
+                "interest_rate_range": (최저, 최고) 튜플 (신용점수 없을 때),
+                "credit_grade": 신용점수 범위 문자열,
+                "fixed_rate_comment": 고정금리 코멘트 (사업자 상품)
+            }
+        """
+        # 사업자/가계 상품에 따라 다른 금리 테이블 사용
+        if is_business_product:
+            ltv_rates = self.config.get("business_interest_rates_by_ltv", {})
+            grade_additional_rates = self.config.get("business_grade_additional_rates", {})
+        elif is_household_product:
+            ltv_rates = self.config.get("household_interest_rates_by_ltv", {})
+            grade_additional_rates = {}  # 가계 상품은 급지별 가산금리 없음
+        else:
+            # 기본값 (기존 호환성)
+            ltv_rates = self.config.get("interest_rates_by_ltv", {})
+            grade_additional_rates = self.config.get("grade_additional_rates", {})
+        
+        credit_score_to_grade = self.config.get("credit_score_to_grade", {})
+        
+        ltv_key = str(ltv)
+        
+        # 사업자 상품: 70% 이하일 경우 70% 금리 사용
+        if is_business_product and ltv_key not in ltv_rates and ltv <= 70:
+            ltv_key = "70"
+            print(f"DEBUG: _get_ok_interest_rate - 사업자 상품, LTV {ltv}%는 70% 금리 적용")
+        
+        if ltv_key not in ltv_rates:
+            return {
+                "interest_rate": None,
+                "interest_rate_range": None,
+                "credit_grade": None,
+                "fixed_rate_comment": None
+            }
+        
+        score_rates = ltv_rates[ltv_key]
+        
+        # 급지별 가산금리 (사업자 상품만)
+        additional_rate = 0.0
+        if is_business_product:
+            if isinstance(region_grade, int):
+                grade_key = str(region_grade)
+                additional_rate = grade_additional_rates.get(grade_key, 0.0)
+            elif isinstance(region_grade, str):
+                additional_rate = grade_additional_rates.get(region_grade, 0.0)
+        
+        # 가계 상품 조정금리
+        household_adjustment = 0.0
+        if is_household_product and property_data:
+            household_adjustment_rates = self.config.get("household_adjustment_rates", {})
+            special_notes = property_data.get("special_notes", "") or ""
+            requests = property_data.get("requests", "") or ""
+            combined_text = special_notes + " " + requests
+            
+            # 거치식 원금/원리금분할상환 선택시 +0.2%
+            if "거치식" in combined_text or "원리금분할상환" in combined_text:
+                household_adjustment += household_adjustment_rates.get("installment_repayment", 0.2)
+            
+            # 6개월 변동금리 적용시 +0.2%
+            if "6개월" in combined_text and "변동금리" in combined_text:
+                household_adjustment += household_adjustment_rates.get("6month_variable_rate", 0.2)
+            
+            # 후순위 취급시 +0.4% (선순위가 아닌 후순위로 들어갈 경우 무조건)
+            if is_subordinate:
+                household_adjustment += household_adjustment_rates.get("subordinate_loan", 0.4)
+        
+        # 신용점수가 있으면 해당 범위의 스프레드 금리 사용
+        if credit_score is not None:
+            # 신용점수 범위 찾기
+            score_range = None
+            for range_str in credit_score_to_grade.keys():
+                parts = range_str.split("-")
+                if len(parts) == 2:
+                    try:
+                        min_score = int(parts[0])
+                        max_score = int(parts[1])
+                        if min_score <= credit_score <= max_score:
+                            score_range = range_str
+                            break
+                    except ValueError:
+                        continue
+            
+            if score_range and score_range in score_rates:
+                spread_rate = score_rates[score_range]
+                final_rate = spread_rate + cofix_rate + additional_rate + household_adjustment
+                print(f"DEBUG: _get_ok_interest_rate - credit_score: {credit_score}, score_range: {score_range}, spread: {spread_rate}, cofix: {cofix_rate}, additional: {additional_rate}, household_adjustment: {household_adjustment}, final: {final_rate}")
+                
+                # 사업자 상품 고정금리 코멘트
+                fixed_rate_comment = None
+                if is_business_product:
+                    fixed_rate_comment = "고정금리 선택시 -0.3%"
+                
+                return {
+                    "interest_rate": round(final_rate, 2),
+                    "interest_rate_range": None,
+                    "credit_grade": score_range,
+                    "fixed_rate_comment": fixed_rate_comment
+                }
+        
+        # 신용점수가 없으면 최저~최고 금리 범위 반환
+        all_rates = [v + cofix_rate + additional_rate + household_adjustment for v in score_rates.values() if isinstance(v, (int, float))]
+        if all_rates:
+            min_rate = min(all_rates)
+            max_rate = max(all_rates)
+            print(f"DEBUG: _get_ok_interest_rate - no credit_score, returning range: {min_rate:.2f}~{max_rate:.2f}")
+            
+            # 사업자 상품 고정금리 코멘트
+            fixed_rate_comment = None
+            if is_business_product:
+                fixed_rate_comment = "고정금리 선택시 -0.3%"
+            
+            return {
+                "interest_rate": None,
+                "interest_rate_range": (round(min_rate, 2), round(max_rate, 2)),
+                "credit_grade": None,
+                "fixed_rate_comment": fixed_rate_comment
+            }
+        
+        return {
+            "interest_rate": None,
+            "interest_rate_range": None,
+            "credit_grade": None,
+            "fixed_rate_comment": None
         }
     
     @classmethod

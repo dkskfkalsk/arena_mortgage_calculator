@@ -232,65 +232,84 @@ class MessageParser:
                         print(f"DEBUG: Parsed required_amount (no unit, assuming 만원): {data['required_amount']}만원")
         
         # 대환 정보 추출 (요청사항에서)
-        if data["requests"] and "대환" in data["requests"]:
+        # 먼저 모든 근저당권의 is_refinance를 False로 초기화 (명시적으로 지정된 것만 True로 설정)
+        for mortgage in data["mortgages"]:
+            mortgage["is_refinance"] = False
+        
+        if data["requests"]:
             print(f"DEBUG: Parsing refinance info from requests: {data['requests']}")
             
-            # 먼저 모든 근저당권의 is_refinance를 False로 초기화 (명시적으로 지정된 것만 True로 설정)
-            for mortgage in data["mortgages"]:
-                mortgage["is_refinance"] = False
-            
-            # 패턴: "N순위 [기관명] 대환" 또는 "[기관명] 대환" 등
-            # 1. "N순위 [기관명] 대환" 또는 "N순위 [기관명] 대환조건" 패턴
-            # 정규식 개선: "대환"이라는 연속된 문자열 전까지 모든 문자를 캡처 (non-greedy)
-            # 예: "2순위 도원캐피탈대부 대환조건" -> priority=2, institution="도원캐피탈대부"
-            # [^대환]+?는 "대"나 "환" 문자가 나오면 멈추므로, "도원캐피탈대부"의 "대"에서 멈출 수 있음
-            # 따라서 ".+?"를 사용하여 "대환" 전까지 모든 문자를 캡처
-            refinance_match = re.search(r'(\d+)순위\s+(.+?)\s*대환', data["requests"])
-            if refinance_match:
-                priority = int(refinance_match.group(1))
-                institution_keyword = refinance_match.group(2).strip()
-                # 공백 제거 (기관명에 공백이 있을 수 있으므로)
-                institution_keyword = institution_keyword.replace(" ", "")
-                print(f"DEBUG: Found refinance - priority: {priority}, institution_keyword: '{institution_keyword}'")
-                
-                # 해당 순위의 근저당권 찾기
-                found = False
+            # 전체 대환 처리 (요청사항에 "전체 대환"이 포함된 경우)
+            if "전체 대환" in data["requests"]:
+                print(f"DEBUG: Found '전체 대환' in requests, setting all mortgages to refinance")
+                # 모든 근저당권을 대환하도록 설정
                 for mortgage in data["mortgages"]:
-                    if mortgage.get("priority") == priority:
-                        institution = mortgage.get("institution", "")
-                        # 기관명에 키워드가 포함되어 있는지 확인 (양방향 확인)
-                        # "도원캐피탈대부"와 "도원캐피탈" 둘 다 매칭되도록
-                        if institution_keyword in institution or institution in institution_keyword or \
-                           any(keyword in institution for keyword in institution_keyword.split() if len(keyword) > 2):
-                            mortgage["is_refinance"] = True
-                            found = True
-                            print(f"DEBUG: Set is_refinance=True for mortgage: priority={priority}, institution='{institution}', keyword='{institution_keyword}'")
-                            break
-                
-                if not found:
-                    print(f"DEBUG: Warning - Could not find matching mortgage for priority {priority} with keyword '{institution_keyword}'")
+                    mortgage["is_refinance"] = True
+                    print(f"DEBUG: Set is_refinance=True for all mortgage: priority={mortgage.get('priority')}, institution='{mortgage.get('institution')}'")
             else:
-                # 2. "[기관명] 대환" 패턴 (순위 없이) - 기관명이 명시된 경우만
-                refinance_match = re.search(r'([가-힣a-zA-Z0-9]+(?:[가-힣a-zA-Z0-9\s]+)?)\s*대환', data["requests"])
-                if refinance_match:
-                    institution_keyword = refinance_match.group(1).strip()
-                    # "대환"이라는 단어 자체는 제외
-                    if institution_keyword != "대환":
-                        print(f"DEBUG: Found refinance (no priority) - institution_keyword: '{institution_keyword}'")
+                # 선순위 확인 요청 처리 (요청사항에 "선순위"가 포함된 경우)
+                if "선순위" in data["requests"]:
+                    print(f"DEBUG: Found '선순위' in requests, setting all priority 1 mortgages to refinance")
+                    # 1순위인 모든 근저당권을 대환하도록 설정
+                    for mortgage in data["mortgages"]:
+                        if mortgage.get("priority") == 1:
+                            mortgage["is_refinance"] = True
+                            print(f"DEBUG: Set is_refinance=True for priority 1 mortgage: institution='{mortgage.get('institution')}'")
+                
+                # 기존 대환 로직 (명시적으로 지정된 경우)
+                if "대환" in data["requests"]:
+                    # 패턴: "N순위 [기관명] 대환" 또는 "[기관명] 대환" 등
+                    # 1. "N순위 [기관명] 대환" 또는 "N순위 [기관명] 대환조건" 패턴
+                    # 정규식 개선: "대환"이라는 연속된 문자열 전까지 모든 문자를 캡처 (non-greedy)
+                    # 예: "2순위 도원캐피탈대부 대환조건" -> priority=2, institution="도원캐피탈대부"
+                    # [^대환]+?는 "대"나 "환" 문자가 나오면 멈추므로, "도원캐피탈대부"의 "대"에서 멈출 수 있음
+                    # 따라서 ".+?"를 사용하여 "대환" 전까지 모든 문자를 캡처
+                    refinance_match = re.search(r'(\d+)순위\s+(.+?)\s*대환', data["requests"])
+                    if refinance_match:
+                        priority = int(refinance_match.group(1))
+                        institution_keyword = refinance_match.group(2).strip()
+                        # 공백 제거 (기관명에 공백이 있을 수 있으므로)
+                        institution_keyword = institution_keyword.replace(" ", "")
+                        print(f"DEBUG: Found refinance - priority: {priority}, institution_keyword: '{institution_keyword}'")
                         
-                        # 기관명이 일치하는 근저당권 찾기
+                        # 해당 순위의 근저당권 찾기
                         found = False
                         for mortgage in data["mortgages"]:
-                            institution = mortgage.get("institution", "")
-                            if institution_keyword in institution or institution in institution_keyword or \
-                               any(keyword in institution for keyword in institution_keyword.split() if len(keyword) > 2):
-                                mortgage["is_refinance"] = True
-                                found = True
-                                print(f"DEBUG: Set is_refinance=True for mortgage: priority={mortgage.get('priority')}, institution='{institution}', keyword='{institution_keyword}'")
-                                break
+                            if mortgage.get("priority") == priority:
+                                institution = mortgage.get("institution", "")
+                                # 기관명에 키워드가 포함되어 있는지 확인 (양방향 확인)
+                                # "도원캐피탈대부"와 "도원캐피탈" 둘 다 매칭되도록
+                                if institution_keyword in institution or institution in institution_keyword or \
+                                   any(keyword in institution for keyword in institution_keyword.split() if len(keyword) > 2):
+                                    mortgage["is_refinance"] = True
+                                    found = True
+                                    print(f"DEBUG: Set is_refinance=True for mortgage: priority={priority}, institution='{institution}', keyword='{institution_keyword}'")
+                                    break
                         
                         if not found:
-                            print(f"DEBUG: Warning - Could not find matching mortgage with keyword '{institution_keyword}'")
+                            print(f"DEBUG: Warning - Could not find matching mortgage for priority {priority} with keyword '{institution_keyword}'")
+                    else:
+                        # 2. "[기관명] 대환" 패턴 (순위 없이) - 기관명이 명시된 경우만
+                        refinance_match = re.search(r'([가-힣a-zA-Z0-9]+(?:[가-힣a-zA-Z0-9\s]+)?)\s*대환', data["requests"])
+                        if refinance_match:
+                            institution_keyword = refinance_match.group(1).strip()
+                            # "대환"이라는 단어 자체는 제외
+                            if institution_keyword != "대환":
+                                print(f"DEBUG: Found refinance (no priority) - institution_keyword: '{institution_keyword}'")
+                                
+                                # 기관명이 일치하는 근저당권 찾기
+                                found = False
+                                for mortgage in data["mortgages"]:
+                                    institution = mortgage.get("institution", "")
+                                    if institution_keyword in institution or institution in institution_keyword or \
+                                       any(keyword in institution for keyword in institution_keyword.split() if len(keyword) > 2):
+                                        mortgage["is_refinance"] = True
+                                        found = True
+                                        print(f"DEBUG: Set is_refinance=True for mortgage: priority={mortgage.get('priority')}, institution='{institution}', keyword='{institution_keyword}'")
+                                        break
+                                
+                                if not found:
+                                    print(f"DEBUG: Warning - Could not find matching mortgage with keyword '{institution_keyword}'")
         
         return data
     
