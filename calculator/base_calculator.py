@@ -100,6 +100,20 @@ class BaseCalculator:
         self.config = config
         self.bank_name = config.get("bank_name", "Unknown")
     
+    @staticmethod
+    def round_down_to_hundred_thousand(amount: float) -> float:
+        """
+        100만 단위로 절삭 (10만 단위 이하 버림)
+        예: 7550 -> 7500, 4850 -> 4800
+        
+        Args:
+            amount: 금액 (만원 단위)
+        
+        Returns:
+            100만 단위로 절삭된 금액
+        """
+        return (int(amount) // 100) * 100
+    
     def calculate(self, property_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
         담보대출 한도 및 금리 계산 (범용 구현)
@@ -314,14 +328,16 @@ class BaseCalculator:
                 rate_info = self.get_interest_rate(credit_score, credit_grade, int(closest_ltv_for_rate), grade)
                 
                 # 결과 생성 (LTV는 정확히 계산된 값, 금액은 1억)
+                # 100만 단위로 절삭
+                rounded_amount = self.round_down_to_hundred_thousand(max_amount_limit)
                 result = {
                     "ltv": round(calculated_ltv, 2),
-                    "amount": max_amount_limit,
+                    "amount": rounded_amount,
                     "interest_rate": rate_info.get("interest_rate"),
                     "interest_rate_range": rate_info.get("interest_rate_range"),
                     "type": "대환" if is_refinance else "후순위",
-                    "available_amount": max_amount_limit,
-                    "total_amount": max_amount_limit,
+                    "available_amount": rounded_amount,
+                    "total_amount": rounded_amount,
                     "is_refinance": is_refinance,
                     "credit_grade": rate_info.get("credit_grade"),
                     "below_standard_ltv": is_below_standard,
@@ -401,15 +417,19 @@ class BaseCalculator:
                     total_amount = final_amount
                     available_amount = final_amount
                 
+                # 100만 단위로 절삭
+                rounded_amount = self.round_down_to_hundred_thousand(available_amount)
+                rounded_total_amount = self.round_down_to_hundred_thousand(total_amount)
+                
                 # 결과 생성 (LTV는 정확히 계산된 값 사용, 금액은 정확히 필요자금으로)
                 result = {
                     "ltv": round(calculated_ltv, 2),  # 소수점 2자리까지 표시
-                    "amount": final_amount,
+                    "amount": rounded_amount,
                     "interest_rate": rate_info.get("interest_rate"),
                     "interest_rate_range": rate_info.get("interest_rate_range"),
                     "type": "대환" if is_refinance else "후순위",
-                    "available_amount": available_amount,
-                    "total_amount": total_amount,
+                    "available_amount": rounded_amount,
+                    "total_amount": rounded_total_amount,
                     "is_refinance": is_refinance,
                     "credit_grade": rate_info.get("credit_grade"),
                     "below_standard_ltv": is_below_standard,  # 기준 LTV 이하 지역 여부
@@ -446,8 +466,9 @@ class BaseCalculator:
                 rate_info = self.get_interest_rate(credit_score, credit_grade, ltv, grade)
                 
                 # 택시 관련 한도 제한이 없으면 일반 계산
-                final_amount = round(amount_info["available_amount"])
-                final_total_amount = round(amount_info["total_amount"])
+                # 100만 단위로 절삭
+                final_amount = self.round_down_to_hundred_thousand(amount_info["available_amount"])
+                final_total_amount = self.round_down_to_hundred_thousand(amount_info["total_amount"])
                 
                 result = {
                     "ltv": ltv,
