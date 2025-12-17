@@ -427,6 +427,10 @@
     "enabled": true,
     "max_area": 135,
     "excluded_regions": ["서울"]
+  },
+  "lower_bound_price": {
+    "enabled": true,
+    "description": "아파트/주상복합 1,2층은 하한가 적용"
   }
 }
 

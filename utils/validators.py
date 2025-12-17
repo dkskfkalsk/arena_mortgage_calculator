@@ -98,3 +98,32 @@ def parse_amount(amount_str):
     except (ValueError, AttributeError):
         return None
 
+
+def extract_lower_bound_price(kb_price):
+    """
+    KB시세에서 하한가 추출
+    "일반 175,000만원 하한 171,000만원" 형식에서 하한가 추출
+    """
+    if kb_price is None or kb_price == "" or kb_price == "시세없음":
+        return None
+    
+    try:
+        import re
+        price_str = str(kb_price).strip()
+        
+        # "하한" 키워드가 포함된 부분 찾기
+        lower_match = re.search(r'하한\s*[:\s]*([\d,]+)', price_str, re.IGNORECASE)
+        if lower_match:
+            price_str_num = lower_match.group(1).replace(",", "").strip()
+            if price_str_num and len(price_str_num) >= 3:
+                price = float(price_str_num)
+                print(f"DEBUG: extract_lower_bound_price - extracted lower bound price: {price}")
+                return price
+        
+        print(f"DEBUG: extract_lower_bound_price - no lower bound price found")
+        return None
+        
+    except (ValueError, AttributeError, TypeError) as e:
+        print(f"DEBUG: extract_lower_bound_price - error: {e}, input: {kb_price}")
+        return None
+

@@ -7,7 +7,7 @@
 import json
 import os
 from typing import Dict, List, Optional, Any, Union
-from utils.validators import validate_kb_price
+from utils.validators import validate_kb_price, extract_lower_bound_price
 
 
 class BaseCalculator:
@@ -155,6 +155,33 @@ class BaseCalculator:
         if kb_price is None:
             print(f"DEBUG: BaseCalculator.calculate - KB price is None, returning None")
             return None  # 시세 없으면 산출 불가
+        
+        # 하한가 적용 조건 확인
+        lower_bound_config = self.config.get("lower_bound_price", {})
+        if lower_bound_config.get("enabled", False):
+            # 하한가 적용 조건 확인
+            property_type = property_data.get("property_type", "")
+            address = property_data.get("address", "")
+            
+            # 아파트/주상복합 확인
+            is_apartment_or_complex = property_type and ("아파트" in property_type or "주상복합" in property_type)
+            
+            # 1,2층 확인 (주소에서 층수 추출)
+            floor = None
+            if address:
+                import re
+                floor_match = re.search(r'(\d+)층', address)
+                if floor_match:
+                    floor = int(floor_match.group(1))
+            
+            # 하한가 적용 조건: 아파트/주상복합이고 1층 또는 2층
+            if is_apartment_or_complex and floor in [1, 2]:
+                lower_bound_price = extract_lower_bound_price(kb_price_raw)
+                if lower_bound_price is not None:
+                    print(f"DEBUG: BaseCalculator.calculate - 하한가 적용: 일반가 {kb_price}만원 -> 하한가 {lower_bound_price}만원 (아파트/주상복합 {floor}층)")
+                    kb_price = lower_bound_price
+                else:
+                    print(f"DEBUG: BaseCalculator.calculate - 하한가 적용 조건 충족하지만 하한가 추출 실패")
         
         # 지역 확인
         region = property_data.get("region", "")
