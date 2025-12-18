@@ -276,7 +276,8 @@ class BaseCalculator:
         is_below_standard = below_standard_ltv is not None
         
         # 최대 LTV 확인 (1급지인 경우 A/B 그룹 구분)
-        max_ltv = self.get_max_ltv_by_grade(grade, region)
+        # OK저축은행인 경우 면적과 신용점수 등급을 고려
+        max_ltv = self.get_max_ltv_by_grade(grade, region, property_data)
         print(f"DEBUG: BaseCalculator.calculate - grade: {grade}, max_ltv: {max_ltv}, below_standard_ltv: {below_standard_ltv}")  # 추가
         if max_ltv is None or max_ltv == 0:
             print(f"DEBUG: BaseCalculator.calculate - max_ltv is None or 0 for grade {grade}, returning None")  # 추가
@@ -749,19 +750,37 @@ class BaseCalculator:
                             "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주", "대구"]
         return key in metropolitan_keys
     
-    def get_max_ltv_by_grade(self, grade: Union[int, str], region: str = None) -> Optional[float]:
+    def get_max_ltv_by_grade(self, grade: Union[int, str], region: str = None, property_data: Dict[str, Any] = None) -> Optional[float]:
         """
         급지별 최대 LTV 조회
         1급지인 경우 A/B 그룹을 구분하여 반환
         문자 급지(A, B, C, D)도 지원
+        OK저축은행인 경우 면적과 신용점수 등급을 고려
         
         Args:
             grade: 급지 번호 (1, 2, 3, 4) 또는 문자 급지 (A, B, C, D)
             region: 지역명 (1급지 A/B 구분용)
+            property_data: 담보물건 정보 (면적, 신용점수 등)
         
         Returns:
             최대 LTV (float) 또는 None
         """
+        # OK저축은행인 경우 면적과 신용점수 등급을 고려한 LTV 계산
+        is_ok_bank = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
+        if is_ok_bank and property_data is not None:
+            area = property_data.get("area")
+            credit_score = property_data.get("credit_score")
+            
+            if area is not None and credit_score is not None:
+                # 신용점수 범위 문자열을 등급 번호로 변환
+                credit_grade_number = self._get_ok_credit_grade_number(credit_score)
+                if credit_grade_number is not None:
+                    # 면적별 급지별 LTV 조회
+                    max_ltv = self._get_ok_max_ltv_by_area_grade_credit(area, grade, credit_grade_number)
+                    if max_ltv is not None:
+                        print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 면적별 LTV: area={area}㎡, grade={grade}, credit_grade={credit_grade_number}등급 -> LTV {max_ltv}%")
+                        return max_ltv
+        
         max_ltv_by_grade = self.config.get("max_ltv_by_grade", {})
         print(f"DEBUG: get_max_ltv_by_grade - grade: {grade} (type: {type(grade)}), region: {region}, max_ltv_by_grade keys: {list(max_ltv_by_grade.keys())}")  # 추가
         
@@ -800,6 +819,89 @@ class BaseCalculator:
         result = max_ltv_by_grade.get(str(grade))
         print(f"DEBUG: get_max_ltv_by_grade - result: {result}")  # 추가
         return result
+    
+    def _get_ok_credit_grade_number(self, credit_score: int) -> Optional[int]:
+        """
+        OK저축은행: 신용점수를 등급 번호(1~8)로 변환
+        
+        Args:
+            credit_score: 신용점수
+        
+        Returns:
+            등급 번호 (1~8) 또는 None
+        """
+        score_range_to_grade = self.config.get("credit_score_range_to_grade_number", {})
+        if not score_range_to_grade:
+            return None
+        
+        for range_str, grade_number in score_range_to_grade.items():
+            parts = range_str.split("-")
+            if len(parts) == 2:
+                try:
+                    min_score = int(parts[0])
+                    max_score = int(parts[1])
+                    if min_score <= credit_score <= max_score:
+                        print(f"DEBUG: _get_ok_credit_grade_number - credit_score: {credit_score}, range: {range_str} -> grade: {grade_number}")
+                        return grade_number
+                except ValueError:
+                    continue
+        
+        print(f"DEBUG: _get_ok_credit_grade_number - credit_score: {credit_score}, no match found")
+        return None
+    
+    def _get_ok_max_ltv_by_area_grade_credit(self, area: float, region_grade: Union[int, str], credit_grade_number: int) -> Optional[float]:
+        """
+        OK저축은행: 면적, 급지, 신용등급을 기반으로 최대 LTV 조회
+        
+        Args:
+            area: 면적 (㎡)
+            region_grade: 급지 번호 (1, 2, 3, 4)
+            credit_grade_number: 신용등급 번호 (1~8)
+        
+        Returns:
+            최대 LTV (float) 또는 None
+        """
+        max_ltv_config = self.config.get("max_ltv_by_area_grade_credit", {})
+        if not max_ltv_config:
+            return None
+        
+        # 면적 구분 (110㎡ 이하/초과)
+        area_key = "area_110_below" if area <= 110 else "area_110_over"
+        area_config = max_ltv_config.get(area_key, {})
+        if not area_config:
+            return None
+        
+        # 급지별 설정 조회
+        grade_key = str(region_grade)
+        grade_config = area_config.get(grade_key, {})
+        if not grade_config:
+            return None
+        
+        # 4급지는 등급 상관없이 모두 동일한 LTV
+        if grade_key == "4" and "all" in grade_config:
+            result = grade_config["all"]
+            print(f"DEBUG: _get_ok_max_ltv_by_area_grade_credit - area: {area}㎡, grade: {grade_key}, credit_grade: {credit_grade_number}등급 -> LTV {result}% (4급지 전체)")
+            return result
+        
+        # 등급 범위별 LTV 조회
+        for grade_range, ltv in grade_config.items():
+            if grade_range == "all":
+                continue
+            
+            # "1-3", "4-6", "7-8" 형식 파싱
+            parts = grade_range.split("-")
+            if len(parts) == 2:
+                try:
+                    min_grade = int(parts[0])
+                    max_grade = int(parts[1])
+                    if min_grade <= credit_grade_number <= max_grade:
+                        print(f"DEBUG: _get_ok_max_ltv_by_area_grade_credit - area: {area}㎡, grade: {grade_key}, credit_grade: {credit_grade_number}등급, range: {grade_range} -> LTV {ltv}%")
+                        return ltv
+                except ValueError:
+                    continue
+        
+        print(f"DEBUG: _get_ok_max_ltv_by_area_grade_credit - area: {area}㎡, grade: {grade_key}, credit_grade: {credit_grade_number}등급, no match found")
+        return None
     
     def get_below_standard_ltv(self, region: str) -> Optional[float]:
         """
