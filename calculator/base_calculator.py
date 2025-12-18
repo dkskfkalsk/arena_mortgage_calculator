@@ -770,16 +770,23 @@ class BaseCalculator:
         if is_ok_bank and property_data is not None:
             area = property_data.get("area")
             credit_score = property_data.get("credit_score")
+            print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 체크: area={area}, credit_score={credit_score}")
             
             if area is not None and credit_score is not None:
                 # 신용점수 범위 문자열을 등급 번호로 변환
                 credit_grade_number = self._get_ok_credit_grade_number(credit_score)
+                print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 credit_grade_number: {credit_grade_number}")
                 if credit_grade_number is not None:
                     # 면적별 급지별 LTV 조회
                     max_ltv = self._get_ok_max_ltv_by_area_grade_credit(area, grade, credit_grade_number)
+                    print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 _get_ok_max_ltv_by_area_grade_credit 결과: {max_ltv}")
                     if max_ltv is not None:
                         print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 면적별 LTV: area={area}㎡, grade={grade}, credit_grade={credit_grade_number}등급 -> LTV {max_ltv}%")
                         return max_ltv
+                else:
+                    print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 credit_grade_number이 None이어서 기본값 사용")
+            else:
+                print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 area 또는 credit_score가 None: area={area}, credit_score={credit_score}")
         
         max_ltv_by_grade = self.config.get("max_ltv_by_grade", {})
         print(f"DEBUG: get_max_ltv_by_grade - grade: {grade} (type: {type(grade)}), region: {region}, max_ltv_by_grade keys: {list(max_ltv_by_grade.keys())}")  # 추가
@@ -838,8 +845,11 @@ class BaseCalculator:
             parts = range_str.split("-")
             if len(parts) == 2:
                 try:
-                    min_score = int(parts[0])
-                    max_score = int(parts[1])
+                    score1 = int(parts[0])
+                    score2 = int(parts[1])
+                    # 범위가 내림차순인 경우 (예: 1000-915)와 오름차순인 경우 모두 처리
+                    min_score = min(score1, score2)
+                    max_score = max(score1, score2)
                     if min_score <= credit_score <= max_score:
                         print(f"DEBUG: _get_ok_credit_grade_number - credit_score: {credit_score}, range: {range_str} -> grade: {grade_number}")
                         return grade_number
