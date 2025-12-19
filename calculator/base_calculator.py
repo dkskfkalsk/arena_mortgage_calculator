@@ -326,6 +326,7 @@ class BaseCalculator:
         
         # 대환할 근저당권 찾기 (여러 개 대비하여 누적합으로 처리)
         refinance_principal = 0.0  # 대환할 근저당권 원금 합계
+        refinance_institutions = []  # 대환하는 금융사 이름 리스트 (가계자금용)
         other_mortgages = []  # 나머지 근저당권들
         
         # 가계자금인 경우: 물상담보 제외, business_product_names에 없는 것만 대환 가능
@@ -353,16 +354,15 @@ class BaseCalculator:
                 
                 # business_product_names에 없으면 가계자금으로 대환 가능
                 if not is_business_product:
-                    # 요청사항에 가계자금 대환 요청이 있으면 대환
+                    # 요청사항에 가계자금 대환 요청이 있고, 해당 근저당권이 대환 요청된 경우만 대환
                     if household_refinance_requested and mortgage.get("is_refinance", False):
                         mortgage_amount = float(mortgage.get("amount", 0) or 0)
                         refinance_principal += mortgage_amount
+                        refinance_institutions.append(institution)
                         print(f"DEBUG: BaseCalculator.calculate - 가계자금 대환: priority={mortgage.get('priority')}, institution={institution}, principal={mortgage_amount}만원")
                     else:
-                        # 대환 요청이 없어도 가계자금으로 대환 가능 (자동 산출)
-                        mortgage_amount = float(mortgage.get("amount", 0) or 0)
-                        refinance_principal += mortgage_amount
-                        print(f"DEBUG: BaseCalculator.calculate - 가계자금 자동 대환: priority={mortgage.get('priority')}, institution={institution}, principal={mortgage_amount}만원")
+                        # 대환 요청이 없으면 후순위로 처리
+                        other_mortgages.append(mortgage)
                 else:
                     # business_product_names에 있으면 사업자금이므로 후순위로 처리
                     other_mortgages.append(mortgage)
@@ -394,6 +394,21 @@ class BaseCalculator:
         
         # 대환 여부 판단
         is_refinance = refinance_principal > 0
+        
+        # 가계자금인 경우: 대환 요청이 있을 때만 산출
+        if is_household_for_ok:
+            requests = property_data.get("requests", "")
+            household_refinance_requested = "가계자금" in requests or "가계" in requests
+            # 대환 요청이 없거나 대환할 근저당권이 없으면 가계자금 산출하지 않음
+            if not household_refinance_requested or not is_refinance:
+                print(f"DEBUG: BaseCalculator.calculate - 가계자금: 대환 요청이 없어서 산출하지 않음 (household_refinance_requested={household_refinance_requested}, is_refinance={is_refinance})")
+                return {
+                    "bank_name": self.bank_name,
+                    "results": [],
+                    "conditions": self.config.get("conditions", []),
+                    "errors": [],
+                    "min_amount": self.config.get("min_amount", 3000)
+                }
         
         # OK 저축은행 사업자/가계 상품 구분
         is_ok_bank = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
@@ -428,16 +443,33 @@ class BaseCalculator:
                 if not is_business_product and not is_household_product:
                     is_household_product = True
             
-            # 사업자 상품인 경우 대환 불가
+            # 사업자 상품인 경우: business_product_names에 있는 기관만 대환 가능
             if is_business_product and is_refinance:
-                print(f"DEBUG: BaseCalculator.calculate - OK 저축은행 사업자 상품은 대환 불가")
-                return {
-                    "bank_name": self.bank_name,
-                    "results": [],
-                    "conditions": self.config.get("conditions", []),
-                    "errors": ["사업자 상품은 대환 불가"],
-                    "min_amount": self.config.get("min_amount", 3000)
-                }
+                # 대환할 근저당권이 business_product_names에 있는지 확인
+                business_product_names = self.config.get("business_product_names", [])
+                can_refinance = False
+                refinance_institutions = []
+                
+                for mortgage in mortgages:
+                    if mortgage.get("is_refinance", False):
+                        institution = mortgage.get("institution", "")
+                        institution_clean = institution.replace(" ", "")
+                        for product_name in business_product_names:
+                            product_name_clean = product_name.replace(" ", "")
+                            if product_name_clean in institution_clean:
+                                can_refinance = True
+                                refinance_institutions.append(institution)
+                                break
+                
+                if not can_refinance:
+                    print(f"DEBUG: BaseCalculator.calculate - OK 저축은행 사업자 상품: 대환 요청된 기관이 사업자 상품이 아님")
+                    return {
+                        "bank_name": self.bank_name,
+                        "results": [],
+                        "conditions": self.config.get("conditions", []),
+                        "errors": ["사업자 상품은 사업자금 기관만 대환 가능"],
+                        "min_amount": self.config.get("min_amount", 3000)
+                    }
         
         # 사업자/가계 상품 정보를 인스턴스 변수로 저장 (get_interest_rate에서 사용)
         self._is_business_product = is_business_product
@@ -564,7 +596,8 @@ class BaseCalculator:
                     "is_refinance": is_refinance,
                     "credit_grade": rate_info.get("credit_grade"),
                     "below_standard_ltv": is_below_standard,
-                    "taxi_limit_applied": True  # 택시 한도 제한 적용 플래그
+                    "taxi_limit_applied": True,  # 택시 한도 제한 적용 플래그
+                    "refinance_institutions": refinance_institutions if is_household_for_ok and is_refinance else None  # 가계자금 대환 시 대환하는 금융사 이름
                 }
                 
                 results = [result]  # 하나의 결과만 반환
@@ -657,7 +690,8 @@ class BaseCalculator:
                     "credit_grade": rate_info.get("credit_grade"),
                     "below_standard_ltv": is_below_standard,  # 기준 LTV 이하 지역 여부
                     "taxi_limit_applied": taxi_limit_applied,  # 택시 한도 제한 적용 플래그
-                    "fixed_rate_comment": rate_info.get("fixed_rate_comment")  # 고정금리 코멘트
+                    "fixed_rate_comment": rate_info.get("fixed_rate_comment"),  # 고정금리 코멘트
+                    "refinance_institutions": refinance_institutions if is_household_for_ok and is_refinance else None  # 가계자금 대환 시 대환하는 금융사 이름
                 }
                 
                 results = [result]  # 하나의 결과만 반환
@@ -740,7 +774,8 @@ class BaseCalculator:
                     "is_refinance": is_refinance,
                     "credit_grade": rate_info.get("credit_grade"),
                     "below_standard_ltv": is_below_standard,  # 기준 LTV 이하 지역 여부
-                    "fixed_rate_comment": rate_info.get("fixed_rate_comment")  # 고정금리 코멘트
+                    "fixed_rate_comment": rate_info.get("fixed_rate_comment"),  # 고정금리 코멘트
+                    "refinance_institutions": refinance_institutions if is_household_for_ok and is_refinance else None  # 가계자금 대환 시 대환하는 금융사 이름
                 }
                 
                 results.append(result)

@@ -114,7 +114,13 @@ def format_result(bank_result: Dict[str, Any]) -> str:
         if is_refinance:
             total_amount = result.get("total_amount", 0)
             available_amount = result.get("available_amount", 0)
-            line = f"{result_type} {ltv_str} {format_amount(total_amount)} / {rate_str} / 가용 {format_amount(available_amount)}"
+            refinance_institutions = result.get("refinance_institutions")
+            if refinance_institutions:
+                # 가계자금 대환 시 대환하는 금융사 이름 표시
+                institutions_str = ", ".join(refinance_institutions)
+                line = f"{result_type} {ltv_str} {format_amount(total_amount)} / {rate_str} / 가용 {format_amount(available_amount)} ({institutions_str} 대환)"
+            else:
+                line = f"{result_type} {ltv_str} {format_amount(total_amount)} / {rate_str} / 가용 {format_amount(available_amount)}"
         else:
             line = f"{result_type} {ltv_str} {amount_str} / {rate_str}"
         
