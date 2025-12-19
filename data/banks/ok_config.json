@@ -436,6 +436,7 @@
     }
   },
   "min_amount": 2000,
+  "min_kb_price": 15000,
   "conditions": [
     
   ]

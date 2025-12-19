@@ -156,6 +156,18 @@ class BaseCalculator:
             print(f"DEBUG: BaseCalculator.calculate - KB price is None, returning None")
             return None  # 시세 없으면 산출 불가
         
+        # KB시세 최소 금액 확인
+        min_kb_price = self.config.get("min_kb_price")
+        if min_kb_price is not None and kb_price < min_kb_price:
+            print(f"DEBUG: BaseCalculator.calculate - KB price {kb_price}만원 < min_kb_price {min_kb_price}만원, 취급 불가")
+            return {
+                "bank_name": self.bank_name,
+                "results": [],
+                "conditions": self.config.get("conditions", []),
+                "errors": [f"KB시세 {kb_price:,.0f}만원은 최소 {min_kb_price:,.0f}만원 이상이어야 취급 가능합니다"],
+                "min_amount": self.config.get("min_amount", 3000)
+            }
+        
         # 하한가 적용 조건 확인
         lower_bound_config = self.config.get("lower_bound_price", {})
         if lower_bound_config.get("enabled", False):
