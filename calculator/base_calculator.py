@@ -395,13 +395,15 @@ class BaseCalculator:
         # 대환 여부 판단
         is_refinance = refinance_principal > 0
         
-        # 가계자금인 경우: 대환 요청이 있을 때만 산출
+        # 가계자금인 경우: 대환 요청된 금융사가 가계자금으로 대환 가능한 경우에만 산출
         if is_household_for_ok:
-            requests = property_data.get("requests", "")
-            household_refinance_requested = "가계자금" in requests or "가계" in requests
-            # 대환 요청이 없거나 대환할 근저당권이 없으면 가계자금 산출하지 않음
-            if not household_refinance_requested or not is_refinance:
-                print(f"DEBUG: BaseCalculator.calculate - 가계자금: 대환 요청이 없어서 산출하지 않음 (household_refinance_requested={household_refinance_requested}, is_refinance={is_refinance})")
+            # 대환 요청된 근저당권 중 가계자금으로 대환 가능한 것이 있는지 확인
+            # (refinance_institutions에 추가된 것들이 가계자금으로 대환 가능한 근저당권)
+            has_household_refinance = len(refinance_institutions) > 0
+            
+            # 가계자금으로 대환 가능한 근저당권이 없으면 가계자금 산출하지 않음
+            if not has_household_refinance:
+                print(f"DEBUG: BaseCalculator.calculate - 가계자금: 대환 요청된 금융사 중 가계자금으로 대환 가능한 것이 없어서 산출하지 않음")
                 return {
                     "bank_name": self.bank_name,
                     "results": [],
@@ -409,6 +411,12 @@ class BaseCalculator:
                     "errors": [],
                     "min_amount": self.config.get("min_amount", 3000)
                 }
+            
+            # 가계자금으로 대환 가능한 근저당권이 있으면 산출 진행
+            if is_refinance:
+                print(f"DEBUG: BaseCalculator.calculate - 가계자금: 대환 요청 있음, 대환으로 진행 (대환 금융사: {refinance_institutions})")
+            else:
+                print(f"DEBUG: BaseCalculator.calculate - 가계자금: 대환할 근저당권 없음, 후순위로 산출")
         
         # OK 저축은행 사업자/가계 상품 구분
         is_ok_bank = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
