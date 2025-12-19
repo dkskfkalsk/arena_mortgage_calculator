@@ -114,7 +114,7 @@ class BaseCalculator:
         """
         return (int(amount) // 100) * 100
     
-    def calculate(self, property_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def calculate(self, property_data: Dict[str, Any], product_type: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         담보대출 한도 및 금리 계산 (범용 구현)
         
@@ -295,7 +295,15 @@ class BaseCalculator:
         
         # 최대 LTV 확인 (1급지인 경우 A/B 그룹 구분)
         # OK저축은행인 경우 면적과 신용점수 등급을 고려
-        max_ltv = self.get_max_ltv_by_grade(grade, region, property_data)
+        # property_data에 product_type 정보 추가 (get_max_ltv_by_grade에서 사용)
+        if is_household_for_ok:
+            property_data_with_type = property_data.copy()
+            property_data_with_type["_product_type"] = "household"
+            max_ltv = self.get_max_ltv_by_grade(grade, region, property_data_with_type)
+        else:
+            property_data_with_type = property_data.copy()
+            property_data_with_type["_product_type"] = "business"
+            max_ltv = self.get_max_ltv_by_grade(grade, region, property_data_with_type)
         print(f"DEBUG: BaseCalculator.calculate - grade: {grade}, max_ltv: {max_ltv}, below_standard_ltv: {below_standard_ltv}")  # 추가
         if max_ltv is None or max_ltv == 0:
             print(f"DEBUG: BaseCalculator.calculate - max_ltv is None or 0 for grade {grade}, returning None")  # 추가
@@ -309,22 +317,80 @@ class BaseCalculator:
         # 기존 근저당권 총액 계산 (채권최고액 기준)
         mortgages = property_data.get("mortgages", [])
         
+        # OK저축은행 가계자금인 경우 특별 처리
+        is_ok_bank = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
+        is_household_for_ok = False
+        if is_ok_bank:
+            # product_type이 "household"이면 가계자금
+            is_household_for_ok = product_type == "household"
+        
         # 대환할 근저당권 찾기 (여러 개 대비하여 누적합으로 처리)
         refinance_principal = 0.0  # 대환할 근저당권 원금 합계
         other_mortgages = []  # 나머지 근저당권들
         
-        for mortgage in mortgages:
-            if mortgage.get("is_refinance", False):
-                mortgage_amount = float(mortgage.get("amount", 0) or 0)
-                refinance_principal += mortgage_amount
-                print(f"DEBUG: BaseCalculator.calculate - 대환할 근저당권 발견: priority={mortgage.get('priority')}, institution={mortgage.get('institution')}, principal={mortgage_amount}만원")
-            else:
-                other_mortgages.append(mortgage)
+        # 가계자금인 경우: 물상담보 제외, business_product_names에 없는 것만 대환 가능
+        if is_household_for_ok:
+            business_product_names = self.config.get("business_product_names", [])
+            requests = property_data.get("requests", "")
+            household_refinance_requested = "가계자금" in requests or "가계" in requests
+            
+            for mortgage in mortgages:
+                institution = mortgage.get("institution", "")
+                # 물상담보 체크
+                if "물상" in institution or "물상담보" in institution:
+                    print(f"DEBUG: BaseCalculator.calculate - 가계자금: 물상담보는 대환 불가 - {institution}")
+                    other_mortgages.append(mortgage)
+                    continue
+                
+                # business_product_names에 있는지 확인
+                is_business_product = False
+                institution_clean = institution.replace(" ", "")
+                for product_name in business_product_names:
+                    product_name_clean = product_name.replace(" ", "")
+                    if product_name_clean in institution_clean:
+                        is_business_product = True
+                        break
+                
+                # business_product_names에 없으면 가계자금으로 대환 가능
+                if not is_business_product:
+                    # 요청사항에 가계자금 대환 요청이 있으면 대환
+                    if household_refinance_requested and mortgage.get("is_refinance", False):
+                        mortgage_amount = float(mortgage.get("amount", 0) or 0)
+                        refinance_principal += mortgage_amount
+                        print(f"DEBUG: BaseCalculator.calculate - 가계자금 대환: priority={mortgage.get('priority')}, institution={institution}, principal={mortgage_amount}만원")
+                    else:
+                        # 대환 요청이 없어도 가계자금으로 대환 가능 (자동 산출)
+                        mortgage_amount = float(mortgage.get("amount", 0) or 0)
+                        refinance_principal += mortgage_amount
+                        print(f"DEBUG: BaseCalculator.calculate - 가계자금 자동 대환: priority={mortgage.get('priority')}, institution={institution}, principal={mortgage_amount}만원")
+                else:
+                    # business_product_names에 있으면 사업자금이므로 후순위로 처리
+                    other_mortgages.append(mortgage)
+        else:
+            # 일반 처리
+            for mortgage in mortgages:
+                if mortgage.get("is_refinance", False):
+                    mortgage_amount = float(mortgage.get("amount", 0) or 0)
+                    refinance_principal += mortgage_amount
+                    print(f"DEBUG: BaseCalculator.calculate - 대환할 근저당권 발견: priority={mortgage.get('priority')}, institution={mortgage.get('institution')}, principal={mortgage_amount}만원")
+                else:
+                    other_mortgages.append(mortgage)
         
         # 나머지 근저당권의 채권최고액만 합산
         total_mortgage = self.calculate_total_mortgage(other_mortgages)
+        
+        # OK저축은행인 경우 원금 기준으로 차감하는지 확인
+        is_ok_bank = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
+        use_principal_for_ok = self.config.get("use_principal_for_calculation", False)  # 원금 기준 계산 여부
+        
+        if is_ok_bank and use_principal_for_ok:
+            # OK저축은행이고 원금 기준 계산이 설정된 경우: 원금 합계 사용
+            total_mortgage_principal = sum(float(m.get("amount", 0) or 0) for m in other_mortgages)
+            print(f"DEBUG: BaseCalculator.calculate - OK저축은행 원금 기준 계산: total_mortgage_principal={total_mortgage_principal}만원 (기존 채권최고액: {total_mortgage}만원)")
+            total_mortgage = total_mortgage_principal
+        
         print(f"DEBUG: BaseCalculator.calculate - mortgages: {mortgages}")  # 추가
-        print(f"DEBUG: BaseCalculator.calculate - refinance_principal(대환 원금 합계): {refinance_principal}만원, total_mortgage(나머지 채권최고액): {total_mortgage}")  # 추가
+        print(f"DEBUG: BaseCalculator.calculate - refinance_principal(대환 원금 합계): {refinance_principal}만원, total_mortgage(차감할 금액): {total_mortgage}")  # 추가
         
         # 대환 여부 판단
         is_refinance = refinance_principal > 0
@@ -335,24 +401,32 @@ class BaseCalculator:
         is_household_product = False
         
         if is_ok_bank:
-            # bank_name이 사업자 상품명 리스트에 있는지 확인
-            business_product_names = self.config.get("business_product_names", [])
-            bank_name_clean = self.bank_name.replace(" ", "")
-            
-            # 사업자 상품명 확인 (현대캐피탈 가계/가계자금 제외)
-            for product_name in business_product_names:
-                product_name_clean = product_name.replace(" ", "")
-                if product_name_clean in bank_name_clean:
-                    # "가계" 또는 "가계자금"이 포함되어 있으면 가계 상품
-                    if "가계" in bank_name_clean or "가계자금" in bank_name_clean:
-                        is_household_product = True
-                    else:
-                        is_business_product = True
-                    break
-            
-            # OK저축은행이지만 사업자 상품명 리스트에 없으면 가계 상품으로 간주
-            if not is_business_product and not is_household_product:
+            # product_type 파라미터가 있으면 그것을 우선 사용
+            if product_type == "household":
                 is_household_product = True
+                is_household_for_ok = True
+            elif product_type == "business":
+                is_business_product = True
+                is_household_for_ok = False
+            else:
+                # bank_name이 사업자 상품명 리스트에 있는지 확인
+                business_product_names = self.config.get("business_product_names", [])
+                bank_name_clean = self.bank_name.replace(" ", "")
+                
+                # 사업자 상품명 확인 (현대캐피탈 가계/가계자금 제외)
+                for product_name in business_product_names:
+                    product_name_clean = product_name.replace(" ", "")
+                    if product_name_clean in bank_name_clean:
+                        # "가계" 또는 "가계자금"이 포함되어 있으면 가계 상품
+                        if "가계" in bank_name_clean or "가계자금" in bank_name_clean:
+                            is_household_product = True
+                        else:
+                            is_business_product = True
+                        break
+                
+                # OK저축은행이지만 사업자 상품명 리스트에 없으면 가계 상품으로 간주
+                if not is_business_product and not is_household_product:
+                    is_household_product = True
             
             # 사업자 상품인 경우 대환 불가
             if is_business_product and is_refinance:
@@ -419,6 +493,11 @@ class BaseCalculator:
                 if max_amount_limit is None or max_amount_limit > household_limit_amount:
                     max_amount_limit = household_limit_amount
                     print(f"DEBUG: BaseCalculator.calculate - OK 저축은행 가계 상품, 서울 수도권 한도 제한: {max_amount_limit}만원")
+        
+        # 가계자금인 경우 LTV 70% 고정
+        if is_household_for_ok:
+            max_ltv = 70
+            print(f"DEBUG: BaseCalculator.calculate - 가계자금: LTV 70% 고정")
         
         # 필요자금이 있으면 LTV별 계산을 건너뛰고 필요자금 기준으로 역산 계산
         required_amount = property_data.get("required_amount")
@@ -585,7 +664,20 @@ class BaseCalculator:
                 print(f"DEBUG: BaseCalculator.calculate - created result with LTV {calculated_ltv:.2f}% and amount {final_amount}만원")  # 추가
         else:
             # 필요자금이 없고 택시 한도 제한도 없으면 기존대로 LTV별 한도 계산
-            ltv_steps = self.config.get("ltv_steps", [90, 85, 80, 75, 70, 65])
+            # 가계자금인 경우 LTV 70%만 계산
+            if is_household_for_ok:
+                ltv_steps = [70]
+            else:
+                # 사업자금인 경우 max_ltv_by_area_grade_credit에서 가능한 LTV만 사용
+                if is_ok_bank and is_business_product:
+                    # 사업자금은 max_ltv_by_area_grade_credit에서 가능한 LTV만 사용
+                    # max_ltv는 이미 get_max_ltv_by_grade에서 계산됨
+                    # ltv_steps에서 max_ltv 이하만 사용
+                    all_ltv_steps = self.config.get("ltv_steps", [90, 85, 80, 75, 70, 65])
+                    ltv_steps = [ltv for ltv in all_ltv_steps if ltv <= max_ltv]
+                    print(f"DEBUG: BaseCalculator.calculate - 사업자금: max_ltv={max_ltv}, filtered ltv_steps={ltv_steps}")
+                else:
+                    ltv_steps = self.config.get("ltv_steps", [90, 85, 80, 75, 70, 65])
             
             print(f"DEBUG: BaseCalculator.calculate - max_ltv: {max_ltv}, ltv_steps: {ltv_steps}")  # 추가
             
@@ -596,9 +688,26 @@ class BaseCalculator:
                     continue
                 
                 # 가용 한도 계산
-                amount_info = self.calculate_available_amount(
-                    kb_price, ltv, total_mortgage, is_refinance, refinance_principal
-                )
+                # OK저축은행인 경우 특별한 계산 방식 적용
+                if is_ok_bank and not is_refinance:
+                    # OK저축은행 후순위: 현재 LTV 한도에서 기존 근저당권이 차지하는 LTV 수준의 한도를 차감
+                    # 기존 근저당권이 차지하는 LTV = total_mortgage / kb_price * 100
+                    existing_ltv = (total_mortgage / kb_price) * 100 if kb_price > 0 else 0
+                    # 기존 근저당권 LTV 수준의 한도 계산
+                    existing_ltv_limit = kb_price * (existing_ltv / 100)
+                    # 현재 LTV 한도에서 기존 근저당권 LTV 수준 한도를 차감
+                    max_amount_principal = kb_price * (ltv / 100)
+                    available_principal = max_amount_principal - existing_ltv_limit
+                    amount_info = {
+                        "total_amount": max(0, available_principal),
+                        "available_amount": max(0, available_principal)
+                    }
+                    print(f"DEBUG: BaseCalculator.calculate - OK저축은행 특별 계산: ltv={ltv}%, existing_ltv={existing_ltv:.2f}%, max_amount={max_amount_principal}, existing_limit={existing_ltv_limit}, available={available_principal}")
+                else:
+                    # 일반 계산 방식
+                    amount_info = self.calculate_available_amount(
+                        kb_price, ltv, total_mortgage, is_refinance, refinance_principal
+                    )
                 
                 print(f"DEBUG: LTV {ltv} - amount_info: {amount_info}")  # 추가
                 
@@ -788,9 +897,16 @@ class BaseCalculator:
         Returns:
             최대 LTV (float) 또는 None
         """
-        # OK저축은행인 경우 면적과 신용점수 등급을 고려한 LTV 계산
+        # OK저축은행인 경우 면적과 신용점수 등급을 고려한 LTV 계산 (사업자금만)
         is_ok_bank = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
+        # product_type이 "household"이면 가계자금이므로 이 로직을 사용하지 않음
+        is_household_for_ok = False
         if is_ok_bank and property_data is not None:
+            # product_type 파라미터 확인 (calculate 메서드에서 전달)
+            # 가계자금인 경우 이 로직을 사용하지 않음
+            is_household_for_ok = property_data.get("_product_type") == "household"
+        
+        if is_ok_bank and property_data is not None and not is_household_for_ok:
             area = property_data.get("area")
             credit_score = property_data.get("credit_score")
             print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 체크: area={area}, credit_score={credit_score}")
@@ -1381,10 +1497,27 @@ class BaseCalculator:
         results = []
         for calculator in calculators:
             try:
-                result = calculator.calculate(property_data)
-                if result is not None:
-                    # 취급 불가지역인 경우도 포함 (errors에 "취급 불가지역"이 있으면)
-                    results.append(result)
+                # OK저축은행인 경우 가계자금과 사업자금을 각각 계산
+                is_ok_bank = calculator.bank_name == "OK저축은행" or "OK저축은행" in calculator.bank_name or "오케이저축은행" in calculator.bank_name
+                
+                if is_ok_bank:
+                    # 가계자금 계산
+                    household_result = calculator.calculate(property_data, product_type="household")
+                    if household_result is not None:
+                        household_result["bank_name"] = "OK저축은행 가계자금"
+                        results.append(household_result)
+                    
+                    # 사업자금 계산
+                    business_result = calculator.calculate(property_data, product_type="business")
+                    if business_result is not None:
+                        business_result["bank_name"] = "OK저축은행 사업자금"
+                        results.append(business_result)
+                else:
+                    # 일반 금융사는 기존대로 계산
+                    result = calculator.calculate(property_data)
+                    if result is not None:
+                        # 취급 불가지역인 경우도 포함 (errors에 "취급 불가지역"이 있으면)
+                        results.append(result)
             except Exception as e:
                 print(f"계산기 {calculator.bank_name} 에러: {e}")
                 continue
