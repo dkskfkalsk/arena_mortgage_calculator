@@ -210,8 +210,21 @@ class BaseCalculator:
         target_regions = self.config.get("target_regions", [])
         if target_regions:
             is_target_region = False
+            # 약자 매핑 (target_regions의 약자를 실제 지역명으로 변환)
+            region_abbreviation_map = {
+                "경북": "경상북도",
+                "경남": "경상남도",
+                "충북": "충청북도",
+                "충남": "충청남도",
+                "전북": "전라북도",
+                "전남": "전라남도",
+                "강원": "강원특별자치도"
+            }
+            
             for target in target_regions:
-                if target in region:  # "서울" in "서울특별시광진구"
+                # 약자 매핑 적용
+                target_full = region_abbreviation_map.get(target, target)
+                if target_full in region or target in region:  # "서울" in "서울특별시광진구" 또는 "경상북도" in "경상북도구미시"
                     is_target_region = True
                     break
             if not is_target_region:
