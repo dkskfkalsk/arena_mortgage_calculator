@@ -44,6 +44,7 @@ def format_result(bank_result: Dict[str, Any]) -> str:
     results = bank_result.get("results", [])
     conditions = bank_result.get("conditions", [])
     errors = bank_result.get("errors", [])
+    min_amount = bank_result.get("min_amount", 3000)  # 기본값 3000만원
     
     # 취급 불가지역인 경우
     if errors and "취급 불가지역" in errors:
@@ -57,11 +58,11 @@ def format_result(bank_result: Dict[str, Any]) -> str:
     if not results:
         return f"* {bank_name}\n산출 불가"
     
-    # 모든 결과가 최소진행금액 부족(3천만원 미만)인지 확인
+    # 모든 결과가 최소진행금액 부족인지 확인
     # 대환인 경우: total_amount(전체 대출 금액) 기준
     # 후순위인 경우: amount 기준
     all_below_minimum = all(
-        (result.get("total_amount") if result.get("is_refinance", False) else result.get("amount", 0)) < 3000
+        (result.get("total_amount") if result.get("is_refinance", False) else result.get("amount", 0)) < min_amount
         for result in results
     )
     if all_below_minimum:
@@ -127,8 +128,8 @@ def format_result(bank_result: Dict[str, Any]) -> str:
         if taxi_limit_applied:
             line += " (개인택시, 운수업 1억 제한)"
         
-        # 3천만원 미만이면 "최소진행금액 부족" 메시지 추가 (대환인 경우는 제외)
-        if not is_refinance and amount < 3000:
+        # 최소진행금액 미만이면 "최소진행금액 부족" 메시지 추가 (대환인 경우는 제외)
+        if not is_refinance and amount < min_amount:
             line += " (최소진행금액 부족)"
         
         # 고정금리 코멘트 추가 (사업자 상품)

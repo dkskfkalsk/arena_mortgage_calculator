@@ -435,6 +435,7 @@
       }
     }
   },
+  "min_amount": 2000,
   "conditions": [
     
   ]

@@ -203,7 +203,8 @@ class BaseCalculator:
                 "bank_name": self.bank_name,
                 "results": [],
                 "conditions": self.config.get("conditions", []),
-                "errors": ["취급 불가지역"]
+                "errors": ["취급 불가지역"],
+                "min_amount": self.config.get("min_amount", 3000)
             }
         
         # 대상 지역 확인 (광역 단위로 체크)
@@ -234,7 +235,8 @@ class BaseCalculator:
                     "bank_name": self.bank_name,
                     "results": [],
                     "conditions": self.config.get("conditions", []),
-                    "errors": ["취급 불가지역"]
+                    "errors": ["취급 불가지역"],
+                    "min_amount": self.config.get("min_amount", 3000)
                 }
         
         # 급지 확인
@@ -247,7 +249,8 @@ class BaseCalculator:
                 "bank_name": self.bank_name,
                 "results": [],
                 "conditions": self.config.get("conditions", []),
-                "errors": ["취급 불가지역"]
+                "errors": ["취급 불가지역"],
+                "min_amount": self.config.get("min_amount", 3000)
             }
         
         # 6급지인 경우 취급 불가지역으로 처리
@@ -257,7 +260,8 @@ class BaseCalculator:
                 "bank_name": self.bank_name,
                 "results": [],
                 "conditions": self.config.get("conditions", []),
-                "errors": ["취급 불가지역"]
+                "errors": ["취급 불가지역"],
+                "min_amount": self.config.get("min_amount", 3000)
             }
         
         # 면적 제한 확인 (BNK캐피탈 등 특정 금융사만)
@@ -281,7 +285,8 @@ class BaseCalculator:
                         "bank_name": self.bank_name,
                         "results": [],
                         "conditions": self.config.get("conditions", []),
-                        "errors": [f"면적 {area}㎡는 서울지역 이외에서는 135㎡ 초과로 취급 불가"]
+                        "errors": [f"면적 {area}㎡는 서울지역 이외에서는 135㎡ 초과로 취급 불가"],
+                        "min_amount": self.config.get("min_amount", 3000)
                     }
         
         # 기준 LTV 이하 지역 확인
@@ -356,7 +361,8 @@ class BaseCalculator:
                     "bank_name": self.bank_name,
                     "results": [],
                     "conditions": self.config.get("conditions", []),
-                    "errors": ["사업자 상품은 대환 불가"]
+                    "errors": ["사업자 상품은 대환 불가"],
+                    "min_amount": self.config.get("min_amount", 3000)
                 }
         
         # 사업자/가계 상품 정보를 인스턴스 변수로 저장 (get_interest_rate에서 사용)
@@ -376,7 +382,8 @@ class BaseCalculator:
                         "bank_name": self.bank_name,
                         "results": [],
                         "conditions": self.config.get("conditions", []),
-                        "errors": ["빌라인 경우 선순위만 산출 가능"]
+                        "errors": ["빌라인 경우 선순위만 산출 가능"],
+                        "min_amount": self.config.get("min_amount", 3000)
                     }
         
         # 신용점수/등급 확인
@@ -651,7 +658,8 @@ class BaseCalculator:
                         "bank_name": self.bank_name,
                         "results": [],
                         "conditions": self.config.get("conditions", []),
-                        "errors": [f"기존 근저당권 채권최고액({total_mortgage_for_check:,.0f}만원)이 최대 한도({max_ltv_amount:,.0f}만원, LTV {max_ltv}%)를 초과하여 추가 대출 불가능"]
+                        "errors": [f"기존 근저당권 채권최고액({total_mortgage_for_check:,.0f}만원)이 최대 한도({max_ltv_amount:,.0f}만원, LTV {max_ltv}%)를 초과하여 추가 대출 불가능"],
+                        "min_amount": self.config.get("min_amount", 3000)
                     }
             else:
                 # 대환이 아닌 경우: 기존 로직 유지
@@ -662,7 +670,8 @@ class BaseCalculator:
                         "bank_name": self.bank_name,
                         "results": [],
                         "conditions": self.config.get("conditions", []),
-                        "errors": [f"기존 근저당권 채권최고액({total_mortgage:,.0f}만원)이 최대 한도({max_ltv_amount:,.0f}만원, LTV {max_ltv}%)를 초과하여 추가 대출 불가능"]
+                        "errors": [f"기존 근저당권 채권최고액({total_mortgage:,.0f}만원)이 최대 한도({max_ltv_amount:,.0f}만원, LTV {max_ltv}%)를 초과하여 추가 대출 불가능"],
+                        "min_amount": self.config.get("min_amount", 3000)
                     }
             
             print(f"DEBUG: BaseCalculator.calculate - no results found for {self.bank_name}, returning None")
@@ -673,7 +682,8 @@ class BaseCalculator:
             "bank_name": self.bank_name,
             "results": results,
             "conditions": self.config.get("conditions", []),
-            "errors": []
+            "errors": [],
+            "min_amount": self.config.get("min_amount", 3000)  # 기본값 3000만원
         }
     
     def credit_score_to_grade(self, credit_score: Optional[int]) -> Optional[int]:

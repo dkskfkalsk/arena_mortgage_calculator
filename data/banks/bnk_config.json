@@ -431,6 +431,7 @@
   "lower_bound_price": {
     "enabled": true,
     "description": "아파트/주상복합 1,2층은 하한가 적용"
-  }
+  },
+  "min_amount": 3000
 }
 
