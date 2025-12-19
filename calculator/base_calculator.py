@@ -401,16 +401,10 @@ class BaseCalculator:
             # (refinance_institutions에 추가된 것들이 가계자금으로 대환 가능한 근저당권)
             has_household_refinance = len(refinance_institutions) > 0
             
-            # 가계자금으로 대환 가능한 근저당권이 없으면 가계자금 산출하지 않음
+            # 가계자금으로 대환 가능한 근저당권이 없으면 가계자금 산출하지 않음 (None 반환하여 아무것도 표시하지 않음)
             if not has_household_refinance:
                 print(f"DEBUG: BaseCalculator.calculate - 가계자금: 대환 요청된 금융사 중 가계자금으로 대환 가능한 것이 없어서 산출하지 않음")
-                return {
-                    "bank_name": self.bank_name,
-                    "results": [],
-                    "conditions": self.config.get("conditions", []),
-                    "errors": [],
-                    "min_amount": self.config.get("min_amount", 3000)
-                }
+                return None
             
             # 가계자금으로 대환 가능한 근저당권이 있으면 산출 진행
             if is_refinance:
