@@ -403,14 +403,15 @@ class MessageParser:
         
         # 괄호 밖의 금액 (채권최고액) 추출
         # "44,200 (34,000)만원" 형식에서 괄호 앞의 숫자 추출
-        max_amount_match = re.search(r"(\d{2,}[,\d]*)\s*\([\d,]+\)", line)
+        # 패턴: 1~3자리 숫자로 시작하고, 쉼표와 3자리 숫자가 반복되는 형식 (예: "2,900", "31,700", "6,000")
+        max_amount_match = re.search(r"(\d{1,3}(?:,\d{3})*)\s*\([\d,]+\)", line)
         if max_amount_match:
             max_amount_str = max_amount_match.group(1)
             max_amount = parse_amount(max_amount_str)
             print(f"DEBUG: _parse_mortgage_line - max_amount(채권최고액) from pattern: {max_amount_str} -> {max_amount}")
         else:
             # 괄호가 없으면 첫 번째 큰 숫자를 채권최고액으로 사용
-            amount_matches = re.findall(r"(\d{2,}[,\d]*)", line)
+            amount_matches = re.findall(r"(\d{1,3}(?:,\d{3})*)", line)
             if amount_matches:
                 max_amount_str = amount_matches[0]
                 max_amount = parse_amount(max_amount_str)
