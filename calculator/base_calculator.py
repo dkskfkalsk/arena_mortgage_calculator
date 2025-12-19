@@ -293,6 +293,13 @@ class BaseCalculator:
         below_standard_ltv = self.get_below_standard_ltv(region)
         is_below_standard = below_standard_ltv is not None
         
+        # OK저축은행 가계자금인 경우 확인 (최대 LTV 계산 전에 먼저 확인)
+        is_ok_bank = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
+        is_household_for_ok = False
+        if is_ok_bank:
+            # product_type이 "household"이면 가계자금
+            is_household_for_ok = product_type == "household"
+        
         # 최대 LTV 확인 (1급지인 경우 A/B 그룹 구분)
         # OK저축은행인 경우 면적과 신용점수 등급을 고려
         # property_data에 product_type 정보 추가 (get_max_ltv_by_grade에서 사용)
@@ -316,13 +323,6 @@ class BaseCalculator:
         
         # 기존 근저당권 총액 계산 (채권최고액 기준)
         mortgages = property_data.get("mortgages", [])
-        
-        # OK저축은행 가계자금인 경우 특별 처리
-        is_ok_bank = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
-        is_household_for_ok = False
-        if is_ok_bank:
-            # product_type이 "household"이면 가계자금
-            is_household_for_ok = product_type == "household"
         
         # 대환할 근저당권 찾기 (여러 개 대비하여 누적합으로 처리)
         refinance_principal = 0.0  # 대환할 근저당권 원금 합계
