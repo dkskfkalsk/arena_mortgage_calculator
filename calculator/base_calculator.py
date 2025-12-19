@@ -785,21 +785,26 @@ class BaseCalculator:
             credit_score = property_data.get("credit_score")
             print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 체크: area={area}, credit_score={credit_score}")
             
-            if area is not None and credit_score is not None:
-                # 신용점수 범위 문자열을 등급 번호로 변환
-                credit_grade_number = self._get_ok_credit_grade_number(credit_score)
-                print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 credit_grade_number: {credit_grade_number}")
-                if credit_grade_number is not None:
-                    # 면적별 급지별 LTV 조회
-                    max_ltv = self._get_ok_max_ltv_by_area_grade_credit(area, grade, credit_grade_number)
-                    print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 _get_ok_max_ltv_by_area_grade_credit 결과: {max_ltv}")
-                    if max_ltv is not None:
-                        print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 면적별 LTV: area={area}㎡, grade={grade}, credit_grade={credit_grade_number}등급 -> LTV {max_ltv}%")
-                        return max_ltv
+            if area is not None:
+                # 신용점수가 있는 경우
+                if credit_score is not None:
+                    # 신용점수 범위 문자열을 등급 번호로 변환
+                    credit_grade_number = self._get_ok_credit_grade_number(credit_score)
+                    print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 credit_grade_number: {credit_grade_number}")
+                    if credit_grade_number is not None:
+                        # 면적별 급지별 LTV 조회
+                        max_ltv = self._get_ok_max_ltv_by_area_grade_credit(area, grade, credit_grade_number)
+                        print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 _get_ok_max_ltv_by_area_grade_credit 결과: {max_ltv}")
+                        if max_ltv is not None:
+                            print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 면적별 LTV: area={area}㎡, grade={grade}, credit_grade={credit_grade_number}등급 -> LTV {max_ltv}%")
+                            return max_ltv
                 else:
-                    print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 credit_grade_number이 None이어서 기본값 사용")
-            else:
-                print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 area 또는 credit_score가 None: area={area}, credit_score={credit_score}")
+                    # 신용점수가 없는 경우: 해당 급지의 최대 LTV 사용 (면적과 급지만 고려)
+                    print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 신용점수 없음, 면적과 급지만으로 최대 LTV 계산")
+                    max_ltv = self._get_ok_max_ltv_by_area_grade(area, grade)
+                    if max_ltv is not None:
+                        print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 면적별 LTV (신용점수 없음): area={area}㎡, grade={grade} -> LTV {max_ltv}%")
+                        return max_ltv
         
         max_ltv_by_grade = self.config.get("max_ltv_by_grade", {})
         print(f"DEBUG: get_max_ltv_by_grade - grade: {grade} (type: {type(grade)}), region: {region}, max_ltv_by_grade keys: {list(max_ltv_by_grade.keys())}")  # 추가
@@ -925,6 +930,55 @@ class BaseCalculator:
         
         print(f"DEBUG: _get_ok_max_ltv_by_area_grade_credit - area: {area}㎡, grade: {grade_key}, credit_grade: {credit_grade_number}등급, no match found")
         return None
+    
+    def _get_ok_max_ltv_by_area_grade(self, area: float, region_grade: Union[int, str]) -> Optional[float]:
+        """
+        OK저축은행: 면적과 급지만으로 최대 LTV 조회 (신용점수 없을 때 사용)
+        해당 급지의 신용등급 범위 중 가장 높은 LTV를 반환
+        
+        Args:
+            area: 면적 (㎡)
+            region_grade: 급지 번호 (1, 2, 3, 4)
+        
+        Returns:
+            최대 LTV (float) 또는 None
+        """
+        max_ltv_config = self.config.get("max_ltv_by_area_grade_credit", {})
+        if not max_ltv_config:
+            return None
+        
+        # 면적 구분 (110㎡ 이하/초과)
+        area_key = "area_110_below" if area <= 110 else "area_110_over"
+        area_config = max_ltv_config.get(area_key, {})
+        if not area_config:
+            return None
+        
+        # 급지별 설정 조회
+        grade_key = str(region_grade)
+        grade_config = area_config.get(grade_key, {})
+        if not grade_config:
+            return None
+        
+        # 4급지는 등급 상관없이 모두 동일한 LTV
+        if grade_key == "4" and "all" in grade_config:
+            result = grade_config["all"]
+            print(f"DEBUG: _get_ok_max_ltv_by_area_grade - area: {area}㎡, grade: {grade_key} -> LTV {result}% (4급지 전체)")
+            return result
+        
+        # 신용등급 범위별 LTV 중 최대값 찾기
+        max_ltv = None
+        for grade_range, ltv in grade_config.items():
+            if grade_range == "all":
+                continue
+            if max_ltv is None or ltv > max_ltv:
+                max_ltv = ltv
+        
+        if max_ltv is not None:
+            print(f"DEBUG: _get_ok_max_ltv_by_area_grade - area: {area}㎡, grade: {grade_key} -> 최대 LTV {max_ltv}% (신용점수 없음)")
+        else:
+            print(f"DEBUG: _get_ok_max_ltv_by_area_grade - area: {area}㎡, grade: {grade_key}, no match found")
+        
+        return max_ltv
     
     def get_below_standard_ltv(self, region: str) -> Optional[float]:
         """
