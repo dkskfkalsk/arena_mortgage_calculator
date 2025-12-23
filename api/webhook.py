@@ -3,7 +3,13 @@
 Vercel 서버리스 함수 - 텔레그램 Webhook
 """
 
+# 가장 먼저 실행되는 로그 (모듈 임포트 시 즉시 실행)
 import sys
+sys.stderr.write("=" * 80 + "\n")
+sys.stderr.write("WEBHOOK.PY FILE LOADED - MODULE IMPORT STARTED\n")
+sys.stderr.write("=" * 80 + "\n")
+sys.stderr.flush()
+
 import json
 import os
 import asyncio
@@ -21,9 +27,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 모듈 로드 시 로그 출력
+# 모듈 로드 시 로그 출력 (여러 방법으로 확실하게)
+sys.stderr.write("[WEBHOOK] Module loaded - stderr write\n")
+sys.stderr.flush()
 print("=" * 60, file=sys.stderr, flush=True)
-print("[WEBHOOK] Module loaded", file=sys.stderr, flush=True)
+print("[WEBHOOK] Module loaded - print to stderr", file=sys.stderr, flush=True)
 logger.info("Webhook module initialized")
 
 # 전역 애플리케이션 인스턴스
@@ -203,6 +211,11 @@ class handler(BaseHTTPRequestHandler):
     """Vercel Python 서버리스 함수 핸들러"""
     
     def __init__(self, *args, **kwargs):
+        # 핸들러 초기화 시 즉시 로그 출력
+        sys.stderr.write("[HANDLER] Handler class initialized\n")
+        sys.stderr.flush()
+        print("[HANDLER] Handler __init__ called", file=sys.stderr, flush=True)
+        logger.info("Handler initialized")
         super().__init__(*args, **kwargs)
     
     def _send_response(self, status_code, data):
@@ -216,13 +229,21 @@ class handler(BaseHTTPRequestHandler):
     
     def do_GET(self):
         """GET 요청 처리 (헬스체크)"""
-        print("[WEBHOOK] GET request received", file=sys.stderr, flush=True)
+        # 여러 방법으로 로그 출력
+        sys.stderr.write("[WEBHOOK] GET request received - stderr write\n")
+        sys.stderr.flush()
+        print("=" * 60, file=sys.stderr, flush=True)
+        print("[WEBHOOK] GET request received - print to stderr", file=sys.stderr, flush=True)
         logger.info("GET request - Health check")
         self._send_response(200, {"ok": True, "message": "Webhook endpoint is active"})
     
     def do_POST(self):
         """POST 요청 처리 (텔레그램 웹훅)"""
-        print("[WEBHOOK] POST request received", file=sys.stderr, flush=True)
+        # 여러 방법으로 로그 출력
+        sys.stderr.write("[WEBHOOK] POST request received - stderr write\n")
+        sys.stderr.flush()
+        print("=" * 60, file=sys.stderr, flush=True)
+        print("[WEBHOOK] POST request received - print to stderr", file=sys.stderr, flush=True)
         logger.info("POST request received")
         
         try:
