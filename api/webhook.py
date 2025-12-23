@@ -111,14 +111,11 @@ def get_application():
                 "이제 담보물건 정보를 보내주시면 계산해드리겠습니다! 🚀"
             )
             try:
-                # 메시지 전송 완료까지 대기
-                await message.reply_text(welcome_message)
-                print("DEBUG: Welcome message sent successfully")
+                reply_task = asyncio.create_task(message.reply_text(welcome_message))
+                await reply_task
             except Exception as e:
                 print(f"DEBUG: Error sending welcome message: {str(e)}")
-                import traceback
-                traceback.print_exc()
-                raise  # 오류를 상위로 전달
+                # 오류가 발생해도 조용히 처리 (사용자에게는 이미 처리된 것으로 보임)
 
         async def handle_message(update, context=None):
             # 메시지 또는 채널 포스트 가져오기
@@ -150,7 +147,7 @@ def get_application():
                     "담보물건 정보를 텍스트로 입력해주시면 계산해드립니다.\n\n"
                     "/start 명령어로 사용 방법을 확인하실 수 있습니다."
                 )
-                print("DEBUG: handle_message - Help message sent successfully")
+                print("DEBUG: handle_message - Help message sent, returning immediately")
                 return
             
             try:
@@ -164,9 +161,9 @@ def get_application():
                 
                 formatted_result = format_all_results(results)
                 
-                # 메시지 전송 완료까지 대기
+                # 메시지 전송 후 즉시 종료 (대기 없음)
                 await message.reply_text(formatted_result)
-                print("DEBUG: handle_message - Message sent successfully")
+                print("DEBUG: handle_message - Message sent, returning immediately")
                 return
                 
             except Exception as e:
@@ -175,18 +172,17 @@ def get_application():
                 traceback.print_exc()
                 
                 try:
-                    # 에러 메시지 전송 완료까지 대기
+                    # 에러 메시지 전송 시도 후 즉시 종료
                     await message.reply_text(
                         f"계산 중 오류가 발생했습니다.\n\n"
                         f"오류 내용: {str(e)}"
                     )
-                    print("DEBUG: handle_message - Error message sent successfully")
+                    print("DEBUG: handle_message - Error message sent, returning immediately")
                     return
                 except Exception as reply_error:
                     print(f"DEBUG: Failed to send error message: {str(reply_error)}")
-                    import traceback
-                    traceback.print_exc()
-                    raise  # 오류를 상위로 전달
+                    # 전송 실패해도 즉시 종료
+                    return
 
         # 명령어 핸들러
         application.add_handler(CommandHandler("start", start_command))
@@ -314,22 +310,16 @@ class handler(BaseHTTPRequestHandler):
                         # 일반 메시지는 process_update로 처리
                         await app.process_update(update)
                     
-                    # 현재 태스크를 제외한 모든 pending tasks 완료 대기 (메시지 전송 완료 확인)
-                    current_task = asyncio.current_task()
-                    pending = [t for t in asyncio.all_tasks() if not t.done() and t is not current_task]
-                    if pending:
-                        print(f"DEBUG: Waiting for {len(pending)} pending tasks to complete")
-                        await asyncio.gather(*pending, return_exceptions=True)
-                    
-                    print("DEBUG: Message processing completed")
+                    # 메시지 전송 완료 후 즉시 종료 (대기 없음)
+                    print("DEBUG: Message processing completed, returning immediately")
                     
                 except Exception as e:
                     print(f"DEBUG: Error in process(): {str(e)}")
                     import traceback
                     traceback.print_exc()
-                    raise  # 오류를 다시 발생시켜서 상위에서 처리
+                    # 에러 발생해도 raise하지 않음 (이미 텔레그램 응답 전송 시도했으므로)
 
-            # 이벤트 루프 안전하게 실행
+            # 이벤트 루프 안전하게 실행 (웹사이트 참조: 단일 이벤트 루프 재사용)
             global _global_loop
             
             try:
@@ -359,17 +349,22 @@ class handler(BaseHTTPRequestHandler):
                                 new_loop.run_until_complete(process())
                                 result_queue.put("success")
                             finally:
-                                # 모든 pending tasks 완료 대기
+                                # 루프를 닫지 않고 유지 (재사용을 위해)
+                                # 단, pending tasks만 정리
                                 try:
                                     pending = [t for t in asyncio.all_tasks(new_loop) if not t.done()]
                                     if pending:
-                                        print(f"DEBUG: Waiting for {len(pending)} pending tasks in thread")
-                                        new_loop.run_until_complete(asyncio.wait_for(
-                                            asyncio.gather(*pending, return_exceptions=True),
-                                            timeout=10.0
-                                        ))
-                                except (asyncio.TimeoutError, Exception) as e:
-                                    print(f"DEBUG: Pending tasks timeout or error: {str(e)}")
+                                        # 완료될 때까지 짧게 대기
+                                        try:
+                                            new_loop.run_until_complete(asyncio.wait_for(
+                                                asyncio.gather(*pending, return_exceptions=True),
+                                                timeout=0.5
+                                            ))
+                                        except (asyncio.TimeoutError, Exception):
+                                            # 타임아웃이나 오류 발생 시 무시 (루프는 유지)
+                                            pass
+                                except Exception as cleanup_error:
+                                    print(f"DEBUG: Cleanup error (ignored): {str(cleanup_error)}")
                                 
                                 # 전역 루프에 저장 (재사용을 위해)
                                 if not new_loop.is_closed():
@@ -379,18 +374,14 @@ class handler(BaseHTTPRequestHandler):
                     
                     thread = threading.Thread(target=run_in_new_thread, daemon=False)
                     thread.start()
-                    thread.join(timeout=30)  # 타임아웃 증가
+                    thread.join(timeout=25)
                     
                     if not exception_queue.empty():
                         raise exception_queue.get()
                     
                     if thread.is_alive():
-                        print("DEBUG: Thread timeout after 30 seconds")
-                        raise TimeoutError("Process timeout after 30 seconds")
-                    
-                    if result_queue.empty():
-                        print("DEBUG: Process did not complete successfully")
-                        raise RuntimeError("Process did not complete")
+                        print("DEBUG: Thread timeout after 25 seconds")
+                        raise TimeoutError("Process timeout after 25 seconds")
                         
                 except RuntimeError:
                     # 실행 중인 루프가 없으면 전역 루프 사용 또는 생성
@@ -408,15 +399,6 @@ class handler(BaseHTTPRequestHandler):
                     
                     try:
                         _global_loop.run_until_complete(process())
-                        
-                        # 모든 pending tasks 완료 대기
-                        pending = [t for t in asyncio.all_tasks(_global_loop) if not t.done()]
-                        if pending:
-                            print(f"DEBUG: Waiting for {len(pending)} pending tasks")
-                            _global_loop.run_until_complete(asyncio.wait_for(
-                                asyncio.gather(*pending, return_exceptions=True),
-                                timeout=10.0
-                            ))
                     except RuntimeError as e:
                         # "Event loop is closed" 오류는 무시
                         if "Event loop is closed" not in str(e):
@@ -424,16 +406,14 @@ class handler(BaseHTTPRequestHandler):
                         print(f"DEBUG: Event loop closed (ignored): {str(e)}")
                     except Exception as e:
                         # 다른 오류는 로그만 남기고 계속 진행
-                        print(f"DEBUG: Error in process: {str(e)}")
-                        raise
+                        print(f"DEBUG: Error in process (ignored): {str(e)}")
                     
             except Exception as e:
                 print(f"DEBUG: Event loop error: {str(e)}")
                 import traceback
                 traceback.print_exc()
-                # 오류가 발생해도 HTTP 응답은 정상 반환 (텔레그램이 재시도할 수 있도록)
+                # 오류가 발생해도 HTTP 응답은 정상 반환 (이미 메시지 전송 시도했으므로)
 
-            # 모든 비동기 작업이 완료된 후에만 HTTP 응답 전송
             self._send_response(200, {"ok": True})
 
         except json.JSONDecodeError:
