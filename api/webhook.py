@@ -96,17 +96,23 @@ def get_application():
             return chat_id in allowed_chat_ids
 
         async def start_command(update, context):
-            # 메시지 또는 채널 포스트 가져오기
+            # 채널 포스트와 일반 메시지 모두 처리
             message = update.message or update.channel_post or update.edited_message or update.edited_channel_post
             if not message:
                 return
             
             # 채팅방 ID 확인
             chat_id = get_chat_id(update)
-            logger.info(f"start_command - chat_id: {chat_id}")
+            message_type = "channel" if (update.channel_post or update.edited_channel_post) else "chat"
+            print(f"[WEBHOOK] start_command - chat_id: {chat_id}, type: {message_type}", file=sys.stderr, flush=True)
+            logger.info(f"start_command - chat_id: {chat_id}, type: {message_type}")
+            
             if not is_allowed_chat(chat_id):
+                print(f"[WEBHOOK] start_command - Chat {chat_id} is NOT allowed", file=sys.stderr, flush=True)
                 logger.warning(f"start_command - Chat {chat_id} is not allowed")
                 return
+            
+            print(f"[WEBHOOK] start_command - Chat {chat_id} is allowed, sending welcome", file=sys.stderr, flush=True)
             
             welcome_message = (
                 "🏠 담보대출 계산기 봇에 오신 것을 환영합니다!\n\n"
@@ -131,20 +137,26 @@ def get_application():
                 logger.error(f"Error sending welcome message: {str(e)}", exc_info=True)
 
         async def handle_message(update, context=None):
-            # 메시지 또는 채널 포스트 가져오기
+            # 채널 포스트와 일반 메시지 모두 처리
             message = update.message or update.channel_post or update.edited_message or update.edited_channel_post
             
             if not message:
+                print("[WEBHOOK] handle_message - No message found", file=sys.stderr, flush=True)
                 logger.warning("handle_message - No message found in update")
                 return
             
             # 채팅방 ID 확인
             chat_id = get_chat_id(update)
-            logger.info(f"handle_message - chat_id: {chat_id}")
+            message_type = "channel" if (update.channel_post or update.edited_channel_post) else "chat"
+            print(f"[WEBHOOK] handle_message - chat_id: {chat_id}, type: {message_type}", file=sys.stderr, flush=True)
+            logger.info(f"handle_message - chat_id: {chat_id}, type: {message_type}")
             
             if not is_allowed_chat(chat_id):
+                print(f"[WEBHOOK] handle_message - Chat {chat_id} is NOT allowed", file=sys.stderr, flush=True)
                 logger.warning(f"handle_message - Chat {chat_id} is not allowed")
                 return
+            
+            print(f"[WEBHOOK] handle_message - Chat {chat_id} is allowed, processing", file=sys.stderr, flush=True)
             
             message_text = message.text
             if not message_text:
@@ -157,15 +169,21 @@ def get_application():
                 return
             
             try:
+                print(f"[WEBHOOK] Parsing message text...", file=sys.stderr, flush=True)
                 parser = MessageParser()
                 property_data = parser.parse(message_text)
+                print(f"[WEBHOOK] Parsed - kb_price: {property_data.get('kb_price')}", file=sys.stderr, flush=True)
                 logger.info(f"handle_message - property_data parsed: kb_price={property_data.get('kb_price')}")
                 
+                print("[WEBHOOK] Calculating results...", file=sys.stderr, flush=True)
                 results = BaseCalculator.calculate_all_banks(property_data)
+                print(f"[WEBHOOK] Results count: {len(results) if results else 0}", file=sys.stderr, flush=True)
                 logger.info(f"handle_message - results count: {len(results) if results else 0}")
                 
                 formatted_result = format_all_results(results)
+                print("[WEBHOOK] Sending reply message...", file=sys.stderr, flush=True)
                 await message.reply_text(formatted_result)
+                print("[WEBHOOK] Message sent successfully!", file=sys.stderr, flush=True)
                 logger.info("handle_message - Message sent successfully")
                 return
                 
@@ -263,7 +281,19 @@ class handler(BaseHTTPRequestHandler):
                     return update.edited_channel_post.chat.id
                 return None
 
+            # 채널 포스트와 일반 메시지 모두 처리 가능
+            # 메시지가 없는 경우만 무시
+            if not update.message and not update.edited_message and not update.channel_post and not update.edited_channel_post:
+                print("[WEBHOOK] No message found, skipping", file=sys.stderr, flush=True)
+                logger.warning("No message found, skipping")
+                self._send_response(200, {"ok": True, "skipped": "no message"})
+                return
+
             chat_id = get_chat_id_from_update(update)
+            
+            # 메시지 타입 확인
+            message_type = "channel_post" if update.channel_post else "edited_channel_post" if update.edited_channel_post else "message" if update.message else "edited_message"
+            print(f"[WEBHOOK] Chat ID: {chat_id}, Type: {message_type}", file=sys.stderr, flush=True)
 
             # 허용된 채팅방 ID 확인
             ALLOWED_CHAT_IDS_STR = os.getenv("ALLOWED_CHAT_IDS")
@@ -278,48 +308,63 @@ class handler(BaseHTTPRequestHandler):
             if ALLOWED_CHAT_IDS_STR:
                 allowed_chat_ids = [int(chat_id.strip()) for chat_id in ALLOWED_CHAT_IDS_STR.split(",") if chat_id.strip()]
 
+            print(f"[WEBHOOK] Allowed chat IDs: {allowed_chat_ids}", file=sys.stderr, flush=True)
             logger.info(f"chat_id: {chat_id}, allowed_chat_ids: {allowed_chat_ids}")
 
             # 허용된 채팅방이 설정되어 있고, 현재 채팅방이 허용 목록에 없으면 무시
             if allowed_chat_ids and chat_id not in allowed_chat_ids:
+                print(f"[WEBHOOK] Chat {chat_id} is NOT in allowed list, ignoring", file=sys.stderr, flush=True)
                 logger.warning(f"Chat {chat_id} is not in allowed list, ignoring update")
                 self._send_response(200, {"ok": True, "skipped": "chat not allowed"})
                 return
 
+            print(f"[WEBHOOK] Chat {chat_id} is allowed, processing message", file=sys.stderr, flush=True)
+            
+            # 메시지 타입별 로그 출력
             if update.message:
-                logger.info(f"message.chat.id: {update.message.chat.id}, message.text: {update.message.text[:50] if update.message.text else None}")
+                message_preview = update.message.text[:50] if update.message.text else None
+                print(f"[WEBHOOK] Regular message - text preview: {message_preview}", file=sys.stderr, flush=True)
+                logger.info(f"message.chat.id: {update.message.chat.id}, message.text: {message_preview}")
             elif update.edited_message:
+                print(f"[WEBHOOK] Edited message from chat: {update.edited_message.chat.id}", file=sys.stderr, flush=True)
                 logger.info(f"edited_message.chat.id: {update.edited_message.chat.id}")
             elif update.channel_post:
-                logger.info(f"channel_post.chat.id: {update.channel_post.chat.id}")
-            elif update.callback_query:
-                logger.info(f"callback_query.from_user.id: {update.callback_query.from_user.id}")
-            else:
-                logger.warning(f"Unknown update type - update dict keys: {list(body.keys())}")
+                message_preview = update.channel_post.text[:50] if update.channel_post.text else None
+                print(f"[WEBHOOK] Channel post - text preview: {message_preview}", file=sys.stderr, flush=True)
+                logger.info(f"channel_post.chat.id: {update.channel_post.chat.id}, text: {message_preview}")
+            elif update.edited_channel_post:
+                message_preview = update.edited_channel_post.text[:50] if update.edited_channel_post.text else None
+                print(f"[WEBHOOK] Edited channel post - text preview: {message_preview}", file=sys.stderr, flush=True)
+                logger.info(f"edited_channel_post.chat.id: {update.edited_channel_post.chat.id}, text: {message_preview}")
 
             # 비동기 처리 함수
             async def process():
                 try:
+                    print("[WEBHOOK] Starting async process", file=sys.stderr, flush=True)
+                    
                     # 초기화되지 않았으면 초기화
                     if not app._initialized:
+                        print("[WEBHOOK] Initializing application", file=sys.stderr, flush=True)
                         await app.initialize()
                     
                     # channel_post, edited_message, edited_channel_post는 MessageHandler가 처리하지 않으므로 직접 처리
                     if update.channel_post or update.edited_message or update.edited_channel_post:
-                        # handle_message 함수 직접 호출 (context는 사용하지 않으므로 None 전달)
+                        print("[WEBHOOK] Processing channel_post/edited_message directly", file=sys.stderr, flush=True)
                         if hasattr(app, '_handle_message'):
-                            logger.info("Directly calling handle_message for channel_post/edited_message")
                             await app._handle_message(update, None)
                         else:
                             logger.warning("_handle_message not found, using process_update")
                             await app.process_update(update)
                     else:
-                        logger.info("Processing regular message with process_update")
+                        # 일반 메시지는 process_update로 처리
+                        print("[WEBHOOK] Processing regular message with process_update", file=sys.stderr, flush=True)
                         await app.process_update(update)
                     
+                    print("[WEBHOOK] Message processing completed", file=sys.stderr, flush=True)
                     logger.info("Message processing completed")
                     
                 except Exception as e:
+                    print(f"[WEBHOOK] Error in process(): {str(e)}", file=sys.stderr, flush=True)
                     logger.error(f"Error in process(): {str(e)}", exc_info=True)
                     import traceback
                     traceback.print_exc()
