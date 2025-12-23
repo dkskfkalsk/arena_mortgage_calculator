@@ -23,9 +23,18 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # 모듈 로드 시 즉시 로그 출력 (2025년 방식: print + logging)
-print("[WEBHOOK] Module loaded", file=sys.stderr, flush=True)
-sys.stderr.flush()
-logger.info("Webhook module initialized")
+# 여러 방법으로 로그 출력 (확실하게 보이도록)
+try:
+    import datetime
+    print("=" * 60, file=sys.stderr, flush=True)
+    print("[WEBHOOK] Module loaded", file=sys.stderr, flush=True)
+    print(f"[WEBHOOK] Load time: {datetime.datetime.now()}", file=sys.stderr, flush=True)
+    sys.stderr.write("[WEBHOOK] Module loaded - stderr write\n")
+    sys.stderr.flush()
+    logger.info("Webhook module initialized")
+    logger.error("Webhook module - ERROR level test")  # ERROR 레벨도 테스트
+except Exception:
+    pass  # 로그 출력 실패해도 계속 진행
 
 # 전역 애플리케이션 인스턴스
 application = None
@@ -228,9 +237,18 @@ class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         """GET 요청 처리 (헬스체크)"""
         # 2025년 Vercel 로깅: print와 logging 둘 다 사용
-        print("[WEBHOOK] GET request received", file=sys.stderr, flush=True)
-        sys.stderr.flush()
-        logger.info("GET request - Health check")
+        # 여러 방법으로 로그 출력 (확실하게 보이도록)
+        try:
+            print("=" * 60, file=sys.stderr, flush=True)
+            print("[WEBHOOK] GET request received", file=sys.stderr, flush=True)
+            print(f"[WEBHOOK] Time: {__import__('datetime').datetime.now()}", file=sys.stderr, flush=True)
+            sys.stderr.write("[WEBHOOK] GET request - stderr write\n")
+            sys.stderr.flush()
+            logger.info("GET request - Health check")
+            logger.error("GET request - ERROR level test")  # ERROR 레벨도 테스트
+        except Exception as e:
+            pass  # 로그 출력 실패해도 계속 진행
+        
         self._send_response(200, {"ok": True, "message": "Webhook endpoint is active"})
     
     def do_POST(self):
