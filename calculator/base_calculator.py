@@ -228,6 +228,41 @@ class BaseCalculator:
                 "min_amount": self.config.get("min_amount", 3000)
             }
         
+        # 특이사항 검증: '압류', '가압류', '경매취하자금' 있으면 취급 불가
+        special_notes = property_data.get("special_notes", "") or ""
+        restricted_keywords = ["압류", "가압류", "경매취하자금"]
+        for keyword in restricted_keywords:
+            if keyword in special_notes:
+                log_print(f"DEBUG: BaseCalculator.calculate - 특이사항에 '{keyword}' 발견, 취급 불가")
+                logger.warning(f"BaseCalculator.calculate - 특이사항에 '{keyword}' 발견, 취급 불가")
+                return {
+                    "bank_name": self.bank_name,
+                    "results": [],
+                    "conditions": self.config.get("conditions", []),
+                    "errors": [f"특이사항에 '{keyword}'가 포함되어 취급 불가합니다"],
+                    "min_amount": self.config.get("min_amount", 3000)
+                }
+        
+        # 고객 나이 검증: 75세 이하만 취급
+        max_age = self.config.get("max_age")
+        if max_age is not None:
+            age = property_data.get("age")
+            if age is not None:
+                try:
+                    age_int = int(age)
+                    if age_int > max_age:
+                        log_print(f"DEBUG: BaseCalculator.calculate - 나이 {age_int}세 > max_age {max_age}세, 취급 불가")
+                        logger.warning(f"BaseCalculator.calculate - 나이 {age_int}세 > max_age {max_age}세, 취급 불가")
+                        return {
+                            "bank_name": self.bank_name,
+                            "results": [],
+                            "conditions": self.config.get("conditions", []),
+                            "errors": [f"고객 나이 {age_int}세는 {max_age}세 이하여야 취급 가능합니다"],
+                            "min_amount": self.config.get("min_amount", 3000)
+                        }
+                except (ValueError, TypeError):
+                    pass  # 나이가 숫자가 아니면 무시
+        
         # 하한가 적용 조건 확인
         lower_bound_config = self.config.get("lower_bound_price", {})
         if lower_bound_config.get("enabled", False):
@@ -1364,6 +1399,71 @@ class BaseCalculator:
                 is_business_product, is_household_product, is_subordinate, property_data
             )
         
+        # 기준금리 + 가산금리 방식인지 확인
+        base_interest_rate = self.config.get("base_interest_rate")
+        interest_rate_by_ltv_grade = self.config.get("interest_rate_by_ltv_grade", {})
+        
+        if base_interest_rate is not None and interest_rate_by_ltv_grade:
+            # 기준금리 + 가산금리 방식
+            # 82% LTV이고 2급지인 경우 특별 처리
+            if ltv == 82 and region_grade == 2:
+                ltv_key = "82_2"
+            elif ltv == 82 and region_grade == 1:
+                ltv_key = "82_1"
+            else:
+                ltv_key = str(ltv)
+            
+            print(f"DEBUG: get_interest_rate - 기준금리 방식: base_interest_rate={base_interest_rate}, ltv={ltv}, region_grade={region_grade}, ltv_key={ltv_key}")
+            
+            if ltv_key not in interest_rate_by_ltv_grade:
+                print(f"DEBUG: get_interest_rate - LTV {ltv_key} not found in interest_rate_by_ltv_grade")
+                return {
+                    "interest_rate": None,
+                    "interest_rate_range": None,
+                    "credit_grade": credit_grade
+                }
+            
+            grade_rates = interest_rate_by_ltv_grade[ltv_key]
+            print(f"DEBUG: get_interest_rate - grade_rates for LTV {ltv_key}: {grade_rates}")
+            
+            if credit_grade is not None:
+                # 신용등급이 있으면 해당 등급의 가산금리 사용
+                grade_key = str(credit_grade)
+                print(f"DEBUG: get_interest_rate - looking for grade_key: {grade_key}")
+                if grade_key in grade_rates:
+                    additional_rate = grade_rates[grade_key]
+                    final_rate = base_interest_rate + additional_rate
+                    print(f"DEBUG: get_interest_rate - 기준금리 {base_interest_rate}% + 가산금리 {additional_rate}% = {final_rate}% for grade {credit_grade}")
+                    return {
+                        "interest_rate": round(final_rate, 2),
+                        "interest_rate_range": None,
+                        "credit_grade": credit_grade
+                    }
+                else:
+                    print(f"DEBUG: get_interest_rate - grade_key {grade_key} not found in grade_rates")
+            
+            # 신용등급이 없으면 최저~최고 금리 범위 반환
+            all_additional_rates = [v for v in grade_rates.values() if isinstance(v, (int, float))]
+            if all_additional_rates:
+                min_additional = min(all_additional_rates)
+                max_additional = max(all_additional_rates)
+                min_rate = base_interest_rate + min_additional
+                max_rate = base_interest_rate + max_additional
+                print(f"DEBUG: get_interest_rate - no credit_grade, returning range: {min_rate}~{max_rate}")
+                return {
+                    "interest_rate": None,
+                    "interest_rate_range": (round(min_rate, 2), round(max_rate, 2)),
+                    "credit_grade": None
+                }
+            
+            print(f"DEBUG: get_interest_rate - no rates found, returning None")
+            return {
+                "interest_rate": None,
+                "interest_rate_range": None,
+                "credit_grade": credit_grade
+            }
+        
+        # 기존 방식 (interest_rates_by_ltv 사용)
         ltv_rates = self.config.get("interest_rates_by_ltv", {})
         
         # 82% LTV이고 2급지인 경우 특별 처리
