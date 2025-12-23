@@ -21,6 +21,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# 모듈 로드 시 즉시 로그 출력 (함수 로드 확인용)
+print("Webhook module loaded", file=sys.stderr, flush=True)
+logger.info("Webhook module initialized")
+
 # 전역 애플리케이션 인스턴스
 application = None
 
@@ -201,11 +205,15 @@ class handler(BaseHTTPRequestHandler):
     
     def do_GET(self):
         """GET 요청 처리 (헬스체크)"""
+        # 즉시 로그 출력 (함수 실행 확인용)
+        print("GET request received", file=sys.stderr, flush=True)
         logger.info("GET request - Health check")
         self._send_response(200, {"ok": True, "message": "Webhook endpoint is active"})
     
     def do_POST(self):
         """POST 요청 처리 (텔레그램 웹훅)"""
+        # 즉시 로그 출력 (함수 실행 확인용)
+        print("POST request received", file=sys.stderr, flush=True)
         logger.info("POST request received")
         
         try:
@@ -311,12 +319,12 @@ class handler(BaseHTTPRequestHandler):
             # 이벤트 루프 안전하게 실행 (웹사이트 참조: 단일 이벤트 루프 재사용)
             global _global_loop
             
+            try:
+                # 기존 루프 확인
                 try:
-                    # 기존 루프 확인
-                    try:
-                        loop = asyncio.get_running_loop()
-                        logger.info("Event loop already running, using thread")
-                        import threading
+                    loop = asyncio.get_running_loop()
+                    logger.info("Event loop already running, using thread")
+                    import threading
                     import queue
                     
                     result_queue = queue.Queue()
