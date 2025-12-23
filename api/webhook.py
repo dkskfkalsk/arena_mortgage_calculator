@@ -38,7 +38,6 @@ try:
     sys.stderr.write("[WEBHOOK] Module loaded - stderr write\n")
     sys.stderr.flush()
     logger.info("Webhook module initialized")
-    logger.error("Webhook module - ERROR level test")  # ERROR 레벨도 테스트
 except Exception:
     pass  # 로그 출력 실패해도 계속 진행
 
@@ -257,7 +256,6 @@ class handler(BaseHTTPRequestHandler):
             sys.stderr.write("[WEBHOOK] GET request - stderr write\n")
             sys.stderr.flush()
             logger.info("GET request - Health check")
-            logger.error("GET request - ERROR level test")  # ERROR 레벨도 테스트
         except Exception as e:
             pass  # 로그 출력 실패해도 계속 진행
         
@@ -407,6 +405,7 @@ class handler(BaseHTTPRequestHandler):
                 # 기존 루프 확인
                 try:
                     loop = asyncio.get_running_loop()
+                    print("[WEBHOOK] Event loop already running, using thread", file=sys.stderr, flush=True)
                     logger.info("Event loop already running, using thread")
                     import threading
                     import queue
@@ -417,16 +416,21 @@ class handler(BaseHTTPRequestHandler):
                     def run_in_new_thread():
                         global _global_loop
                         try:
+                            print("[WEBHOOK] Thread: Starting event loop setup", file=sys.stderr, flush=True)
                             # 전역 루프가 없으면 생성, 있으면 재사용
                             if _global_loop is None or _global_loop.is_closed():
+                                print("[WEBHOOK] Thread: Creating new event loop", file=sys.stderr, flush=True)
                                 new_loop = asyncio.new_event_loop()
                                 asyncio.set_event_loop(new_loop)
                             else:
+                                print("[WEBHOOK] Thread: Reusing existing event loop", file=sys.stderr, flush=True)
                                 new_loop = _global_loop
                                 asyncio.set_event_loop(new_loop)
                             
                             try:
+                                print("[WEBHOOK] Thread: Running process()", file=sys.stderr, flush=True)
                                 new_loop.run_until_complete(process())
+                                print("[WEBHOOK] Thread: process() completed", file=sys.stderr, flush=True)
                                 result_queue.put("success")
                             finally:
                                 # 루프를 닫지 않고 유지 (재사용을 위해)
@@ -452,43 +456,61 @@ class handler(BaseHTTPRequestHandler):
                         except Exception as e:
                             exception_queue.put(e)
                     
+                    print("[WEBHOOK] Starting thread for async processing", file=sys.stderr, flush=True)
                     thread = threading.Thread(target=run_in_new_thread, daemon=False)
                     thread.start()
                     thread.join(timeout=25)
                     
                     if not exception_queue.empty():
-                        raise exception_queue.get()
+                        exception = exception_queue.get()
+                        print(f"[WEBHOOK] Exception from thread: {str(exception)}", file=sys.stderr, flush=True)
+                        raise exception
                     
                     if thread.is_alive():
+                        print("[WEBHOOK] Thread timeout after 25 seconds", file=sys.stderr, flush=True)
                         logger.error("Thread timeout after 25 seconds")
                         raise TimeoutError("Process timeout after 25 seconds")
+                    
+                    print("[WEBHOOK] Thread completed successfully", file=sys.stderr, flush=True)
                         
                 except RuntimeError:
+                    print("[WEBHOOK] No running loop, using global loop or creating new one", file=sys.stderr, flush=True)
                     logger.info("No running loop, using global loop or creating new one")
                     
                     if _global_loop is None or _global_loop.is_closed():
+                        print("[WEBHOOK] Creating new global event loop", file=sys.stderr, flush=True)
                         _global_loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(_global_loop)
                         logger.info("Created new global event loop")
                     else:
+                        print("[WEBHOOK] Reusing existing global event loop", file=sys.stderr, flush=True)
                         asyncio.set_event_loop(_global_loop)
                         logger.info("Reusing existing global event loop")
                     
                     try:
+                        print("[WEBHOOK] Running process() in event loop", file=sys.stderr, flush=True)
                         _global_loop.run_until_complete(process())
+                        print("[WEBHOOK] process() completed successfully", file=sys.stderr, flush=True)
                     except RuntimeError as e:
                         if "Event loop is closed" not in str(e):
+                            print(f"[WEBHOOK] RuntimeError in process: {str(e)}", file=sys.stderr, flush=True)
                             raise
+                        print(f"[WEBHOOK] Event loop closed (ignored): {str(e)}", file=sys.stderr, flush=True)
                         logger.warning(f"Event loop closed (ignored): {str(e)}")
                     except Exception as e:
+                        print(f"[WEBHOOK] Exception in process: {str(e)}", file=sys.stderr, flush=True)
                         logger.error(f"Error in process (ignored): {str(e)}", exc_info=True)
+                        import traceback
+                        traceback.print_exc()
                     
             except Exception as e:
+                print(f"[WEBHOOK] Event loop error: {str(e)}", file=sys.stderr, flush=True)
                 logger.error(f"Event loop error: {str(e)}", exc_info=True)
                 import traceback
                 traceback.print_exc()
                 # 오류가 발생해도 HTTP 응답은 정상 반환 (이미 메시지 전송 시도했으므로)
 
+            print("[WEBHOOK] Sending 200 OK response", file=sys.stderr, flush=True)
             self._send_response(200, {"ok": True})
 
         except json.JSONDecodeError:
