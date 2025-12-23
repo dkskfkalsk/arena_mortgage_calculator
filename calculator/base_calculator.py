@@ -203,6 +203,9 @@ class BaseCalculator:
                 "errors": []
             }
         """
+        # 모든 검증 오류를 수집
+        validation_errors = []
+        
         # KB시세 검증
         kb_price_raw = property_data.get("kb_price")
         log_print(f"DEBUG: BaseCalculator.calculate - kb_price_raw: {kb_price_raw}, type: {type(kb_price_raw)}")
@@ -213,35 +216,34 @@ class BaseCalculator:
         if kb_price is None:
             log_print(f"DEBUG: BaseCalculator.calculate - KB price is None, returning None")
             logger.warning("BaseCalculator.calculate - KB price is None, returning None")
-            return None  # 시세 없으면 산출 불가
+            validation_errors.append("KB시세 정보가 없어 취급 불가합니다")
+            return {
+                "bank_name": self.bank_name,
+                "results": [],
+                "conditions": self.config.get("conditions", []),
+                "errors": validation_errors,
+                "min_amount": self.config.get("min_amount", 3000)
+            }
         
         # KB시세 최소 금액 확인
         min_kb_price = self.config.get("min_kb_price")
         if min_kb_price is not None and kb_price < min_kb_price:
             log_print(f"DEBUG: BaseCalculator.calculate - KB price {kb_price}만원 < min_kb_price {min_kb_price}만원, 취급 불가")
             logger.warning(f"BaseCalculator.calculate - KB price {kb_price}만원 < min_kb_price {min_kb_price}만원, 취급 불가")
-            return {
-                "bank_name": self.bank_name,
-                "results": [],
-                "conditions": self.config.get("conditions", []),
-                "errors": [f"KB시세 {kb_price:,.0f}만원은 최소 {min_kb_price:,.0f}만원 이상이어야 취급 가능합니다"],
-                "min_amount": self.config.get("min_amount", 3000)
-            }
+            validation_errors.append(f"KB시세 {kb_price:,.0f}만원은 최소 {min_kb_price:,.0f}만원 이상이어야 취급 가능합니다 (현재: {kb_price:,.0f}만원, 부족: {min_kb_price - kb_price:,.0f}만원)")
         
         # 특이사항 검증: '압류', '가압류', '경매취하자금' 있으면 취급 불가
         special_notes = property_data.get("special_notes", "") or ""
         restricted_keywords = ["압류", "가압류", "경매취하자금"]
+        found_keywords = []
         for keyword in restricted_keywords:
             if keyword in special_notes:
+                found_keywords.append(keyword)
                 log_print(f"DEBUG: BaseCalculator.calculate - 특이사항에 '{keyword}' 발견, 취급 불가")
                 logger.warning(f"BaseCalculator.calculate - 특이사항에 '{keyword}' 발견, 취급 불가")
-                return {
-                    "bank_name": self.bank_name,
-                    "results": [],
-                    "conditions": self.config.get("conditions", []),
-                    "errors": [f"특이사항에 '{keyword}'가 포함되어 취급 불가합니다"],
-                    "min_amount": self.config.get("min_amount", 3000)
-                }
+        
+        if found_keywords:
+            validation_errors.append(f"특이사항에 '{', '.join(found_keywords)}'가 포함되어 취급 불가합니다")
         
         # 고객 나이 검증: 75세 이하만 취급
         max_age = self.config.get("max_age")
@@ -253,15 +255,19 @@ class BaseCalculator:
                     if age_int > max_age:
                         log_print(f"DEBUG: BaseCalculator.calculate - 나이 {age_int}세 > max_age {max_age}세, 취급 불가")
                         logger.warning(f"BaseCalculator.calculate - 나이 {age_int}세 > max_age {max_age}세, 취급 불가")
-                        return {
-                            "bank_name": self.bank_name,
-                            "results": [],
-                            "conditions": self.config.get("conditions", []),
-                            "errors": [f"고객 나이 {age_int}세는 {max_age}세 이하여야 취급 가능합니다"],
-                            "min_amount": self.config.get("min_amount", 3000)
-                        }
+                        validation_errors.append(f"고객 나이 {age_int}세는 {max_age}세 이하여야 취급 가능합니다 (초과: {age_int - max_age}세)")
                 except (ValueError, TypeError):
                     pass  # 나이가 숫자가 아니면 무시
+        
+        # 검증 오류가 있으면 즉시 반환
+        if validation_errors:
+            return {
+                "bank_name": self.bank_name,
+                "results": [],
+                "conditions": self.config.get("conditions", []),
+                "errors": validation_errors,
+                "min_amount": self.config.get("min_amount", 3000)
+            }
         
         # 하한가 적용 조건 확인
         lower_bound_config = self.config.get("lower_bound_price", {})
@@ -307,15 +313,12 @@ class BaseCalculator:
                 is_valid_region = True
                 break
         
+        # 지역 및 급지 검증 오류 수집
+        region_errors = []
+        
         if not is_valid_region:
             print(f"DEBUG: BaseCalculator.calculate - Region {region} is not in ALL_REGIONS list, 취급 불가지역")
-            return {
-                "bank_name": self.bank_name,
-                "results": [],
-                "conditions": self.config.get("conditions", []),
-                "errors": ["취급 불가지역"],
-                "min_amount": self.config.get("min_amount", 3000)
-            }
+            region_errors.append(f"지역 '{region}'은(는) 취급 가능한 지역 목록에 없습니다")
         
         # 대상 지역 확인 (광역 단위로 체크)
         target_regions = self.config.get("target_regions", [])
@@ -340,37 +343,28 @@ class BaseCalculator:
                     break
             if not is_target_region:
                 print(f"DEBUG: BaseCalculator.calculate - Region {region} is not in target regions: {target_regions}")
-                # 취급 불가지역인 경우 특별한 결과 반환
-                return {
-                    "bank_name": self.bank_name,
-                    "results": [],
-                    "conditions": self.config.get("conditions", []),
-                    "errors": ["취급 불가지역"],
-                    "min_amount": self.config.get("min_amount", 3000)
-                }
+                target_regions_str = ", ".join(target_regions)
+                region_errors.append(f"지역 '{region}'은(는) 취급 대상 지역({target_regions_str})에 해당하지 않습니다")
         
         # 급지 확인
         grade = self.get_region_grade(region)
         print(f"DEBUG: BaseCalculator.calculate - region: {region}, grade: {grade}")
         if grade is None:
             print(f"DEBUG: BaseCalculator.calculate - grade is None for region: {region}, 취급 불가지역")
-            # 급지가 없으면 취급 불가지역으로 처리
-            return {
-                "bank_name": self.bank_name,
-                "results": [],
-                "conditions": self.config.get("conditions", []),
-                "errors": ["취급 불가지역"],
-                "min_amount": self.config.get("min_amount", 3000)
-            }
+            region_errors.append(f"지역 '{region}'의 급지 정보가 없어 취급 불가합니다")
         
         # 6급지인 경우 취급 불가지역으로 처리
         if grade == 6:
             print(f"DEBUG: BaseCalculator.calculate - grade 6 for region: {region}, 취급 불가지역")
+            region_errors.append(f"지역 '{region}'은(는) 6급지로 취급 불가합니다")
+        
+        # 지역 검증 오류가 있으면 반환
+        if region_errors:
             return {
                 "bank_name": self.bank_name,
                 "results": [],
                 "conditions": self.config.get("conditions", []),
-                "errors": ["취급 불가지역"],
+                "errors": region_errors,
                 "min_amount": self.config.get("min_amount", 3000)
             }
         
@@ -395,7 +389,7 @@ class BaseCalculator:
                         "bank_name": self.bank_name,
                         "results": [],
                         "conditions": self.config.get("conditions", []),
-                        "errors": [f"면적 {area}㎡는 서울지역 이외에서는 135㎡ 초과로 취급 불가"],
+                        "errors": [f"면적 {area}㎡는 서울지역 이외에서는 최대 {max_area}㎡까지 취급 가능합니다 (초과: {area - max_area}㎡)"],
                         "min_amount": self.config.get("min_amount", 3000)
                     }
         
@@ -532,6 +526,34 @@ class BaseCalculator:
         print(f"DEBUG: BaseCalculator.calculate - mortgages: {mortgages}")  # 추가
         print(f"DEBUG: BaseCalculator.calculate - refinance_principal(대환 원금 합계): {refinance_principal}만원, total_mortgage(차감할 금액): {total_mortgage}")  # 추가
         
+        # BNK캐피탈인 경우 대환 요청이 있었는데 대환 가능한 기관이 없는지 확인
+        is_bnk = self.bank_name == "BNK캐피탈" or "BNK캐피탈" in self.bank_name or "비엔케이캐피탈" in self.bank_name
+        if is_bnk:
+            # 대환 요청된 근저당권이 있는지 확인
+            has_refinance_request = any(m.get("is_refinance", False) for m in mortgages)
+            if has_refinance_request and refinance_principal == 0:
+                # 대환 요청은 있었지만 대환 가능한 기관이 없음
+                requested_institutions = []
+                for mortgage in mortgages:
+                    if mortgage.get("is_refinance", False):
+                        requested_institutions.append(mortgage.get("institution", ""))
+                
+                institutions_str = ", ".join(requested_institutions) if requested_institutions else "요청된 기관"
+                refinanceable_list = self.config.get("refinanceable_institutions", [])
+                refinanceable_str = ", ".join(refinanceable_list[:5]) + ("..." if len(refinanceable_list) > 5 else "")
+                
+                return {
+                    "bank_name": self.bank_name,
+                    "results": [],
+                    "conditions": self.config.get("conditions", []),
+                    "errors": [
+                        f"대환 요청된 기관({institutions_str})이 대환 가능 기관 목록에 없습니다",
+                        f"대환 가능 기관: {refinanceable_str}",
+                        f"참고: 기관명에 '사업자금'이 포함된 경우에도 대환 가능합니다"
+                    ],
+                    "min_amount": self.config.get("min_amount", 3000)
+                }
+        
         # 대환 여부 판단
         is_refinance = refinance_principal > 0
         
@@ -605,11 +627,21 @@ class BaseCalculator:
                 
                 if not can_refinance:
                     print(f"DEBUG: BaseCalculator.calculate - OK 저축은행 사업자 상품: 대환 요청된 기관이 사업자 상품이 아님")
+                    # 대환 요청된 기관 목록 추출
+                    requested_institutions = []
+                    for mortgage in mortgages:
+                        if mortgage.get("is_refinance", False):
+                            requested_institutions.append(mortgage.get("institution", ""))
+                    
+                    institutions_str = ", ".join(requested_institutions) if requested_institutions else "요청된 기관"
                     return {
                         "bank_name": self.bank_name,
                         "results": [],
                         "conditions": self.config.get("conditions", []),
-                        "errors": ["사업자 상품은 사업자금 기관만 대환 가능"],
+                        "errors": [
+                            f"사업자 상품은 사업자금 기관만 대환 가능합니다",
+                            f"대환 요청된 기관({institutions_str})이 사업자 상품 대환 가능 기관 목록에 없습니다"
+                        ],
                         "min_amount": self.config.get("min_amount", 3000)
                     }
         
@@ -944,7 +976,10 @@ class BaseCalculator:
                         "bank_name": self.bank_name,
                         "results": [],
                         "conditions": self.config.get("conditions", []),
-                        "errors": [f"기존 근저당권 채권최고액({total_mortgage_for_check:,.0f}만원)이 최대 한도({max_ltv_amount:,.0f}만원, LTV {max_ltv}%)를 초과하여 추가 대출 불가능"],
+                        "errors": [
+                            f"기존 근저당권 채권최고액({total_mortgage_for_check:,.0f}만원)이 최대 한도({max_ltv_amount:,.0f}만원, LTV {max_ltv}%)를 초과하여 추가 대출 불가능",
+                            f"초과 금액: {shortage:,.0f}만원 (기존 채권최고액 {total_mortgage_for_check:,.0f}만원 - 최대 한도 {max_ltv_amount:,.0f}만원)"
+                        ],
                         "min_amount": self.config.get("min_amount", 3000)
                     }
             else:
@@ -956,7 +991,10 @@ class BaseCalculator:
                         "bank_name": self.bank_name,
                         "results": [],
                         "conditions": self.config.get("conditions", []),
-                        "errors": [f"기존 근저당권 채권최고액({total_mortgage:,.0f}만원)이 최대 한도({max_ltv_amount:,.0f}만원, LTV {max_ltv}%)를 초과하여 추가 대출 불가능"],
+                        "errors": [
+                            f"기존 근저당권 채권최고액({total_mortgage:,.0f}만원)이 최대 한도({max_ltv_amount:,.0f}만원, LTV {max_ltv}%)를 초과하여 추가 대출 불가능",
+                            f"초과 금액: {shortage:,.0f}만원 (기존 채권최고액 {total_mortgage:,.0f}만원 - 최대 한도 {max_ltv_amount:,.0f}만원)"
+                        ],
                         "min_amount": self.config.get("min_amount", 3000)
                     }
             
