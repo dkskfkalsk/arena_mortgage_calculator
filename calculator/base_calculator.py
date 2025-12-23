@@ -478,11 +478,41 @@ class BaseCalculator:
                     other_mortgages.append(mortgage)
         else:
             # 일반 처리
+            # BNK캐피탈인 경우 대환 가능 기관 체크
+            is_bnk = self.bank_name == "BNK캐피탈" or "BNK캐피탈" in self.bank_name or "비엔케이캐피탈" in self.bank_name
+            refinanceable_institutions = self.config.get("refinanceable_institutions", []) if is_bnk else []
+            
             for mortgage in mortgages:
                 if mortgage.get("is_refinance", False):
-                    mortgage_amount = float(mortgage.get("amount", 0) or 0)
-                    refinance_principal += mortgage_amount
-                    print(f"DEBUG: BaseCalculator.calculate - 대환할 근저당권 발견: priority={mortgage.get('priority')}, institution={mortgage.get('institution')}, principal={mortgage_amount}만원")
+                    institution = mortgage.get("institution", "")
+                    institution_clean = institution.replace(" ", "")
+                    
+                    # BNK캐피탈인 경우 대환 가능 여부 확인
+                    can_refinance = False
+                    if is_bnk and refinanceable_institutions:
+                        # 리스트에 있는 기관인지 확인
+                        for ref_inst in refinanceable_institutions:
+                            ref_inst_clean = ref_inst.replace(" ", "")
+                            if ref_inst_clean in institution_clean:
+                                can_refinance = True
+                                break
+                        
+                        # 리스트에 없지만 '사업자금' 문자열이 있으면 대환 가능
+                        if not can_refinance and "사업자금" in institution:
+                            can_refinance = True
+                            print(f"DEBUG: BaseCalculator.calculate - BNK캐피탈: '{institution}'에 '사업자금' 포함되어 대환 가능")
+                    else:
+                        # BNK캐피탈이 아니면 대환 가능
+                        can_refinance = True
+                    
+                    if can_refinance:
+                        mortgage_amount = float(mortgage.get("amount", 0) or 0)
+                        refinance_principal += mortgage_amount
+                        print(f"DEBUG: BaseCalculator.calculate - 대환할 근저당권 발견: priority={mortgage.get('priority')}, institution={institution}, principal={mortgage_amount}만원")
+                    else:
+                        # 대환 불가능한 기관은 후순위로 처리
+                        print(f"DEBUG: BaseCalculator.calculate - BNK캐피탈: '{institution}'는 대환 가능 기관이 아니므로 후순위로 처리")
+                        other_mortgages.append(mortgage)
                 else:
                     other_mortgages.append(mortgage)
         
