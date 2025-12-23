@@ -179,9 +179,7 @@
     "710-764": 6,
     "656-709": 7
   },
-  "conditions": [
-    " "
-  ],
+  "conditions": [],
   "min_amount": 2000,
   "ltv_calculation_method": "total_with_other_liens",
   "max_total_ltv": 90,
