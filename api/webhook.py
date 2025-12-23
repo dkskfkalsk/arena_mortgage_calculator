@@ -13,7 +13,8 @@ from http.server import BaseHTTPRequestHandler
 # 프로젝트 루트를 경로에 추가
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# 간단한 로깅 설정
+# 2025년 Vercel Python 로깅 설정
+# 중요: Vercel에서는 print와 logging 둘 다 사용해야 로그가 확실히 보임
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -21,8 +22,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 모듈 로드 시 즉시 로그 출력 (함수 로드 확인용)
-print("Webhook module loaded", file=sys.stderr, flush=True)
+# 모듈 로드 시 즉시 로그 출력 (2025년 방식: print + logging)
+print("[WEBHOOK] Module loaded", file=sys.stderr, flush=True)
+sys.stderr.flush()
 logger.info("Webhook module initialized")
 
 # 전역 애플리케이션 인스턴스
@@ -67,9 +69,11 @@ def get_application():
         if ALLOWED_CHAT_IDS_STR:
             allowed_chat_ids = [int(chat_id.strip()) for chat_id in ALLOWED_CHAT_IDS_STR.split(",") if chat_id.strip()]
         
+        print(f"[WEBHOOK] Application initializing - allowed_chat_ids: {allowed_chat_ids}", file=sys.stderr, flush=True)
         logger.info(f"Application initialized - allowed_chat_ids: {allowed_chat_ids}")
 
         application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+        print("[WEBHOOK] Application initialized successfully", file=sys.stderr, flush=True)
 
         def get_chat_id(update):
             """업데이트에서 채팅방 ID 가져오기"""
@@ -205,15 +209,17 @@ class handler(BaseHTTPRequestHandler):
     
     def do_GET(self):
         """GET 요청 처리 (헬스체크)"""
-        # 즉시 로그 출력 (함수 실행 확인용)
-        print("GET request received", file=sys.stderr, flush=True)
+        # 2025년 Vercel 로깅: print와 logging 둘 다 사용
+        print("[WEBHOOK] GET request received", file=sys.stderr, flush=True)
+        sys.stderr.flush()
         logger.info("GET request - Health check")
         self._send_response(200, {"ok": True, "message": "Webhook endpoint is active"})
     
     def do_POST(self):
         """POST 요청 처리 (텔레그램 웹훅)"""
-        # 즉시 로그 출력 (함수 실행 확인용)
-        print("POST request received", file=sys.stderr, flush=True)
+        # 2025년 Vercel 로깅: print와 logging 둘 다 사용
+        print("[WEBHOOK] POST request received", file=sys.stderr, flush=True)
+        sys.stderr.flush()
         logger.info("POST request received")
         
         try:
@@ -229,14 +235,17 @@ class handler(BaseHTTPRequestHandler):
 
             # 텔레그램 update 형식 검증 (update_id가 있어야 함)
             if not isinstance(body, dict) or "update_id" not in body:
+                print("[WEBHOOK] Not a telegram update, skipping", file=sys.stderr, flush=True)
                 logger.warning("Not a telegram update, skipping")
                 self._send_response(200, {"ok": True, "skipped": "not telegram update"})
                 return
 
             # 텔레그램 업데이트 처리
+            print("[WEBHOOK] Processing telegram update...", file=sys.stderr, flush=True)
             from telegram import Update
             app = get_application()
             update = Update.de_json(body, app.bot)
+            print(f"[WEBHOOK] Update ID: {update.update_id}", file=sys.stderr, flush=True)
             logger.info(f"Received update - update_id: {update.update_id}")
 
             logger.info(f"Received update - update_id: {update.update_id}, message={update.message is not None}, channel_post={update.channel_post is not None}")
