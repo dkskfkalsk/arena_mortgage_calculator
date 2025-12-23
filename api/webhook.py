@@ -3,9 +3,15 @@
 Vercel 서버리스 함수 - 텔레그램 Webhook
 """
 
+# 가장 먼저 실행되는 로그 (모듈 임포트 시 즉시 실행)
+import sys
+sys.stderr.write("=" * 80 + "\n")
+sys.stderr.write("WEBHOOK.PY FILE LOADED - THIS SHOULD APPEAR IN LOGS\n")
+sys.stderr.write("=" * 80 + "\n")
+sys.stderr.flush()
+
 import json
 import os
-import sys
 import asyncio
 import logging
 from http.server import BaseHTTPRequestHandler
@@ -224,6 +230,12 @@ class handler(BaseHTTPRequestHandler):
     Vercel Python 서버리스 함수 핸들러
     BaseHTTPRequestHandler를 상속하여 텔레그램 웹훅 요청만 처리합니다.
     """
+    
+    def __init__(self, *args, **kwargs):
+        """핸들러 초기화 시 로그 출력"""
+        sys.stderr.write("[HANDLER] Handler class initialized\n")
+        sys.stderr.flush()
+        super().__init__(*args, **kwargs)
     
     def _send_response(self, status_code, data):
         """응답 전송 헬퍼 메서드"""
