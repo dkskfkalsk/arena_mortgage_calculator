@@ -61,22 +61,38 @@ def get_application():
             except ModuleNotFoundError:
                 raise ValueError("TELEGRAM_BOT_TOKEN 환경변수를 설정해주세요.")
 
-        # 허용된 채팅방 ID 가져오기
-        ALLOWED_CHAT_IDS_STR = os.getenv("ALLOWED_CHAT_IDS")
-        if not ALLOWED_CHAT_IDS_STR:
+        # 허용된 채팅방 ID 가져오기 (1번방: banks, 2번방: loan)
+        ALLOWED_CHAT_IDS_BANKS_STR = os.getenv("ALLOWED_CHAT_IDS_BANKS")
+        ALLOWED_CHAT_IDS_LOAN_STR = os.getenv("ALLOWED_CHAT_IDS_LOAN")
+        
+        if not ALLOWED_CHAT_IDS_BANKS_STR:
             try:
-                from config.telegram_config import ALLOWED_CHAT_IDS  # type: ignore
-                ALLOWED_CHAT_IDS_STR = ALLOWED_CHAT_IDS
+                from config.telegram_config import ALLOWED_CHAT_IDS_BANKS  # type: ignore
+                ALLOWED_CHAT_IDS_BANKS_STR = ALLOWED_CHAT_IDS_BANKS
             except (ModuleNotFoundError, ImportError):
-                ALLOWED_CHAT_IDS_STR = None
+                ALLOWED_CHAT_IDS_BANKS_STR = None
+        
+        if not ALLOWED_CHAT_IDS_LOAN_STR:
+            try:
+                from config.telegram_config import ALLOWED_CHAT_IDS_LOAN  # type: ignore
+                ALLOWED_CHAT_IDS_LOAN_STR = ALLOWED_CHAT_IDS_LOAN
+            except (ModuleNotFoundError, ImportError):
+                ALLOWED_CHAT_IDS_LOAN_STR = None
         
         # 허용된 채팅방 ID 리스트로 변환
-        allowed_chat_ids = []
-        if ALLOWED_CHAT_IDS_STR:
-            allowed_chat_ids = [int(chat_id.strip()) for chat_id in ALLOWED_CHAT_IDS_STR.split(",") if chat_id.strip()]
+        allowed_chat_ids_banks = []
+        if ALLOWED_CHAT_IDS_BANKS_STR:
+            allowed_chat_ids_banks = [int(chat_id.strip()) for chat_id in ALLOWED_CHAT_IDS_BANKS_STR.split(",") if chat_id.strip()]
         
-        print(f"[WEBHOOK] Application initializing - allowed_chat_ids: {allowed_chat_ids}", file=sys.stderr, flush=True)
-        logger.info(f"Application initialized - allowed_chat_ids: {allowed_chat_ids}")
+        allowed_chat_ids_loan = []
+        if ALLOWED_CHAT_IDS_LOAN_STR:
+            allowed_chat_ids_loan = [int(chat_id.strip()) for chat_id in ALLOWED_CHAT_IDS_LOAN_STR.split(",") if chat_id.strip()]
+        
+        # 전체 허용된 채팅방 ID (둘 다 합침)
+        allowed_chat_ids = allowed_chat_ids_banks + allowed_chat_ids_loan
+        
+        print(f"[WEBHOOK] Application initializing - allowed_chat_ids_banks: {allowed_chat_ids_banks}, allowed_chat_ids_loan: {allowed_chat_ids_loan}", file=sys.stderr, flush=True)
+        logger.info(f"Application initialized - allowed_chat_ids_banks: {allowed_chat_ids_banks}, allowed_chat_ids_loan: {allowed_chat_ids_loan}")
 
         application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
         print("[WEBHOOK] Application initialized successfully", file=sys.stderr, flush=True)
@@ -100,6 +116,14 @@ def get_application():
             if not allowed_chat_ids:  # 허용 목록이 비어있으면 모든 채팅방 허용
                 return True
             return chat_id in allowed_chat_ids
+        
+        def get_chat_type(chat_id):
+            """채팅방 타입 반환: 'banks' 또는 'loan'"""
+            if chat_id in allowed_chat_ids_banks:
+                return "banks"
+            elif chat_id in allowed_chat_ids_loan:
+                return "loan"
+            return "banks"  # 기본값은 banks
 
         async def start_command(update, context):
             message = update.message or update.channel_post or update.edited_message or update.edited_channel_post
@@ -157,6 +181,11 @@ def get_application():
             
             print(f"[WEBHOOK] handle_message - Chat {chat_id} is allowed, processing", file=sys.stderr, flush=True)
             
+            # 채팅방 타입 확인 (banks 또는 loan)
+            chat_type = get_chat_type(chat_id)
+            print(f"[WEBHOOK] Chat type: {chat_type}", file=sys.stderr, flush=True)
+            logger.info(f"handle_message - chat_type: {chat_type}")
+            
             message_text = message.text
             if not message_text:
                 logger.info("handle_message - No text in message")
@@ -200,8 +229,12 @@ def get_application():
                 print(f"[WEBHOOK] Parsed - kb_price: {property_data.get('kb_price')}", file=sys.stderr, flush=True)
                 logger.info(f"handle_message - property_data parsed: kb_price={property_data.get('kb_price')}")
                 
-                print("[WEBHOOK] Calculating results...", file=sys.stderr, flush=True)
-                results = BaseCalculator.calculate_all_banks(property_data)
+                print(f"[WEBHOOK] Calculating results for chat_type: {chat_type}...", file=sys.stderr, flush=True)
+                # 채팅방 타입에 따라 다른 계산 함수 호출
+                if chat_type == "loan":
+                    results = BaseCalculator.calculate_all_loans(property_data)
+                else:  # banks 또는 None (기본값)
+                    results = BaseCalculator.calculate_all_banks(property_data)
                 print(f"[WEBHOOK] Results count: {len(results) if results else 0}", file=sys.stderr, flush=True)
                 logger.info(f"handle_message - results count: {len(results) if results else 0}")
                 
@@ -323,21 +356,37 @@ class handler(BaseHTTPRequestHandler):
             chat_id = get_chat_id_from_update(update)
             print(f"[WEBHOOK] Chat ID: {chat_id}", file=sys.stderr, flush=True)
 
-            # 허용된 채팅방 ID 확인
-            ALLOWED_CHAT_IDS_STR = os.getenv("ALLOWED_CHAT_IDS")
-            if not ALLOWED_CHAT_IDS_STR:
+            # 허용된 채팅방 ID 확인 (1번방: banks, 2번방: loan)
+            ALLOWED_CHAT_IDS_BANKS_STR = os.getenv("ALLOWED_CHAT_IDS_BANKS")
+            ALLOWED_CHAT_IDS_LOAN_STR = os.getenv("ALLOWED_CHAT_IDS_LOAN")
+            
+            if not ALLOWED_CHAT_IDS_BANKS_STR:
                 try:
-                    from config.telegram_config import ALLOWED_CHAT_IDS  # type: ignore
-                    ALLOWED_CHAT_IDS_STR = ALLOWED_CHAT_IDS
+                    from config.telegram_config import ALLOWED_CHAT_IDS_BANKS  # type: ignore
+                    ALLOWED_CHAT_IDS_BANKS_STR = ALLOWED_CHAT_IDS_BANKS
                 except (ModuleNotFoundError, ImportError):
-                    ALLOWED_CHAT_IDS_STR = None
+                    ALLOWED_CHAT_IDS_BANKS_STR = None
+            
+            if not ALLOWED_CHAT_IDS_LOAN_STR:
+                try:
+                    from config.telegram_config import ALLOWED_CHAT_IDS_LOAN  # type: ignore
+                    ALLOWED_CHAT_IDS_LOAN_STR = ALLOWED_CHAT_IDS_LOAN
+                except (ModuleNotFoundError, ImportError):
+                    ALLOWED_CHAT_IDS_LOAN_STR = None
 
-            allowed_chat_ids = []
-            if ALLOWED_CHAT_IDS_STR:
-                allowed_chat_ids = [int(chat_id.strip()) for chat_id in ALLOWED_CHAT_IDS_STR.split(",") if chat_id.strip()]
+            allowed_chat_ids_banks = []
+            if ALLOWED_CHAT_IDS_BANKS_STR:
+                allowed_chat_ids_banks = [int(chat_id.strip()) for chat_id in ALLOWED_CHAT_IDS_BANKS_STR.split(",") if chat_id.strip()]
 
-            print(f"[WEBHOOK] Allowed chat IDs: {allowed_chat_ids}", file=sys.stderr, flush=True)
-            logger.info(f"chat_id: {chat_id}, allowed_chat_ids: {allowed_chat_ids}")
+            allowed_chat_ids_loan = []
+            if ALLOWED_CHAT_IDS_LOAN_STR:
+                allowed_chat_ids_loan = [int(chat_id.strip()) for chat_id in ALLOWED_CHAT_IDS_LOAN_STR.split(",") if chat_id.strip()]
+
+            # 전체 허용된 채팅방 ID (둘 다 합침)
+            allowed_chat_ids = allowed_chat_ids_banks + allowed_chat_ids_loan
+
+            print(f"[WEBHOOK] Allowed chat IDs - banks: {allowed_chat_ids_banks}, loan: {allowed_chat_ids_loan}", file=sys.stderr, flush=True)
+            logger.info(f"chat_id: {chat_id}, allowed_chat_ids_banks: {allowed_chat_ids_banks}, allowed_chat_ids_loan: {allowed_chat_ids_loan}")
 
             # 허용된 채팅방이 설정되어 있고, 현재 채팅방이 허용 목록에 없으면 무시
             if allowed_chat_ids and chat_id not in allowed_chat_ids:

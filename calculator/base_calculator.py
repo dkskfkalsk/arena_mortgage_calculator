@@ -1803,4 +1803,76 @@ class BaseCalculator:
                 continue
         
         return results
+    
+    @classmethod
+    def calculate_all_loans(cls, property_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        모든 대출 상품에 대해 계산 수행 (data/loan 폴더)
+        FSS 폴더와 Local 폴더 모두 처리
+        
+        Args:
+            property_data: 파싱된 담보물건 정보
+        
+        Returns:
+            계산 결과 리스트 (에러 메시지가 있는 경우도 포함)
+        """
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        loan_base_dir = os.path.join(current_dir, "..", "data", "loan")
+        
+        if not os.path.exists(loan_base_dir):
+            print(f"⚠️  data/loan 폴더가 없습니다: {loan_base_dir}")
+            return []
+        
+        calculators = []
+        
+        # FSS 폴더와 Local 폴더 모두 처리
+        subfolders = ["FSS", "Local"]
+        for subfolder in subfolders:
+            loan_dir = os.path.join(loan_base_dir, subfolder)
+            if not os.path.exists(loan_dir):
+                print(f"⚠️  {subfolder} 폴더가 없습니다: {loan_dir}")
+                continue
+            
+            # 각 폴더의 모든 JSON 파일 찾기 및 계산기 생성
+            for filename in os.listdir(loan_dir):
+                if filename.endswith("_config.json") or filename.endswith(".json"):
+                    config_path = os.path.join(loan_dir, filename)
+                    try:
+                        calculator = cls(config_path)
+                        calculators.append(calculator)
+                        print(f"✅ {subfolder}/{filename} 계산기 로드 완료")
+                    except Exception as e:
+                        print(f"⚠️  계산기 로드 실패 ({subfolder}/{filename}): {e}")
+                        continue
+        
+        # 모든 계산기 실행
+        results = []
+        for calculator in calculators:
+            try:
+                # OK저축은행인 경우 가계자금과 사업자금을 각각 계산
+                is_ok_bank = calculator.bank_name == "OK저축은행" or "OK저축은행" in calculator.bank_name or "오케이저축은행" in calculator.bank_name
+                
+                if is_ok_bank:
+                    # 가계자금 계산
+                    household_result = calculator.calculate(property_data, product_type="household")
+                    if household_result is not None:
+                        household_result["bank_name"] = "OK저축은행 가계자금"
+                        results.append(household_result)
+                    
+                    # 사업자금 계산
+                    business_result = calculator.calculate(property_data, product_type="business")
+                    if business_result is not None:
+                        business_result["bank_name"] = "OK저축은행 사업자금"
+                        results.append(business_result)
+                else:
+                    # 일반 금융사는 기존대로 계산
+                    result = calculator.calculate(property_data)
+                    if result is not None:
+                        # 취급 불가지역인 경우도 포함 (errors에 "취급 불가지역"이 있으면)
+                        results.append(result)
+            except Exception as e:
+                print(f"계산기 {calculator.bank_name} 에러: {e}")
+                continue
+        
+        return results
 
