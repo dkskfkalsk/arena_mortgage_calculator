@@ -127,3 +127,42 @@ def extract_lower_bound_price(kb_price):
         print(f"DEBUG: extract_lower_bound_price - error: {e}, input: {kb_price}")
         return None
 
+
+def extract_kb_ai_price_from_special_notes(special_notes):
+    """
+    특이사항에서 KB AI시세 추출
+    "KB AI시세: 25,000만원" 또는 "KB AI시세 25,000만원" 형식 처리
+    """
+    if not special_notes:
+        return None
+    
+    try:
+        import re
+        notes_str = str(special_notes).strip()
+        
+        # "KB AI시세" 또는 "KB AI 시세" 패턴 찾기
+        # 다양한 형식 지원: "KB AI시세: 25,000만원", "KB AI시세 25,000만원", "KB AI 시세 25,000만원" 등
+        patterns = [
+            r'KB\s*AI\s*시세\s*[:\s]*([\d,]+(?:\s*만원)?)',
+            r'KB\s*AI시세\s*[:\s]*([\d,]+(?:\s*만원)?)',
+            r'KB\s*AI\s*시세\s*[:\s]*([\d,]+)',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, notes_str, re.IGNORECASE)
+            if match:
+                price_str = match.group(1).strip()
+                # "만원" 제거 후 숫자만 추출
+                price_str_clean = price_str.replace("만원", "").replace("만", "").replace(",", "").strip()
+                if price_str_clean and len(price_str_clean) >= 3:
+                    price = float(price_str_clean)
+                    print(f"DEBUG: extract_kb_ai_price_from_special_notes - extracted KB AI price: {price}만원")
+                    return price
+        
+        print(f"DEBUG: extract_kb_ai_price_from_special_notes - no KB AI price found in special_notes")
+        return None
+        
+    except (ValueError, AttributeError, TypeError) as e:
+        print(f"DEBUG: extract_kb_ai_price_from_special_notes - error: {e}, input: {special_notes}")
+        return None
+

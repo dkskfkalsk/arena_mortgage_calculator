@@ -9,7 +9,7 @@ import os
 import sys
 import logging
 from typing import Dict, List, Optional, Any, Union
-from utils.validators import validate_kb_price, extract_lower_bound_price
+from utils.validators import validate_kb_price, extract_lower_bound_price, extract_kb_ai_price_from_special_notes
 
 # Vercel 로그 출력을 위한 강력한 헬퍼 함수
 def log_print(*args, **kwargs):
@@ -213,6 +213,19 @@ class BaseCalculator:
         kb_price = self.validate_kb_price(kb_price_raw)
         log_print(f"DEBUG: BaseCalculator.calculate - kb_price after validation: {kb_price}")
         logger.debug(f"BaseCalculator.calculate - kb_price after validation: {kb_price}")
+        
+        # 빌라인 경우 KB시세가 없으면 특이사항에서 KB AI시세 추출 시도
+        if kb_price is None:
+            property_type = property_data.get("property_type", "")
+            if property_type and "빌라" in property_type:
+                special_notes = property_data.get("special_notes", "") or ""
+                kb_ai_price = extract_kb_ai_price_from_special_notes(special_notes)
+                if kb_ai_price is not None:
+                    log_print(f"DEBUG: BaseCalculator.calculate - 빌라인 경우 KB AI시세 추출: {kb_ai_price}만원")
+                    logger.info(f"BaseCalculator.calculate - 빌라인 경우 KB AI시세 추출: {kb_ai_price}만원")
+                    kb_price = kb_ai_price
+                    kb_price_raw = f"KB AI시세: {kb_ai_price}만원"  # 원본도 업데이트 (하한가 추출 등에 사용)
+        
         if kb_price is None:
             log_print(f"DEBUG: BaseCalculator.calculate - KB price is None, returning None")
             logger.warning("BaseCalculator.calculate - KB price is None, returning None")
@@ -225,16 +238,55 @@ class BaseCalculator:
                 "min_amount": self.config.get("min_amount", 3000)
             }
         
-        # KB시세 최소 금액 확인
-        min_kb_price = self.config.get("min_kb_price")
-        if min_kb_price is not None and kb_price < min_kb_price:
-            log_print(f"DEBUG: BaseCalculator.calculate - KB price {kb_price}만원 < min_kb_price {min_kb_price}만원, 취급 불가")
-            logger.warning(f"BaseCalculator.calculate - KB price {kb_price}만원 < min_kb_price {min_kb_price}만원, 취급 불가")
-            validation_errors.append(f"KB시세 {kb_price:,.0f}만원은 최소 {min_kb_price:,.0f}만원 이상이어야 취급 가능합니다 (현재: {kb_price:,.0f}만원, 부족: {min_kb_price - kb_price:,.0f}만원)")
+        # property_type_conditions 체크 (부동산 타입별 조건 확인)
+        property_type_conditions = self.config.get("property_type_conditions", {})
+        property_type = property_data.get("property_type", "")
+        if property_type_conditions and property_type:
+            # 부동산 타입별 조건 확인
+            for prop_type, conditions in property_type_conditions.items():
+                if prop_type in property_type:
+                    # min_household_count 체크
+                    min_household_count = conditions.get("min_household_count")
+                    if min_household_count is not None:
+                        household_count = property_data.get("household_count")
+                        if household_count is None or household_count < min_household_count:
+                            log_print(f"DEBUG: BaseCalculator.calculate - {prop_type} 세대수 {household_count} < min_household_count {min_household_count}, 취급 불가")
+                            logger.warning(f"BaseCalculator.calculate - {prop_type} 세대수 {household_count} < min_household_count {min_household_count}, 취급 불가")
+                            validation_errors.append(f"{prop_type}은(는) 최소 {min_household_count}세대 이상이어야 취급 가능합니다 (현재: {household_count or '정보없음'}세대)")
+                    
+                    # min_kb_price 체크 (property_type_conditions의 min_kb_price가 우선)
+                    min_kb_price_for_type = conditions.get("min_kb_price")
+                    if min_kb_price_for_type is not None and kb_price < min_kb_price_for_type:
+                        log_print(f"DEBUG: BaseCalculator.calculate - {prop_type} KB price {kb_price}만원 < min_kb_price {min_kb_price_for_type}만원, 취급 불가")
+                        logger.warning(f"BaseCalculator.calculate - {prop_type} KB price {kb_price}만원 < min_kb_price {min_kb_price_for_type}만원, 취급 불가")
+                        validation_errors.append(f"{prop_type}은(는) KB시세 {kb_price:,.0f}만원이 최소 {min_kb_price_for_type:,.0f}만원 이상이어야 취급 가능합니다 (현재: {kb_price:,.0f}만원, 부족: {min_kb_price_for_type - kb_price:,.0f}만원)")
+                    break  # 첫 번째 매칭되는 타입만 체크
         
-        # 특이사항 검증: '압류', '가압류', '경매취하자금' 있으면 취급 불가
+        # KB시세 최소 금액 확인 (property_type_conditions에 없으면 전역 min_kb_price 사용)
+        min_kb_price = self.config.get("min_kb_price")
+        if min_kb_price is not None:
+            # property_type_conditions에서 이미 체크했는지 확인
+            already_checked = False
+            if property_type_conditions and property_type:
+                for prop_type, conditions in property_type_conditions.items():
+                    if prop_type in property_type and conditions.get("min_kb_price") is not None:
+                        already_checked = True
+                        break
+            
+            if not already_checked and kb_price < min_kb_price:
+                log_print(f"DEBUG: BaseCalculator.calculate - KB price {kb_price}만원 < min_kb_price {min_kb_price}만원, 취급 불가")
+                logger.warning(f"BaseCalculator.calculate - KB price {kb_price}만원 < min_kb_price {min_kb_price}만원, 취급 불가")
+                validation_errors.append(f"KB시세 {kb_price:,.0f}만원은 최소 {min_kb_price:,.0f}만원 이상이어야 취급 가능합니다 (현재: {kb_price:,.0f}만원, 부족: {min_kb_price - kb_price:,.0f}만원)")
+        
+        # 특이사항 검증: 불가 키워드 체크
         special_notes = property_data.get("special_notes", "") or ""
+        # 기본 불가 키워드
         restricted_keywords = ["압류", "가압류", "경매취하자금"]
+        # 추가 불가 키워드 (미래하우스론 등 특정 상품용)
+        additional_restricted_keywords = self.config.get("additional_restricted_keywords", [])
+        if additional_restricted_keywords:
+            restricted_keywords.extend(additional_restricted_keywords)
+        
         found_keywords = []
         for keyword in restricted_keywords:
             if keyword in special_notes:
