@@ -239,8 +239,10 @@ class handler(BaseHTTPRequestHandler):
     
     def do_POST(self):
         """POST 요청 처리 (텔레그램 웹훅)"""
-        # 여러 방법으로 로그 출력
-        sys.stderr.write("[WEBHOOK] POST request received - stderr write\n")
+        # 여러 방법으로 로그 출력 (가장 먼저 실행)
+        sys.stderr.write("=" * 80 + "\n")
+        sys.stderr.write("[WEBHOOK] ===== POST REQUEST RECEIVED =====\n")
+        sys.stderr.write("=" * 80 + "\n")
         sys.stderr.flush()
         print("=" * 60, file=sys.stderr, flush=True)
         print("[WEBHOOK] POST request received - print to stderr", file=sys.stderr, flush=True)
