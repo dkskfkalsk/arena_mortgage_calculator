@@ -167,6 +167,32 @@ def get_application():
                 )
                 return
             
+            # 특정 양식이 있는 메시지만 처리
+            # '성   명' 또는 '성명', '직   업' 또는 '직업', '거주여부' 모두 포함되어야 함
+            required_keywords = [
+                ['성   명', '성명'],  # 둘 중 하나만 있으면 됨
+                ['직   업', '직업'],  # 둘 중 하나만 있으면 됨
+                ['거주여부']  # 정확히 일치해야 함
+            ]
+            
+            # 각 키워드 그룹에서 최소 하나는 포함되어야 함
+            has_all_keywords = True
+            for keyword_group in required_keywords:
+                found = False
+                for keyword in keyword_group:
+                    if keyword in message_text:
+                        found = True
+                        break
+                if not found:
+                    has_all_keywords = False
+                    break
+            
+            if not has_all_keywords:
+                print(f"[WEBHOOK] Message does not contain required format, ignoring", file=sys.stderr, flush=True)
+                logger.info("handle_message - Message does not contain required format (성명, 직업, 거주여부)")
+                # 양식이 없는 메시지는 무시 (회신하지 않음)
+                return
+            
             try:
                 print(f"[WEBHOOK] Parsing message text...", file=sys.stderr, flush=True)
                 parser = MessageParser()
