@@ -10,27 +10,55 @@ import asyncio
 import logging
 from http.server import BaseHTTPRequestHandler
 
+# Vercel 로그 출력을 위한 강력한 헬퍼 함수
+def log_print(*args, **kwargs):
+    """Vercel에서 확실하게 로그가 보이도록 하는 헬퍼"""
+    import time
+    timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
+    message = ' '.join(str(arg) for arg in args)
+    log_line = f"[{timestamp}] {message}\n"
+    
+    # stderr에 직접 쓰기 (가장 확실한 방법)
+    try:
+        sys.stderr.write(log_line)
+        sys.stderr.flush()
+    except:
+        pass
+    
+    # stdout에도 쓰기
+    try:
+        sys.stdout.write(log_line)
+        sys.stdout.flush()
+    except:
+        pass
+
 # 로깅 설정 (Vercel에서 로그가 보이도록)
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.DEBUG,  # DEBUG 레벨로 변경하여 모든 로그 출력
+    format='[%(asctime)s] %(levelname)s - %(name)s - %(message)s',
     handlers=[
-        logging.StreamHandler(sys.stderr)  # stderr로 출력 (버퍼링 없음)
-    ]
+        logging.StreamHandler(sys.stderr),  # stderr로 출력
+        logging.StreamHandler(sys.stdout)   # stdout으로도 출력
+    ],
+    force=True  # 기존 설정 강제 재설정
 )
 logger = logging.getLogger(__name__)
 
-# print 함수를 래핑하여 버퍼 플러시 및 stderr 출력
-def log_print(*args, **kwargs):
-    """로그 출력 헬퍼 (버퍼 플러시 및 stderr 출력)"""
-    message = ' '.join(str(arg) for arg in args)
-    # stderr로 출력 (버퍼링 없음)
-    print(message, file=sys.stderr, flush=True, **kwargs)
-    # stdout도 출력 (호환성)
-    print(message, file=sys.stdout, flush=True, **kwargs)
+# 초기화 로그 (가장 먼저 출력)
+log_print("=" * 50)
+log_print("WEBHOOK MODULE LOADED")
+log_print("=" * 50)
+logger.info("Webhook module initialized")
 
 # 프로젝트 루트를 경로에 추가
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# 모듈 로드 시 즉시 출력 (가장 먼저 실행)
+log_print("=" * 60)
+log_print("WEBHOOK.PY MODULE LOADED - START")
+log_print(f"Python version: {sys.version}")
+log_print(f"Working directory: {os.getcwd()}")
+log_print("=" * 60)
 
 # 전역 애플리케이션 인스턴스
 application = None
@@ -52,30 +80,55 @@ def get_application():
         from utils.formatter import format_all_results
 
         # 환경변수에서 토큰 가져오기 (Vercel에서는 환경변수 사용)
+        log_print("=" * 60)
+        log_print("LOADING ENVIRONMENT VARIABLES")
+        log_print("=" * 60)
+        
         TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+        log_print(f"TELEGRAM_BOT_TOKEN from env: {'SET' if TELEGRAM_BOT_TOKEN else 'NOT SET'}")
+        if TELEGRAM_BOT_TOKEN:
+            log_print(f"TELEGRAM_BOT_TOKEN length: {len(TELEGRAM_BOT_TOKEN)}")
+            log_print(f"TELEGRAM_BOT_TOKEN prefix: {TELEGRAM_BOT_TOKEN[:20]}...")
+        
         if not TELEGRAM_BOT_TOKEN:
+            log_print("TELEGRAM_BOT_TOKEN not found in env, trying config file...")
             # 로컬 테스트용 fallback
             try:
                 from config.telegram_config import TELEGRAM_BOT_TOKEN  # type: ignore
+                log_print("TELEGRAM_BOT_TOKEN loaded from config file")
             except ModuleNotFoundError:
+                log_print("ERROR: TELEGRAM_BOT_TOKEN not found in env or config")
+                logger.error("TELEGRAM_BOT_TOKEN not found")
                 raise ValueError("TELEGRAM_BOT_TOKEN 환경변수를 설정해주세요.")
 
         # 허용된 채팅방 ID 가져오기
         ALLOWED_CHAT_IDS_STR = os.getenv("ALLOWED_CHAT_IDS")
+        log_print(f"ALLOWED_CHAT_IDS from env: {'SET' if ALLOWED_CHAT_IDS_STR else 'NOT SET'}")
+        if ALLOWED_CHAT_IDS_STR:
+            log_print(f"ALLOWED_CHAT_IDS value: {ALLOWED_CHAT_IDS_STR}")
+        
         if not ALLOWED_CHAT_IDS_STR:
+            log_print("ALLOWED_CHAT_IDS not found in env, trying config file...")
             try:
                 from config.telegram_config import ALLOWED_CHAT_IDS  # type: ignore
                 ALLOWED_CHAT_IDS_STR = ALLOWED_CHAT_IDS
+                log_print(f"ALLOWED_CHAT_IDS loaded from config: {ALLOWED_CHAT_IDS_STR}")
             except (ModuleNotFoundError, ImportError):
                 ALLOWED_CHAT_IDS_STR = None
+                log_print("ALLOWED_CHAT_IDS not found in config, using None (all chats allowed)")
         
         # 허용된 채팅방 ID 리스트로 변환 (쉼표로 구분된 문자열을 리스트로)
         allowed_chat_ids = []
         if ALLOWED_CHAT_IDS_STR:
             allowed_chat_ids = [int(chat_id.strip()) for chat_id in ALLOWED_CHAT_IDS_STR.split(",") if chat_id.strip()]
         
-        log_print(f"DEBUG: Application initialized - ALLOWED_CHAT_IDS_STR: {ALLOWED_CHAT_IDS_STR}, allowed_chat_ids: {allowed_chat_ids}")
-        logger.info(f"Application initialized - allowed_chat_ids: {allowed_chat_ids}")
+        log_print("=" * 60)
+        log_print(f"ENVIRONMENT VARIABLES LOADED:")
+        log_print(f"  TELEGRAM_BOT_TOKEN: {'SET' if TELEGRAM_BOT_TOKEN else 'NOT SET'}")
+        log_print(f"  ALLOWED_CHAT_IDS_STR: {ALLOWED_CHAT_IDS_STR}")
+        log_print(f"  allowed_chat_ids: {allowed_chat_ids}")
+        log_print("=" * 60)
+        logger.info(f"Application initialized - TELEGRAM_BOT_TOKEN: {'SET' if TELEGRAM_BOT_TOKEN else 'NOT SET'}, allowed_chat_ids: {allowed_chat_ids}")
 
         application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
@@ -242,8 +295,16 @@ class handler(BaseHTTPRequestHandler):
     BaseHTTPRequestHandler를 상속하여 텔레그램 웹훅 요청만 처리합니다.
     """
     
+    def __init__(self, *args, **kwargs):
+        """핸들러 초기화 시 로그 출력"""
+        log_print("=" * 60)
+        log_print("HANDLER CLASS INITIALIZED")
+        log_print("=" * 60)
+        super().__init__(*args, **kwargs)
+    
     def _send_response(self, status_code, data):
         """응답 전송 헬퍼 메서드"""
+        log_print(f"Sending response: status={status_code}, data={data}")
         body = json.dumps(data).encode('utf-8')
         self.send_response(status_code)
         self.send_header('Content-Type', 'application/json')
@@ -253,30 +314,48 @@ class handler(BaseHTTPRequestHandler):
     
     def do_GET(self):
         """GET 요청 처리 (헬스체크)"""
+        log_print("GET REQUEST - Health check")
+        logger.info("GET request - Health check")
         self._send_response(200, {"ok": True, "message": "Webhook endpoint is active"})
     
     def do_POST(self):
         """POST 요청 처리 (텔레그램 웹훅)"""
+        # 요청 시작 로그 (가장 먼저)
+        log_print("=" * 50)
+        log_print("POST REQUEST RECEIVED")
+        log_print("=" * 50)
+        logger.info("POST request received")
+        
         try:
             # 요청 body 읽기
             content_length = int(self.headers.get('Content-Length', 0))
+            log_print(f"Content-Length: {content_length}")
+            
             if content_length == 0:
+                log_print("Empty body, skipping")
                 self._send_response(200, {"ok": True, "skipped": "empty body"})
                 return
 
             body_bytes = self.rfile.read(content_length)
             body_str = body_bytes.decode('utf-8')
+            log_print(f"Body received: {body_str[:200]}...")  # 처음 200자만 로그
             body = json.loads(body_str) if body_str else {}
 
             # 텔레그램 update 형식 검증 (update_id가 있어야 함)
             if not isinstance(body, dict) or "update_id" not in body:
+                log_print("Not a telegram update, skipping")
+                logger.warning("Not a telegram update, skipping")
                 self._send_response(200, {"ok": True, "skipped": "not telegram update"})
                 return
 
             # 텔레그램 업데이트 처리
+            log_print("Loading telegram library...")
             from telegram import Update
+            log_print("Getting application instance...")
             app = get_application()
+            log_print("Creating Update object...")
             update = Update.de_json(body, app.bot)
+            log_print(f"Update object created: update_id={update.update_id}")
 
             # 업데이트 정보 로깅
             log_print(f"DEBUG: Received update - update_id: {update.update_id}")

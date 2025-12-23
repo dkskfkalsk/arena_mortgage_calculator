@@ -11,29 +11,53 @@ import logging
 from typing import Dict, List, Optional, Any, Union
 from utils.validators import validate_kb_price, extract_lower_bound_price
 
-# 로깅 설정 (Vercel에서 로그가 보이도록)
+# Vercel 로그 출력을 위한 강력한 헬퍼 함수
+def log_print(*args, **kwargs):
+    """Vercel에서 확실하게 로그가 보이도록 하는 헬퍼"""
+    import time
+    timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
+    message = ' '.join(str(arg) for arg in args)
+    log_line = f"[{timestamp}] {message}\n"
+    
+    # stderr에 직접 쓰기 (가장 확실한 방법)
+    try:
+        sys.stderr.write(log_line)
+        sys.stderr.flush()
+    except:
+        pass
+    
+    # stdout에도 쓰기
+    try:
+        sys.stdout.write(log_line)
+        sys.stdout.flush()
+    except:
+        pass
+
+# 로깅 설정
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='[%(asctime)s] %(levelname)s - %(name)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stderr),
+        logging.StreamHandler(sys.stdout)
+    ],
+    force=True
+)
 logger = logging.getLogger(__name__)
 
-# 원본 print 함수 저장
+# 원본 print 함수를 래핑하여 모든 print가 stderr로도 출력되도록
 _original_print = print
 
-# print 함수를 래핑하여 버퍼 플러시 및 stderr 출력
-def log_print(*args, **kwargs):
-    """로그 출력 헬퍼 (버퍼 플러시 및 stderr 출력)"""
-    message = ' '.join(str(arg) for arg in args)
-    # stderr로 출력 (버퍼링 없음)
-    _original_print(message, file=sys.stderr, flush=True, **kwargs)
-    # stdout도 출력 (호환성)
-    _original_print(message, file=sys.stdout, flush=True, **kwargs)
-
-# print 함수를 래핑하여 모든 print 호출이 자동으로 버퍼 플러시되도록 함
 def _wrapped_print(*args, **kwargs):
-    """print 함수 래퍼 (버퍼 플러시 자동 적용)"""
+    """print 함수 래퍼 (stderr로도 출력)"""
     # flush가 명시되지 않았으면 True로 설정
     if 'flush' not in kwargs:
         kwargs['flush'] = True
     # stderr로도 출력 (Vercel 로그 캡처를 위해)
-    _original_print(*args, file=sys.stderr, **kwargs)
+    try:
+        _original_print(*args, file=sys.stderr, **kwargs)
+    except:
+        pass
     # 원래 의도한 출력 스트림으로도 출력
     _original_print(*args, **kwargs)
 
