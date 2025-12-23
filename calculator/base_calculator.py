@@ -6,8 +6,40 @@
 
 import json
 import os
+import sys
+import logging
 from typing import Dict, List, Optional, Any, Union
 from utils.validators import validate_kb_price, extract_lower_bound_price
+
+# 로깅 설정 (Vercel에서 로그가 보이도록)
+logger = logging.getLogger(__name__)
+
+# 원본 print 함수 저장
+_original_print = print
+
+# print 함수를 래핑하여 버퍼 플러시 및 stderr 출력
+def log_print(*args, **kwargs):
+    """로그 출력 헬퍼 (버퍼 플러시 및 stderr 출력)"""
+    message = ' '.join(str(arg) for arg in args)
+    # stderr로 출력 (버퍼링 없음)
+    _original_print(message, file=sys.stderr, flush=True, **kwargs)
+    # stdout도 출력 (호환성)
+    _original_print(message, file=sys.stdout, flush=True, **kwargs)
+
+# print 함수를 래핑하여 모든 print 호출이 자동으로 버퍼 플러시되도록 함
+def _wrapped_print(*args, **kwargs):
+    """print 함수 래퍼 (버퍼 플러시 자동 적용)"""
+    # flush가 명시되지 않았으면 True로 설정
+    if 'flush' not in kwargs:
+        kwargs['flush'] = True
+    # stderr로도 출력 (Vercel 로그 캡처를 위해)
+    _original_print(*args, file=sys.stderr, **kwargs)
+    # 원래 의도한 출력 스트림으로도 출력
+    _original_print(*args, **kwargs)
+
+# print 함수를 래핑된 버전으로 교체
+import builtins
+builtins.print = _wrapped_print
 
 
 class BaseCalculator:
@@ -149,17 +181,21 @@ class BaseCalculator:
         """
         # KB시세 검증
         kb_price_raw = property_data.get("kb_price")
-        print(f"DEBUG: BaseCalculator.calculate - kb_price_raw: {kb_price_raw}, type: {type(kb_price_raw)}")
+        log_print(f"DEBUG: BaseCalculator.calculate - kb_price_raw: {kb_price_raw}, type: {type(kb_price_raw)}")
+        logger.debug(f"BaseCalculator.calculate - kb_price_raw: {kb_price_raw}, type: {type(kb_price_raw)}")
         kb_price = self.validate_kb_price(kb_price_raw)
-        print(f"DEBUG: BaseCalculator.calculate - kb_price after validation: {kb_price}")
+        log_print(f"DEBUG: BaseCalculator.calculate - kb_price after validation: {kb_price}")
+        logger.debug(f"BaseCalculator.calculate - kb_price after validation: {kb_price}")
         if kb_price is None:
-            print(f"DEBUG: BaseCalculator.calculate - KB price is None, returning None")
+            log_print(f"DEBUG: BaseCalculator.calculate - KB price is None, returning None")
+            logger.warning("BaseCalculator.calculate - KB price is None, returning None")
             return None  # 시세 없으면 산출 불가
         
         # KB시세 최소 금액 확인
         min_kb_price = self.config.get("min_kb_price")
         if min_kb_price is not None and kb_price < min_kb_price:
-            print(f"DEBUG: BaseCalculator.calculate - KB price {kb_price}만원 < min_kb_price {min_kb_price}만원, 취급 불가")
+            log_print(f"DEBUG: BaseCalculator.calculate - KB price {kb_price}만원 < min_kb_price {min_kb_price}만원, 취급 불가")
+            logger.warning(f"BaseCalculator.calculate - KB price {kb_price}만원 < min_kb_price {min_kb_price}만원, 취급 불가")
             return {
                 "bank_name": self.bank_name,
                 "results": [],
@@ -190,15 +226,18 @@ class BaseCalculator:
             if is_apartment_or_complex and floor in [1, 2]:
                 lower_bound_price = extract_lower_bound_price(kb_price_raw)
                 if lower_bound_price is not None:
-                    print(f"DEBUG: BaseCalculator.calculate - 하한가 적용: 일반가 {kb_price}만원 -> 하한가 {lower_bound_price}만원 (아파트/주상복합 {floor}층)")
+                    log_print(f"DEBUG: BaseCalculator.calculate - 하한가 적용: 일반가 {kb_price}만원 -> 하한가 {lower_bound_price}만원 (아파트/주상복합 {floor}층)")
+                    logger.info(f"BaseCalculator.calculate - 하한가 적용: 일반가 {kb_price}만원 -> 하한가 {lower_bound_price}만원 (아파트/주상복합 {floor}층)")
                     kb_price = lower_bound_price
                 else:
-                    print(f"DEBUG: BaseCalculator.calculate - 하한가 적용 조건 충족하지만 하한가 추출 실패")
+                    log_print(f"DEBUG: BaseCalculator.calculate - 하한가 적용 조건 충족하지만 하한가 추출 실패")
+                    logger.warning("BaseCalculator.calculate - 하한가 적용 조건 충족하지만 하한가 추출 실패")
         
         # 지역 확인
         region = property_data.get("region", "")
         if not region:
-            print(f"DEBUG: BaseCalculator.calculate - region is empty")
+            log_print(f"DEBUG: BaseCalculator.calculate - region is empty")
+            logger.warning("BaseCalculator.calculate - region is empty")
             return None
         
         # 메인 계산기 전체 지역 리스트 기준 검증

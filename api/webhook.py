@@ -7,7 +7,27 @@ import json
 import os
 import sys
 import asyncio
+import logging
 from http.server import BaseHTTPRequestHandler
+
+# 로깅 설정 (Vercel에서 로그가 보이도록)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stderr)  # stderr로 출력 (버퍼링 없음)
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# print 함수를 래핑하여 버퍼 플러시 및 stderr 출력
+def log_print(*args, **kwargs):
+    """로그 출력 헬퍼 (버퍼 플러시 및 stderr 출력)"""
+    message = ' '.join(str(arg) for arg in args)
+    # stderr로 출력 (버퍼링 없음)
+    print(message, file=sys.stderr, flush=True, **kwargs)
+    # stdout도 출력 (호환성)
+    print(message, file=sys.stdout, flush=True, **kwargs)
 
 # 프로젝트 루트를 경로에 추가
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -54,7 +74,8 @@ def get_application():
         if ALLOWED_CHAT_IDS_STR:
             allowed_chat_ids = [int(chat_id.strip()) for chat_id in ALLOWED_CHAT_IDS_STR.split(",") if chat_id.strip()]
         
-        print(f"DEBUG: Application initialized - ALLOWED_CHAT_IDS_STR: {ALLOWED_CHAT_IDS_STR}, allowed_chat_ids: {allowed_chat_ids}")
+        log_print(f"DEBUG: Application initialized - ALLOWED_CHAT_IDS_STR: {ALLOWED_CHAT_IDS_STR}, allowed_chat_ids: {allowed_chat_ids}")
+        logger.info(f"Application initialized - allowed_chat_ids: {allowed_chat_ids}")
 
         application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
@@ -82,17 +103,21 @@ def get_application():
             # 메시지 또는 채널 포스트 가져오기
             message = update.message or update.channel_post or update.edited_message or update.edited_channel_post
             if not message:
-                print("DEBUG: start_command - No message found")
+                log_print("DEBUG: start_command - No message found")
+                logger.debug("start_command - No message found")
                 return
             
             # 채팅방 ID 확인
             chat_id = get_chat_id(update)
-            print(f"DEBUG: start_command - chat_id: {chat_id}, allowed_chat_ids: {allowed_chat_ids}")
+            log_print(f"DEBUG: start_command - chat_id: {chat_id}, allowed_chat_ids: {allowed_chat_ids}")
+            logger.info(f"start_command - chat_id: {chat_id}")
             if not is_allowed_chat(chat_id):
                 # 허용되지 않은 채팅방에서는 조용히 무시
-                print(f"DEBUG: start_command - Chat {chat_id} is not allowed")
+                log_print(f"DEBUG: start_command - Chat {chat_id} is not allowed")
+                logger.warning(f"start_command - Chat {chat_id} is not allowed")
                 return
-            print(f"DEBUG: start_command - Processing command for chat {chat_id}")
+            log_print(f"DEBUG: start_command - Processing command for chat {chat_id}")
+            logger.info(f"start_command - Processing command for chat {chat_id}")
             
             welcome_message = (
                 "🏠 담보대출 계산기 봇에 오신 것을 환영합니다!\n\n"
@@ -114,7 +139,8 @@ def get_application():
                 reply_task = asyncio.create_task(message.reply_text(welcome_message))
                 await reply_task
             except Exception as e:
-                print(f"DEBUG: Error sending welcome message: {str(e)}")
+                log_print(f"DEBUG: Error sending welcome message: {str(e)}")
+                logger.error(f"Error sending welcome message: {str(e)}", exc_info=True)
                 # 오류가 발생해도 조용히 처리 (사용자에게는 이미 처리된 것으로 보임)
 
         async def handle_message(update, context=None):
@@ -122,52 +148,63 @@ def get_application():
             message = update.message or update.channel_post or update.edited_message or update.edited_channel_post
             
             if not message:
-                print("DEBUG: handle_message - No message found in update")
+                log_print("DEBUG: handle_message - No message found in update")
+                logger.warning("handle_message - No message found in update")
                 return
             
             # 어떤 타입의 메시지인지 확인
             msg_type = "message" if update.message else "channel_post" if update.channel_post else "edited_message" if update.edited_message else "edited_channel_post"
-            print(f"DEBUG: handle_message - Message type: {msg_type}")
+            log_print(f"DEBUG: handle_message - Message type: {msg_type}")
+            logger.info(f"handle_message - Message type: {msg_type}")
             
             # 채팅방 ID 확인
             chat_id = get_chat_id(update)
-            print(f"DEBUG: handle_message - chat_id: {chat_id}, allowed_chat_ids: {allowed_chat_ids}")
+            log_print(f"DEBUG: handle_message - chat_id: {chat_id}, allowed_chat_ids: {allowed_chat_ids}")
+            logger.info(f"handle_message - chat_id: {chat_id}")
             
             if not is_allowed_chat(chat_id):
-                print(f"DEBUG: handle_message - Chat {chat_id} is not allowed")
+                log_print(f"DEBUG: handle_message - Chat {chat_id} is not allowed")
+                logger.warning(f"handle_message - Chat {chat_id} is not allowed")
                 return
             
-            print(f"DEBUG: handle_message - Processing message for chat {chat_id}, type: {msg_type}")
+            log_print(f"DEBUG: handle_message - Processing message for chat {chat_id}, type: {msg_type}")
+            logger.info(f"handle_message - Processing message for chat {chat_id}, type: {msg_type}")
             
             message_text = message.text
             if not message_text:
-                print("DEBUG: handle_message - No text in message, sending help message")
+                log_print("DEBUG: handle_message - No text in message, sending help message")
+                logger.info("handle_message - No text in message, sending help message")
                 await message.reply_text(
                     "텍스트 메시지를 보내주세요.\n\n"
                     "담보물건 정보를 텍스트로 입력해주시면 계산해드립니다.\n\n"
                     "/start 명령어로 사용 방법을 확인하실 수 있습니다."
                 )
-                print("DEBUG: handle_message - Help message sent, returning immediately")
+                log_print("DEBUG: handle_message - Help message sent, returning immediately")
+                logger.info("handle_message - Help message sent")
                 return
             
             try:
                 parser = MessageParser()
                 property_data = parser.parse(message_text)
-                print(f"DEBUG: handle_message - property_data: {property_data}")
-                print(f"DEBUG: handle_message - kb_price in property_data: {property_data.get('kb_price')}")
+                log_print(f"DEBUG: handle_message - property_data: {property_data}")
+                log_print(f"DEBUG: handle_message - kb_price in property_data: {property_data.get('kb_price')}")
+                logger.info(f"handle_message - property_data parsed: kb_price={property_data.get('kb_price')}")
                 
                 results = BaseCalculator.calculate_all_banks(property_data)
-                print(f"DEBUG: handle_message - results count: {len(results) if results else 0}")
+                log_print(f"DEBUG: handle_message - results count: {len(results) if results else 0}")
+                logger.info(f"handle_message - results count: {len(results) if results else 0}")
                 
                 formatted_result = format_all_results(results)
                 
                 # 메시지 전송 후 즉시 종료 (대기 없음)
                 await message.reply_text(formatted_result)
-                print("DEBUG: handle_message - Message sent, returning immediately")
+                log_print("DEBUG: handle_message - Message sent, returning immediately")
+                logger.info("handle_message - Message sent successfully")
                 return
                 
             except Exception as e:
-                print(f"DEBUG: Error in handle_message: {str(e)}")
+                log_print(f"DEBUG: Error in handle_message: {str(e)}")
+                logger.error(f"Error in handle_message: {str(e)}", exc_info=True)
                 import traceback
                 traceback.print_exc()
                 
@@ -177,10 +214,12 @@ def get_application():
                         f"계산 중 오류가 발생했습니다.\n\n"
                         f"오류 내용: {str(e)}"
                     )
-                    print("DEBUG: handle_message - Error message sent, returning immediately")
+                    log_print("DEBUG: handle_message - Error message sent, returning immediately")
+                    logger.info("handle_message - Error message sent to user")
                     return
                 except Exception as reply_error:
-                    print(f"DEBUG: Failed to send error message: {str(reply_error)}")
+                    log_print(f"DEBUG: Failed to send error message: {str(reply_error)}")
+                    logger.error(f"Failed to send error message: {str(reply_error)}", exc_info=True)
                     # 전송 실패해도 즉시 종료
                     return
 
@@ -240,8 +279,9 @@ class handler(BaseHTTPRequestHandler):
             update = Update.de_json(body, app.bot)
 
             # 업데이트 정보 로깅
-            print(f"DEBUG: Received update - update_id: {update.update_id}")
-            print(f"DEBUG: Update attributes: message={update.message is not None}, edited_message={update.edited_message is not None}, channel_post={update.channel_post is not None}, callback_query={update.callback_query is not None}")
+            log_print(f"DEBUG: Received update - update_id: {update.update_id}")
+            log_print(f"DEBUG: Update attributes: message={update.message is not None}, edited_message={update.edited_message is not None}, channel_post={update.channel_post is not None}, callback_query={update.callback_query is not None}")
+            logger.info(f"Received update - update_id: {update.update_id}, message={update.message is not None}, channel_post={update.channel_post is not None}")
 
             # 채팅방 ID 확인 및 필터링
             def get_chat_id_from_update(update):
@@ -271,24 +311,31 @@ class handler(BaseHTTPRequestHandler):
             if ALLOWED_CHAT_IDS_STR:
                 allowed_chat_ids = [int(chat_id.strip()) for chat_id in ALLOWED_CHAT_IDS_STR.split(",") if chat_id.strip()]
 
-            print(f"DEBUG: chat_id: {chat_id}, allowed_chat_ids: {allowed_chat_ids}")
+            log_print(f"DEBUG: chat_id: {chat_id}, allowed_chat_ids: {allowed_chat_ids}")
+            logger.info(f"chat_id: {chat_id}, allowed_chat_ids: {allowed_chat_ids}")
 
             # 허용된 채팅방이 설정되어 있고, 현재 채팅방이 허용 목록에 없으면 무시
             if allowed_chat_ids and chat_id not in allowed_chat_ids:
-                print(f"DEBUG: Chat {chat_id} is not in allowed list, ignoring update")
+                log_print(f"DEBUG: Chat {chat_id} is not in allowed list, ignoring update")
+                logger.warning(f"Chat {chat_id} is not in allowed list, ignoring update")
                 self._send_response(200, {"ok": True, "skipped": "chat not allowed"})
                 return
 
             if update.message:
-                print(f"DEBUG: message.chat.id: {update.message.chat.id}, message.text: {update.message.text[:50] if update.message.text else None}")
+                log_print(f"DEBUG: message.chat.id: {update.message.chat.id}, message.text: {update.message.text[:50] if update.message.text else None}")
+                logger.info(f"message.chat.id: {update.message.chat.id}, message.text: {update.message.text[:50] if update.message.text else None}")
             elif update.edited_message:
-                print(f"DEBUG: edited_message.chat.id: {update.edited_message.chat.id}")
+                log_print(f"DEBUG: edited_message.chat.id: {update.edited_message.chat.id}")
+                logger.info(f"edited_message.chat.id: {update.edited_message.chat.id}")
             elif update.channel_post:
-                print(f"DEBUG: channel_post.chat.id: {update.channel_post.chat.id}")
+                log_print(f"DEBUG: channel_post.chat.id: {update.channel_post.chat.id}")
+                logger.info(f"channel_post.chat.id: {update.channel_post.chat.id}")
             elif update.callback_query:
-                print(f"DEBUG: callback_query.from_user.id: {update.callback_query.from_user.id}")
+                log_print(f"DEBUG: callback_query.from_user.id: {update.callback_query.from_user.id}")
+                logger.info(f"callback_query.from_user.id: {update.callback_query.from_user.id}")
             else:
-                print(f"DEBUG: Unknown update type - update dict keys: {list(body.keys())}")
+                log_print(f"DEBUG: Unknown update type - update dict keys: {list(body.keys())}")
+                logger.warning(f"Unknown update type - update dict keys: {list(body.keys())}")
 
             # 비동기 처리 함수
             async def process():
@@ -301,20 +348,25 @@ class handler(BaseHTTPRequestHandler):
                     if update.channel_post or update.edited_message or update.edited_channel_post:
                         # handle_message 함수 직접 호출 (context는 사용하지 않으므로 None 전달)
                         if hasattr(app, '_handle_message'):
-                            print("DEBUG: Directly calling handle_message for channel_post/edited_message")
+                            log_print("DEBUG: Directly calling handle_message for channel_post/edited_message")
+                            logger.info("Directly calling handle_message for channel_post/edited_message")
                             await app._handle_message(update, None)
                         else:
                             # fallback: process_update 사용 (일반 메시지만 처리됨)
+                            logger.warning("_handle_message not found, using process_update")
                             await app.process_update(update)
                     else:
                         # 일반 메시지는 process_update로 처리
+                        logger.info("Processing regular message with process_update")
                         await app.process_update(update)
                     
                     # 메시지 전송 완료 후 즉시 종료 (대기 없음)
-                    print("DEBUG: Message processing completed, returning immediately")
+                    log_print("DEBUG: Message processing completed, returning immediately")
+                    logger.info("Message processing completed")
                     
                 except Exception as e:
-                    print(f"DEBUG: Error in process(): {str(e)}")
+                    log_print(f"DEBUG: Error in process(): {str(e)}")
+                    logger.error(f"Error in process(): {str(e)}", exc_info=True)
                     import traceback
                     traceback.print_exc()
                     # 에러 발생해도 raise하지 않음 (이미 텔레그램 응답 전송 시도했으므로)
@@ -322,12 +374,13 @@ class handler(BaseHTTPRequestHandler):
             # 이벤트 루프 안전하게 실행 (웹사이트 참조: 단일 이벤트 루프 재사용)
             global _global_loop
             
-            try:
-                # 기존 루프 확인
                 try:
-                    loop = asyncio.get_running_loop()
-                    # 이미 실행 중인 루프가 있으면 새 스레드에서 실행
-                    print("DEBUG: Event loop already running, using thread")
+                    # 기존 루프 확인
+                    try:
+                        loop = asyncio.get_running_loop()
+                        # 이미 실행 중인 루프가 있으면 새 스레드에서 실행
+                        log_print("DEBUG: Event loop already running, using thread")
+                        logger.info("Event loop already running, using thread")
                     import threading
                     import queue
                     
@@ -364,7 +417,8 @@ class handler(BaseHTTPRequestHandler):
                                             # 타임아웃이나 오류 발생 시 무시 (루프는 유지)
                                             pass
                                 except Exception as cleanup_error:
-                                    print(f"DEBUG: Cleanup error (ignored): {str(cleanup_error)}")
+                                    log_print(f"DEBUG: Cleanup error (ignored): {str(cleanup_error)}")
+                                    logger.warning(f"Cleanup error (ignored): {str(cleanup_error)}")
                                 
                                 # 전역 루프에 저장 (재사용을 위해)
                                 if not new_loop.is_closed():
@@ -380,22 +434,26 @@ class handler(BaseHTTPRequestHandler):
                         raise exception_queue.get()
                     
                     if thread.is_alive():
-                        print("DEBUG: Thread timeout after 25 seconds")
+                        log_print("DEBUG: Thread timeout after 25 seconds")
+                        logger.error("Thread timeout after 25 seconds")
                         raise TimeoutError("Process timeout after 25 seconds")
                         
                 except RuntimeError:
                     # 실행 중인 루프가 없으면 전역 루프 사용 또는 생성
-                    print("DEBUG: No running loop, using global loop or creating new one")
+                    log_print("DEBUG: No running loop, using global loop or creating new one")
+                    logger.info("No running loop, using global loop or creating new one")
                     
                     if _global_loop is None or _global_loop.is_closed():
                         # 전역 루프가 없거나 닫혔으면 새로 생성
                         _global_loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(_global_loop)
-                        print("DEBUG: Created new global event loop")
+                        log_print("DEBUG: Created new global event loop")
+                        logger.info("Created new global event loop")
                     else:
                         # 전역 루프 재사용
                         asyncio.set_event_loop(_global_loop)
-                        print("DEBUG: Reusing existing global event loop")
+                        log_print("DEBUG: Reusing existing global event loop")
+                        logger.info("Reusing existing global event loop")
                     
                     try:
                         _global_loop.run_until_complete(process())
@@ -403,13 +461,16 @@ class handler(BaseHTTPRequestHandler):
                         # "Event loop is closed" 오류는 무시
                         if "Event loop is closed" not in str(e):
                             raise
-                        print(f"DEBUG: Event loop closed (ignored): {str(e)}")
+                        log_print(f"DEBUG: Event loop closed (ignored): {str(e)}")
+                        logger.warning(f"Event loop closed (ignored): {str(e)}")
                     except Exception as e:
                         # 다른 오류는 로그만 남기고 계속 진행
-                        print(f"DEBUG: Error in process (ignored): {str(e)}")
+                        log_print(f"DEBUG: Error in process (ignored): {str(e)}")
+                        logger.error(f"Error in process (ignored): {str(e)}", exc_info=True)
                     
             except Exception as e:
-                print(f"DEBUG: Event loop error: {str(e)}")
+                log_print(f"DEBUG: Event loop error: {str(e)}")
+                logger.error(f"Event loop error: {str(e)}", exc_info=True)
                 import traceback
                 traceback.print_exc()
                 # 오류가 발생해도 HTTP 응답은 정상 반환 (이미 메시지 전송 시도했으므로)
@@ -423,11 +484,14 @@ class handler(BaseHTTPRequestHandler):
             error_msg = str(e)
             traceback_str = traceback.format_exc()
             # 오류 로깅 (Vercel 로그에 출력)
-            print(f"Error processing update: {error_msg}")
-            print(traceback_str)
+            log_print(f"Error processing update: {error_msg}")
+            log_print(traceback_str)
+            logger.error(f"Error processing update: {error_msg}", exc_info=True)
             self._send_response(500, {"error": error_msg})
     
     def log_message(self, format, *args):
         """로그 메시지 출력 (Vercel 로그에 출력)"""
-        print(f"{self.address_string()} - {format % args}")
+        message = f"{self.address_string()} - {format % args}"
+        log_print(message)
+        logger.info(message)
 
