@@ -725,13 +725,23 @@ class BaseCalculator:
         # 택시 관련 한도 제한 확인
         taxi_limit_config = self.config.get("taxi_limit", {})
         max_amount_limit = None
+        
+        # 일반 상품 최대 한도 제한 (config에서 읽기)
+        config_max_amount_limit = self.config.get("max_amount_limit")
+        if config_max_amount_limit is not None:
+            max_amount_limit = config_max_amount_limit
+            print(f"DEBUG: BaseCalculator.calculate - config에서 최대 한도 제한: {max_amount_limit}만원")
+        
         if taxi_limit_config.get("enabled", False):
             special_notes = property_data.get("special_notes", "")
             if special_notes:
                 keywords = taxi_limit_config.get("keywords", [])
                 for keyword in keywords:
                     if keyword in special_notes:
-                        max_amount_limit = taxi_limit_config.get("max_amount", 10000)  # 기본값 1억
+                        taxi_limit = taxi_limit_config.get("max_amount", 10000)  # 기본값 1억
+                        # 기존 한도 제한이 없거나 더 작은 경우에만 적용
+                        if max_amount_limit is None or max_amount_limit > taxi_limit:
+                            max_amount_limit = taxi_limit
                         print(f"DEBUG: BaseCalculator.calculate - 택시 관련 키워드 '{keyword}' 발견, 한도 제한: {max_amount_limit}만원")
                         break
         
@@ -1440,7 +1450,7 @@ class BaseCalculator:
         
         Args:
             kb_price: KB시세 (만원)
-            ltv: LTV 비율 (예: 85) - 원금 기준
+            ltv: LTV 비율 (예: 85) - 채권최고액 기준
             total_mortgage: 기존 근저당권 총액 (채권최고액, 만원) - 대환할 근저당권 제외
             is_refinance: 대환 여부
             refinance_principal: 대환할 근저당권 원금 (만원)
@@ -1451,7 +1461,7 @@ class BaseCalculator:
                 "available_amount": 가용 한도 (원금)
             }
         """
-        # LTV는 원금 기준이므로, 최대 대출 금액(원금) 계산
+        # LTV는 채권최고액 기준이므로, 최대 대출 금액(채권최고액) 계산
         max_amount_principal = kb_price * (ltv / 100)
         print(f"DEBUG: calculate_available_amount - kb_price: {kb_price}, ltv: {ltv}, total_mortgage(나머지 채권최고액): {total_mortgage}, is_refinance: {is_refinance}, refinance_principal(대환 원금): {refinance_principal}")  # 추가
         print(f"DEBUG: calculate_available_amount - max_amount_principal (kb_price * ltv/100): {max_amount_principal}")  # 추가

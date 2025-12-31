@@ -181,6 +181,7 @@
   },
   "conditions": [],
   "min_amount": 2000,
+  "max_amount_limit": 100000,
   "ltv_calculation_method": "total_with_other_liens",
   "max_total_ltv": 90,
   "ignore_credit_score": true,
