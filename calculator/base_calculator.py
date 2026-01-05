@@ -725,6 +725,7 @@ class BaseCalculator:
         # 택시 관련 한도 제한 확인
         taxi_limit_config = self.config.get("taxi_limit", {})
         max_amount_limit = None
+        taxi_limit_applied_flag = False  # 택시 한도 제한이 실제로 적용되었는지 플래그
         
         # 일반 상품 최대 한도 제한 (config에서 읽기)
         config_max_amount_limit = self.config.get("max_amount_limit")
@@ -742,6 +743,7 @@ class BaseCalculator:
                         # 기존 한도 제한이 없거나 더 작은 경우에만 적용
                         if max_amount_limit is None or max_amount_limit > taxi_limit:
                             max_amount_limit = taxi_limit
+                        taxi_limit_applied_flag = True  # 택시 한도 제한 적용 플래그 설정
                         print(f"DEBUG: BaseCalculator.calculate - 택시 관련 키워드 '{keyword}' 발견, 한도 제한: {max_amount_limit}만원")
                         break
         
@@ -770,9 +772,12 @@ class BaseCalculator:
         # 필요자금이 있으면 LTV별 계산을 건너뛰고 필요자금 기준으로 역산 계산
         required_amount = property_data.get("required_amount")
         results = []
+        # 필요자금 기준 계산이 불가능할 때 일반 LTV 계산으로 fallback하기 위한 플래그
+        fallback_to_ltv_steps = False
         
         # 택시 한도 제한이 적용되면 1억을 받기 위해 필요한 LTV를 역산
-        if max_amount_limit is not None and not required_amount:
+        # 택시 한도 제한이 실제로 적용된 경우에만 실행 (택시 키워드가 특이사항에 있을 때만)
+        if taxi_limit_applied_flag and max_amount_limit is not None and not required_amount:
             print(f"DEBUG: BaseCalculator.calculate - 택시 한도 제한 적용, 1억을 받기 위한 LTV 역산")
             
             # 근저당권 채권최고액 계산 (대환할 근저당권 제외한 나머지만)
@@ -839,7 +844,8 @@ class BaseCalculator:
                 results = [result]  # 하나의 결과만 반환
                 print(f"DEBUG: BaseCalculator.calculate - 택시 한도 제한 결과 생성: LTV {calculated_ltv:.2f}%, amount {max_amount_limit}만원")
         
-        elif required_amount:
+        # 필요자금 기준 계산 시도 (가능하면 필요자금 기준, 불가능하면 일반 LTV 계산으로 fallback)
+        if required_amount and not fallback_to_ltv_steps:
             print(f"DEBUG: BaseCalculator.calculate - required_amount: {required_amount}만원, calculating LTV from required amount (skipping LTV steps)")  # 추가
             
             # LTV 역산 공식 (채권최고액 기준):
@@ -873,10 +879,11 @@ class BaseCalculator:
             
             print(f"DEBUG: BaseCalculator.calculate - mortgage_max_amount(채권최고액): {mortgage_max_amount}만원, required_max_amount(채권최고액): {required_max_amount}만원, required_total: {required_total}만원, calculated_ltv: {calculated_ltv:.2f}%")  # 추가
             
-            # 계산된 LTV가 max_ltv를 초과하면 불가능
+            # 계산된 LTV가 max_ltv를 초과하면 불가능 -> 일반 LTV별 계산으로 fallback
             if calculated_ltv > max_ltv:
-                print(f"DEBUG: BaseCalculator.calculate - calculated_ltv {calculated_ltv:.2f}% > max_ltv {max_ltv}%, not possible")  # 추가
-                results = []
+                print(f"DEBUG: BaseCalculator.calculate - calculated_ltv {calculated_ltv:.2f}% > max_ltv {max_ltv}%, falling back to LTV steps calculation")  # 추가
+                fallback_to_ltv_steps = True
+                results = []  # 필요자금 기준 결과는 없음, 일반 LTV 계산으로 넘어감
             else:
                 # 계산된 정확한 LTV 사용 (ltv_steps에 없어도 됨)
                 # 금리 조회를 위해 가장 가까운 ltv_steps 값 찾기
@@ -932,7 +939,12 @@ class BaseCalculator:
                 
                 results = [result]  # 하나의 결과만 반환
                 print(f"DEBUG: BaseCalculator.calculate - created result with LTV {calculated_ltv:.2f}% and amount {final_amount}만원")  # 추가
-        else:
+        
+        # 필요자금 기준 계산이 불가능하거나 필요자금이 없으면 일반 LTV별 계산
+        if not required_amount or fallback_to_ltv_steps:
+            # fallback인 경우 results 초기화 (필요자금 기준 결과는 무시)
+            if fallback_to_ltv_steps:
+                results = []
             # 필요자금이 없고 택시 한도 제한도 없으면 기존대로 LTV별 한도 계산
             # 가계자금인 경우 LTV 70%만 계산
             if is_household_for_ok:
