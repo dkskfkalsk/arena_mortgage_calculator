@@ -311,6 +311,46 @@ class MessageParser:
                                 if not found:
                                     print(f"DEBUG: Warning - Could not find matching mortgage with keyword '{institution_keyword}'")
         
+        # 요청사항이 없거나 요청사항에서 대환 조건이 처리되지 않은 경우, 전체 텍스트에서 "대환조건" 또는 "대환 조건" 패턴 검색
+        # 이미 대환 조건이 설정된 근저당권이 있는지 확인
+        has_refinance = any(mortgage.get("is_refinance", False) for mortgage in data["mortgages"])
+        
+        if not has_refinance:
+            # 전체 텍스트에서 "대환조건" 또는 "대환 조건" 패턴 찾기
+            # 패턴: "[기관명] 대환조건" 또는 "[기관명] 대환 조건"
+            refinance_condition_patterns = [
+                r'([가-힣a-zA-Z0-9]+(?:[가-힣a-zA-Z0-9\s]+)?)\s*대환\s*조건',  # "대환 조건" (공백 있음)
+                r'([가-힣a-zA-Z0-9]+(?:[가-힣a-zA-Z0-9\s]+)?)대환조건',  # "대환조건" (공백 없음)
+            ]
+            
+            for pattern in refinance_condition_patterns:
+                refinance_match = re.search(pattern, message_text)
+                if refinance_match:
+                    institution_keyword = refinance_match.group(1).strip()
+                    # "대환조건"이라는 단어 자체는 제외
+                    if institution_keyword and institution_keyword != "대환조건" and institution_keyword != "대환":
+                        print(f"DEBUG: Found refinance condition in full text - institution_keyword: '{institution_keyword}'")
+                        
+                        # 기관명이 일치하는 근저당권 찾기
+                        found = False
+                        for mortgage in data["mortgages"]:
+                            institution = mortgage.get("institution", "")
+                            institution_clean = institution.replace(" ", "")
+                            institution_keyword_clean = institution_keyword.replace(" ", "")
+                            
+                            # 기관명에 키워드가 포함되어 있는지 확인 (양방향 확인)
+                            if institution_keyword_clean in institution_clean or institution_clean in institution_keyword_clean or \
+                               any(keyword in institution_clean for keyword in institution_keyword_clean.split() if len(keyword) > 2):
+                                mortgage["is_refinance"] = True
+                                found = True
+                                print(f"DEBUG: Set is_refinance=True for mortgage: priority={mortgage.get('priority')}, institution='{institution}', keyword='{institution_keyword}'")
+                                break
+                        
+                        if found:
+                            break  # 패턴을 찾았고 매칭도 성공했으면 종료
+                        else:
+                            print(f"DEBUG: Warning - Could not find matching mortgage with keyword '{institution_keyword}' from refinance condition pattern")
+        
         return data
     
     def _parse_key_value(self, line: str) -> tuple:

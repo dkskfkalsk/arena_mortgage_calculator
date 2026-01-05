@@ -437,11 +437,16 @@ class BaseCalculator:
                 
                 if not is_excluded_region and area > max_area:
                     print(f"DEBUG: BaseCalculator.calculate - area {area}㎡ > max_area {max_area}㎡ for region {region}, 취급 불가")
+                    # 소수점 3자리로 포맷팅
+                    area_formatted = f"{area:.3f}".rstrip('0').rstrip('.') if area % 1 != 0 else f"{int(area)}"
+                    max_area_formatted = f"{max_area:.3f}".rstrip('0').rstrip('.') if max_area % 1 != 0 else f"{int(max_area)}"
+                    excess_area = area - max_area
+                    excess_area_formatted = f"{excess_area:.3f}".rstrip('0').rstrip('.') if excess_area % 1 != 0 else f"{int(excess_area)}"
                     return {
                         "bank_name": self.bank_name,
                         "results": [],
                         "conditions": self.config.get("conditions", []),
-                        "errors": [f"면적 {area}㎡는 서울지역 이외에서는 최대 {max_area}㎡까지 취급 가능합니다 (초과: {area - max_area}㎡)"],
+                        "errors": [f"면적 {area_formatted}㎡는 서울지역 이외에서는 최대 {max_area_formatted}㎡까지 취급 가능합니다 (초과: {excess_area_formatted}㎡)"],
                         "min_amount": self.config.get("min_amount", 3000)
                     }
         
