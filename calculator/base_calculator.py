@@ -1729,7 +1729,23 @@ class BaseCalculator:
             }
         
         # 기존 방식 (interest_rates_by_ltv 사용)
-        ltv_rates = self.config.get("interest_rates_by_ltv", {})
+        # 키움저축-리테일 등 후순위/선순위 구분이 있는 경우 처리
+        is_subordinate = getattr(self, '_is_subordinate', False)
+        subordinate_rates = self.config.get("subordinate_interest_rates_by_ltv", {})
+        primary_rates = self.config.get("primary_interest_rates_by_ltv", {})
+        
+        if is_subordinate and subordinate_rates:
+            # 후순위 대출이고 subordinate_interest_rates_by_ltv가 있으면 사용
+            ltv_rates = subordinate_rates
+            print(f"DEBUG: get_interest_rate - 후순위 대출, subordinate_interest_rates_by_ltv 사용")
+        elif not is_subordinate and primary_rates:
+            # 선순위 대출이고 primary_interest_rates_by_ltv가 있으면 사용
+            ltv_rates = primary_rates
+            print(f"DEBUG: get_interest_rate - 선순위 대출, primary_interest_rates_by_ltv 사용")
+        else:
+            # 기본값: interest_rates_by_ltv 사용
+            ltv_rates = self.config.get("interest_rates_by_ltv", {})
+            print(f"DEBUG: get_interest_rate - 기본 interest_rates_by_ltv 사용")
         
         # 82% LTV이고 2급지인 경우 특별 처리
         if ltv == 82 and region_grade == 2:
@@ -1738,7 +1754,7 @@ class BaseCalculator:
         else:
             ltv_key = str(ltv)
         
-        print(f"DEBUG: get_interest_rate - ltv: {ltv}, credit_score: {credit_score}, credit_grade: {credit_grade}, region_grade: {region_grade}")  # 추가
+        print(f"DEBUG: get_interest_rate - ltv: {ltv}, credit_score: {credit_score}, credit_grade: {credit_grade}, region_grade: {region_grade}, is_subordinate: {is_subordinate}")  # 추가
         print(f"DEBUG: get_interest_rate - ltv_key: {ltv_key}, available ltv_keys: {list(ltv_rates.keys())}")  # 추가
         
         if ltv_key not in ltv_rates:
