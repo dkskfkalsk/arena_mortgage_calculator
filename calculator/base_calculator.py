@@ -935,7 +935,18 @@ class BaseCalculator:
                 results = []
             else:
                 # 금리 조회를 위해 가장 가까운 ltv_steps 값 찾기
-                ltv_steps = self.config.get("ltv_steps", [90, 85, 80, 75, 70, 65])
+                # 후순위/선순위 구분이 있는 경우 처리
+                is_subordinate = getattr(self, '_is_subordinate', False)
+                subordinate_steps = self.config.get("ltv_steps_subordinate", [])
+                primary_steps = self.config.get("ltv_steps_primary", [])
+                
+                if is_subordinate and subordinate_steps:
+                    ltv_steps = subordinate_steps
+                elif not is_subordinate and primary_steps:
+                    ltv_steps = primary_steps
+                else:
+                    ltv_steps = self.config.get("ltv_steps", [90, 85, 80, 75, 70, 65])
+                
                 closest_ltv_for_rate = None
                 if ltv_steps:
                     closest_ltv_for_rate = min(ltv_steps, key=lambda x: abs(x - calculated_ltv))
@@ -1010,7 +1021,18 @@ class BaseCalculator:
             else:
                 # 계산된 정확한 LTV 사용 (ltv_steps에 없어도 됨)
                 # 금리 조회를 위해 가장 가까운 ltv_steps 값 찾기
-                ltv_steps = self.config.get("ltv_steps", [90, 85, 80, 75, 70, 65])
+                # 후순위/선순위 구분이 있는 경우 처리
+                is_subordinate = getattr(self, '_is_subordinate', False)
+                subordinate_steps = self.config.get("ltv_steps_subordinate", [])
+                primary_steps = self.config.get("ltv_steps_primary", [])
+                
+                if is_subordinate and subordinate_steps:
+                    ltv_steps = subordinate_steps
+                elif not is_subordinate and primary_steps:
+                    ltv_steps = primary_steps
+                else:
+                    ltv_steps = self.config.get("ltv_steps", [90, 85, 80, 75, 70, 65])
+                
                 closest_ltv_for_rate = None
                 if ltv_steps:
                     # 계산된 LTV에 가장 가까운 ltv_steps 값 찾기
@@ -1082,7 +1104,23 @@ class BaseCalculator:
                     ltv_steps = [ltv for ltv in all_ltv_steps if ltv <= max_ltv]
                     print(f"DEBUG: BaseCalculator.calculate - 사업자금: max_ltv={max_ltv}, filtered ltv_steps={ltv_steps}")
                 else:
-                    ltv_steps = self.config.get("ltv_steps", [90, 85, 80, 75, 70, 65])
+                    # 후순위/선순위 구분이 있는 경우 처리 (키움저축-리테일 등)
+                    is_subordinate = getattr(self, '_is_subordinate', False)
+                    subordinate_steps = self.config.get("ltv_steps_subordinate", [])
+                    primary_steps = self.config.get("ltv_steps_primary", [])
+                    
+                    if is_subordinate and subordinate_steps:
+                        # 후순위 대출이고 ltv_steps_subordinate가 있으면 사용
+                        ltv_steps = subordinate_steps
+                        print(f"DEBUG: BaseCalculator.calculate - 후순위 대출, ltv_steps_subordinate 사용: {ltv_steps}")
+                    elif not is_subordinate and primary_steps:
+                        # 선순위 대출이고 ltv_steps_primary가 있으면 사용
+                        ltv_steps = primary_steps
+                        print(f"DEBUG: BaseCalculator.calculate - 선순위 대출, ltv_steps_primary 사용: {ltv_steps}")
+                    else:
+                        # 기본값: ltv_steps 사용
+                        ltv_steps = self.config.get("ltv_steps", [90, 85, 80, 75, 70, 65])
+                        print(f"DEBUG: BaseCalculator.calculate - 기본 ltv_steps 사용: {ltv_steps}")
             
             print(f"DEBUG: BaseCalculator.calculate - max_ltv: {max_ltv}, ltv_steps: {ltv_steps}")  # 추가
             
