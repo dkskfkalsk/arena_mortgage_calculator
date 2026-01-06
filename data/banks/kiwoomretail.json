@@ -478,7 +478,7 @@
     "apartment": 1,
     "apartment_no_land_registry": 1,
     "_comment_apartment_no_land_registry": "아파트 (대지권 미등기)",
-    "residential_commercial": 0,
+    "residential_commercial": 1,
     "_comment_residential_commercial": "주상복합",
     "villa": 0,
     "_comment_villa": "빌라",
