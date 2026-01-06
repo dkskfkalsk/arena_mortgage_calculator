@@ -166,3 +166,164 @@ def extract_kb_ai_price_from_special_notes(special_notes):
         print(f"DEBUG: extract_kb_ai_price_from_special_notes - error: {e}, input: {special_notes}")
         return None
 
+
+def extract_bank_appraisal_price_from_special_notes(special_notes):
+    """
+    특이사항에서 탁감가(은행감정가) 추출
+    "은행감정가 8억", "감정가 80,000만원", "탁감 80,000" 형식 처리
+    """
+    if not special_notes:
+        return None
+    
+    try:
+        import re
+        notes_str = str(special_notes).strip()
+        
+        # "은행감정가", "감정가", "탁감" 패턴 찾기
+        # "8억" -> 80000, "80,000만원" -> 80000 등 처리
+        patterns = [
+            r'(?:은행\s*감정가|감정가|탁감)\s*[:\s]*([\d,]+(?:\s*(?:억|만원|만))?)',
+            r'(?:은행\s*감정가|감정가|탁감)\s*[:\s]*([\d,]+)',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, notes_str, re.IGNORECASE)
+            if match:
+                price_str = match.group(1).strip()
+                # "억" 처리 (8억 -> 80000)
+                if "억" in price_str:
+                    price_str = price_str.replace("억", "").replace(",", "").strip()
+                    if price_str:
+                        price = float(price_str) * 10000
+                        print(f"DEBUG: extract_bank_appraisal_price_from_special_notes - extracted bank appraisal price: {price}만원")
+                        return price
+                else:
+                    # "만원" 제거 후 숫자만 추출
+                    price_str_clean = price_str.replace("만원", "").replace("만", "").replace(",", "").strip()
+                    if price_str_clean and len(price_str_clean) >= 3:
+                        price = float(price_str_clean)
+                        print(f"DEBUG: extract_bank_appraisal_price_from_special_notes - extracted bank appraisal price: {price}만원")
+                        return price
+        
+        print(f"DEBUG: extract_bank_appraisal_price_from_special_notes - no bank appraisal price found in special_notes")
+        return None
+        
+    except (ValueError, AttributeError, TypeError) as e:
+        print(f"DEBUG: extract_bank_appraisal_price_from_special_notes - error: {e}, input: {special_notes}")
+        return None
+
+
+def extract_realestatetech_price_from_special_notes(special_notes):
+    """
+    특이사항에서 부동산테크 시세 추출
+    "부동산테크 시세: 25,000만원" 또는 "부동산테크 25,000" 형식 처리
+    """
+    if not special_notes:
+        return None
+    
+    try:
+        import re
+        notes_str = str(special_notes).strip()
+        
+        # "부동산테크" 패턴 찾기
+        patterns = [
+            r'부동산\s*테크\s*(?:시세)?\s*[:\s]*([\d,]+(?:\s*만원)?)',
+            r'부동산테크\s*(?:시세)?\s*[:\s]*([\d,]+(?:\s*만원)?)',
+            r'부동산\s*테크\s*[:\s]*([\d,]+)',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, notes_str, re.IGNORECASE)
+            if match:
+                price_str = match.group(1).strip()
+                # "만원" 제거 후 숫자만 추출
+                price_str_clean = price_str.replace("만원", "").replace("만", "").replace(",", "").strip()
+                if price_str_clean and len(price_str_clean) >= 3:
+                    price = float(price_str_clean)
+                    print(f"DEBUG: extract_realestatetech_price_from_special_notes - extracted realestatetech price: {price}만원")
+                    return price
+        
+        print(f"DEBUG: extract_realestatetech_price_from_special_notes - no realestatetech price found in special_notes")
+        return None
+        
+    except (ValueError, AttributeError, TypeError) as e:
+        print(f"DEBUG: extract_realestatetech_price_from_special_notes - error: {e}, input: {special_notes}")
+        return None
+
+
+def extract_korea_realestate_price_from_special_notes(special_notes):
+    """
+    특이사항에서 한국부동산원 시세 추출
+    "한국부동산원 시세: 25,000만원" 또는 "한부원 25,000" 형식 처리
+    """
+    if not special_notes:
+        return None
+    
+    try:
+        import re
+        notes_str = str(special_notes).strip()
+        
+        # "한국부동산원", "한부원" 패턴 찾기
+        patterns = [
+            r'한국\s*부동산원\s*(?:시세)?\s*[:\s]*([\d,]+(?:\s*만원)?)',
+            r'한부원\s*(?:시세)?\s*[:\s]*([\d,]+(?:\s*만원)?)',
+            r'한국\s*부동산원\s*[:\s]*([\d,]+)',
+            r'한부원\s*[:\s]*([\d,]+)',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, notes_str, re.IGNORECASE)
+            if match:
+                price_str = match.group(1).strip()
+                # "만원" 제거 후 숫자만 추출
+                price_str_clean = price_str.replace("만원", "").replace("만", "").replace(",", "").strip()
+                if price_str_clean and len(price_str_clean) >= 3:
+                    price = float(price_str_clean)
+                    print(f"DEBUG: extract_korea_realestate_price_from_special_notes - extracted korea realestate price: {price}만원")
+                    return price
+        
+        print(f"DEBUG: extract_korea_realestate_price_from_special_notes - no korea realestate price found in special_notes")
+        return None
+        
+    except (ValueError, AttributeError, TypeError) as e:
+        print(f"DEBUG: extract_korea_realestate_price_from_special_notes - error: {e}, input: {special_notes}")
+        return None
+
+
+def extract_housematch_price_from_special_notes(special_notes):
+    """
+    특이사항에서 하우스머치 시세 추출
+    "하우스머치 시세: 25,000만원" 또는 "하우스머치 25,000" 형식 처리
+    """
+    if not special_notes:
+        return None
+    
+    try:
+        import re
+        notes_str = str(special_notes).strip()
+        
+        # "하우스머치" 패턴 찾기
+        patterns = [
+            r'하우스\s*머치\s*(?:시세)?\s*[:\s]*([\d,]+(?:\s*만원)?)',
+            r'하우스머치\s*(?:시세)?\s*[:\s]*([\d,]+(?:\s*만원)?)',
+            r'하우스\s*머치\s*[:\s]*([\d,]+)',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, notes_str, re.IGNORECASE)
+            if match:
+                price_str = match.group(1).strip()
+                # "만원" 제거 후 숫자만 추출
+                price_str_clean = price_str.replace("만원", "").replace("만", "").replace(",", "").strip()
+                if price_str_clean and len(price_str_clean) >= 3:
+                    price = float(price_str_clean)
+                    print(f"DEBUG: extract_housematch_price_from_special_notes - extracted housematch price: {price}만원")
+                    return price
+        
+        print(f"DEBUG: extract_housematch_price_from_special_notes - no housematch price found in special_notes")
+        return None
+        
+    except (ValueError, AttributeError, TypeError) as e:
+        print(f"DEBUG: extract_housematch_price_from_special_notes - error: {e}, input: {special_notes}")
+        return None
+

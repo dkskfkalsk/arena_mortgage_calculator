@@ -90,6 +90,14 @@ def format_result(bank_result: Dict[str, Any]) -> str:
     
     lines = [header]
     
+    # 고정금리 코멘트 확인 (모든 결과 중 하나라도 있으면 맨 끝에 표시)
+    fixed_rate_comment = None
+    for result in results:
+        comment = result.get("fixed_rate_comment")
+        if comment:
+            fixed_rate_comment = comment
+            break  # 첫 번째로 찾은 코멘트 사용 (모든 결과가 같은 코멘트를 가지므로)
+    
     for result in results:
         ltv = result.get("ltv", 0)
         amount = result.get("amount", 0)
@@ -138,12 +146,11 @@ def format_result(bank_result: Dict[str, Any]) -> str:
         if not is_refinance and amount < min_amount:
             line += " (최소진행금액 부족)"
         
-        # 고정금리 코멘트 추가 (사업자 상품)
-        fixed_rate_comment = result.get("fixed_rate_comment")
-        if fixed_rate_comment:
-            line += f" / {fixed_rate_comment}"
-        
         lines.append(line)
+    
+    # 고정금리 코멘트를 맨 끝에 한 번만 추가
+    if fixed_rate_comment:
+        lines.append(fixed_rate_comment)
     
     # 특이 조건 추가
     if conditions:

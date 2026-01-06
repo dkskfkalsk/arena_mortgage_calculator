@@ -9,7 +9,11 @@ import os
 import sys
 import logging
 from typing import Dict, List, Optional, Any, Union
-from utils.validators import validate_kb_price, extract_lower_bound_price, extract_kb_ai_price_from_special_notes
+from utils.validators import (
+    validate_kb_price, extract_lower_bound_price, extract_kb_ai_price_from_special_notes,
+    extract_bank_appraisal_price_from_special_notes, extract_realestatetech_price_from_special_notes,
+    extract_korea_realestate_price_from_special_notes, extract_housematch_price_from_special_notes
+)
 
 # Vercel 로그 출력을 위한 강력한 헬퍼 함수
 def log_print(*args, **kwargs):
@@ -214,17 +218,52 @@ class BaseCalculator:
         log_print(f"DEBUG: BaseCalculator.calculate - kb_price after validation: {kb_price}")
         logger.debug(f"BaseCalculator.calculate - kb_price after validation: {kb_price}")
         
-        # 빌라인 경우 KB시세가 없으면 특이사항에서 KB AI시세 추출 시도
+        # price_sources 설정에 따라 시세 추출 시도 (KB시세가 없을 경우)
         if kb_price is None:
-            property_type = property_data.get("property_type", "")
-            if property_type and "빌라" in property_type:
-                special_notes = property_data.get("special_notes", "") or ""
+            price_sources = self.config.get("price_sources", {})
+            special_notes = property_data.get("special_notes", "") or ""
+            
+            # 우선순위에 따라 시세 추출 시도
+            # kb_price는 이미 위에서 확인했으므로 제외
+            if price_sources.get("kb_ai_price", 0) == 1:
                 kb_ai_price = extract_kb_ai_price_from_special_notes(special_notes)
                 if kb_ai_price is not None:
-                    log_print(f"DEBUG: BaseCalculator.calculate - 빌라인 경우 KB AI시세 추출: {kb_ai_price}만원")
-                    logger.info(f"BaseCalculator.calculate - 빌라인 경우 KB AI시세 추출: {kb_ai_price}만원")
+                    log_print(f"DEBUG: BaseCalculator.calculate - KB AI시세 추출: {kb_ai_price}만원")
+                    logger.info(f"BaseCalculator.calculate - KB AI시세 추출: {kb_ai_price}만원")
                     kb_price = kb_ai_price
-                    kb_price_raw = f"KB AI시세: {kb_ai_price}만원"  # 원본도 업데이트 (하한가 추출 등에 사용)
+                    kb_price_raw = f"KB AI시세: {kb_ai_price}만원"
+            
+            if kb_price is None and price_sources.get("bank_appraisal_price", 0) == 1:
+                bank_appraisal_price = extract_bank_appraisal_price_from_special_notes(special_notes)
+                if bank_appraisal_price is not None:
+                    log_print(f"DEBUG: BaseCalculator.calculate - 탁감가 추출: {bank_appraisal_price}만원")
+                    logger.info(f"BaseCalculator.calculate - 탁감가 추출: {bank_appraisal_price}만원")
+                    kb_price = bank_appraisal_price
+                    kb_price_raw = f"탁감가: {bank_appraisal_price}만원"
+            
+            if kb_price is None and price_sources.get("realestatetech_price", 0) == 1:
+                realestatetech_price = extract_realestatetech_price_from_special_notes(special_notes)
+                if realestatetech_price is not None:
+                    log_print(f"DEBUG: BaseCalculator.calculate - 부동산테크 시세 추출: {realestatetech_price}만원")
+                    logger.info(f"BaseCalculator.calculate - 부동산테크 시세 추출: {realestatetech_price}만원")
+                    kb_price = realestatetech_price
+                    kb_price_raw = f"부동산테크 시세: {realestatetech_price}만원"
+            
+            if kb_price is None and price_sources.get("korea_realestate_price", 0) == 1:
+                korea_realestate_price = extract_korea_realestate_price_from_special_notes(special_notes)
+                if korea_realestate_price is not None:
+                    log_print(f"DEBUG: BaseCalculator.calculate - 한국부동산원 시세 추출: {korea_realestate_price}만원")
+                    logger.info(f"BaseCalculator.calculate - 한국부동산원 시세 추출: {korea_realestate_price}만원")
+                    kb_price = korea_realestate_price
+                    kb_price_raw = f"한국부동산원 시세: {korea_realestate_price}만원"
+            
+            if kb_price is None and price_sources.get("housematch_price", 0) == 1:
+                housematch_price = extract_housematch_price_from_special_notes(special_notes)
+                if housematch_price is not None:
+                    log_print(f"DEBUG: BaseCalculator.calculate - 하우스머치 시세 추출: {housematch_price}만원")
+                    logger.info(f"BaseCalculator.calculate - 하우스머치 시세 추출: {housematch_price}만원")
+                    kb_price = housematch_price
+                    kb_price_raw = f"하우스머치 시세: {housematch_price}만원"
         
         if kb_price is None:
             log_print(f"DEBUG: BaseCalculator.calculate - KB price is None, returning None")
@@ -238,9 +277,73 @@ class BaseCalculator:
                 "min_amount": self.config.get("min_amount", 3000)
             }
         
+        # property_types 설정에 따른 취급 물건 타입 체크
+        property_type = property_data.get("property_type", "")
+        special_notes = property_data.get("special_notes", "") or ""
+        
+        # OK저축은행인 경우 사업자/가계 상품에 따라 다른 설정 사용
+        is_ok_bank = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
+        if is_ok_bank:
+            # OK저축은행: product_type에 따라 적절한 설정 선택
+            if product_type == "household":
+                property_types_config = self.config.get("household_property_types", {})
+            elif product_type == "business":
+                property_types_config = self.config.get("business_property_types", {})
+            else:
+                # product_type이 없으면 기본적으로 가계자금 설정 사용
+                property_types_config = self.config.get("household_property_types", self.config.get("property_types", {}))
+        else:
+            # 일반 금융사: 기본 property_types 사용
+            property_types_config = self.config.get("property_types", {})
+        
+        if property_type and property_types_config:
+            # 대지권 미등기 여부 확인
+            has_no_land_registry = "대지권" in special_notes and ("미등기" in special_notes or "미 등기" in special_notes)
+            
+            # 물건 타입 매핑
+            property_type_lower = property_type.lower()
+            is_allowed = False
+            property_type_key = None
+            
+            # 아파트 체크 (대지권 미등기 포함)
+            if "아파트" in property_type:
+                if has_no_land_registry:
+                    property_type_key = "apartment_no_land_registry"
+                    is_allowed = property_types_config.get("apartment_no_land_registry", 1) == 1
+                else:
+                    property_type_key = "apartment"
+                    is_allowed = property_types_config.get("apartment", 1) == 1
+            elif "주상복합" in property_type:
+                property_type_key = "residential_commercial"
+                is_allowed = property_types_config.get("residential_commercial", 1) == 1
+            elif "빌라" in property_type:
+                property_type_key = "villa"
+                is_allowed = property_types_config.get("villa", 1) == 1
+            elif "오피스텔" in property_type:
+                property_type_key = "officetel"
+                is_allowed = property_types_config.get("officetel", 1) == 1
+            elif "단독주택" in property_type:
+                property_type_key = "detached_house"
+                is_allowed = property_types_config.get("detached_house", 1) == 1
+            elif "공동주택" in property_type:
+                property_type_key = "multi_family_house"
+                is_allowed = property_types_config.get("multi_family_house", 1) == 1
+            
+            # 설정이 있으면 체크, 없으면 기본값(취급 가능)으로 처리
+            if property_type_key and not is_allowed:
+                log_print(f"DEBUG: BaseCalculator.calculate - 취급 불가 물건 타입: {property_type} (key: {property_type_key})")
+                logger.warning(f"BaseCalculator.calculate - 취급 불가 물건 타입: {property_type}")
+                validation_errors.append(f"{property_type}은(는) 취급 불가 물건 타입입니다")
+                return {
+                    "bank_name": self.bank_name,
+                    "results": [],
+                    "conditions": self.config.get("conditions", []),
+                    "errors": validation_errors,
+                    "min_amount": self.config.get("min_amount", 3000)
+                }
+        
         # property_type_conditions 체크 (부동산 타입별 조건 확인)
         property_type_conditions = self.config.get("property_type_conditions", {})
-        property_type = property_data.get("property_type", "")
         if property_type_conditions and property_type:
             # 부동산 타입별 조건 확인
             for prop_type, conditions in property_type_conditions.items():
@@ -310,6 +413,21 @@ class BaseCalculator:
                         validation_errors.append(f"고객 나이 {age_int}세는 {max_age}세 이하여야 취급 가능합니다 (초과: {age_int - max_age}세)")
                 except (ValueError, TypeError):
                     pass  # 나이가 숫자가 아니면 무시
+        
+        # 신용평점 최소 점수 검증
+        min_credit_score = self.config.get("min_credit_score")
+        if min_credit_score is not None:
+            credit_score = property_data.get("credit_score")
+            if credit_score is not None:
+                try:
+                    from utils.validators import validate_credit_score
+                    credit_score_int = validate_credit_score(credit_score)
+                    if credit_score_int is not None and credit_score_int < min_credit_score:
+                        log_print(f"DEBUG: BaseCalculator.calculate - 신용평점 {credit_score_int}점 < min_credit_score {min_credit_score}점, 취급 불가")
+                        logger.warning(f"BaseCalculator.calculate - 신용평점 {credit_score_int}점 < min_credit_score {min_credit_score}점, 취급 불가")
+                        validation_errors.append(f"신용평점 {credit_score_int}점은 최소 {min_credit_score}점 이상이어야 취급 가능합니다 (부족: {min_credit_score - credit_score_int}점)")
+                except (ValueError, TypeError):
+                    pass  # 신용평점이 숫자가 아니면 무시
         
         # 검증 오류가 있으면 즉시 반환
         if validation_errors:
