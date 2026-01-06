@@ -186,14 +186,19 @@ def get_application():
             print(f"[WEBHOOK] Chat type: {chat_type}", file=sys.stderr, flush=True)
             logger.info(f"handle_message - chat_type: {chat_type}")
             
+            # 새 멤버 입장 메시지 처리
+            if message.new_chat_members:
+                logger.info("handle_message - New chat members joined")
+                welcome_message = "환영합니다! 🏠\n아레나 담보계산기방입니다."
+                try:
+                    await message.reply_text(welcome_message)
+                except Exception as e:
+                    logger.error(f"Error sending welcome message: {str(e)}", exc_info=True)
+                return
+            
             message_text = message.text
             if not message_text:
                 logger.info("handle_message - No text in message")
-                await message.reply_text(
-                    "텍스트 메시지를 보내주세요.\n\n"
-                    "담보물건 정보를 텍스트로 입력해주시면 계산해드립니다.\n\n"
-                    "/start 명령어로 사용 방법을 확인하실 수 있습니다."
-                )
                 return
             
             # 특정 양식이 있는 메시지만 처리
