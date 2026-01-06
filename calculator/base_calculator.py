@@ -513,20 +513,19 @@ class BaseCalculator:
                     break
             if not is_target_region:
                 print(f"DEBUG: BaseCalculator.calculate - Region {region} is not in target regions: {target_regions}")
-                target_regions_str = ", ".join(target_regions)
-                region_errors.append(f"지역 '{region}'은(는) 취급 대상 지역({target_regions_str})에 해당하지 않습니다")
+                region_errors.append("취급 대상 지역이 아닙니다")
         
         # 급지 확인
         grade = self.get_region_grade(region)
         print(f"DEBUG: BaseCalculator.calculate - region: {region}, grade: {grade}")
         if grade is None:
             print(f"DEBUG: BaseCalculator.calculate - grade is None for region: {region}, 취급 불가지역")
-            region_errors.append(f"지역 '{region}'의 급지 정보가 없어 취급 불가합니다")
+            region_errors.append("취급 불가지역")
         
         # 6급지인 경우 취급 불가지역으로 처리
         if grade == 6:
             print(f"DEBUG: BaseCalculator.calculate - grade 6 for region: {region}, 취급 불가지역")
-            region_errors.append(f"지역 '{region}'은(는) 6급지로 취급 불가합니다")
+            region_errors.append("6급지로 취급 불가")
         
         # 지역 검증 오류가 있으면 반환
         if region_errors:
