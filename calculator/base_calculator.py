@@ -1373,6 +1373,8 @@ class BaseCalculator:
                         print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 _get_ok_max_ltv_by_area_grade_credit 결과: {max_ltv}")
                         if max_ltv is not None:
                             print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 면적별 LTV: area={area}㎡, grade={grade}, credit_grade={credit_grade_number}등급 -> LTV {max_ltv}%")
+                            # 키움저축-리테일 LTV 차감 적용
+                            max_ltv = self._apply_kiwoom_ltv_adjustments(max_ltv, property_data)
                             return max_ltv
                 else:
                     # 신용점수가 없는 경우: 해당 급지의 최대 LTV 사용 (면적과 급지만 고려)
@@ -1380,6 +1382,8 @@ class BaseCalculator:
                     max_ltv = self._get_ok_max_ltv_by_area_grade(area, grade)
                     if max_ltv is not None:
                         print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 면적별 LTV (신용점수 없음): area={area}㎡, grade={grade} -> LTV {max_ltv}%")
+                        # 키움저축-리테일 LTV 차감 적용
+                        max_ltv = self._apply_kiwoom_ltv_adjustments(max_ltv, property_data)
                         return max_ltv
         
         max_ltv_by_grade = self.config.get("max_ltv_by_grade", {})
@@ -1389,6 +1393,8 @@ class BaseCalculator:
         if isinstance(grade, str):
             result = max_ltv_by_grade.get(grade)
             print(f"DEBUG: get_max_ltv_by_grade - 문자 급지: {grade} -> LTV {result}%")
+            # 키움저축-리테일 LTV 차감 적용
+            result = self._apply_kiwoom_ltv_adjustments(result, property_data)
             return result
         
         # 1급지인 경우 A/B 그룹 구분
@@ -1402,6 +1408,8 @@ class BaseCalculator:
                 if a_region.replace(" ", "") == region_clean:
                     result = max_ltv_by_grade.get("1")
                     print(f"DEBUG: get_max_ltv_by_grade - 1급지 A그룹: {region} -> LTV {result}%")
+                    # 키움저축-리테일 LTV 차감 적용
+                    result = self._apply_kiwoom_ltv_adjustments(result, property_data)
                     return result
             
             # B 그룹 확인
@@ -1409,17 +1417,82 @@ class BaseCalculator:
                 if b_region.replace(" ", "") == region_clean:
                     result = max_ltv_by_grade.get("1_b")
                     print(f"DEBUG: get_max_ltv_by_grade - 1급지 B그룹: {region} -> LTV {result}%")
+                    # 키움저축-리테일 LTV 차감 적용
+                    result = self._apply_kiwoom_ltv_adjustments(result, property_data)
                     return result
             
             # 1급지이지만 A/B 그룹에 없으면 기본값 (A 그룹)
             result = max_ltv_by_grade.get("1")
             print(f"DEBUG: get_max_ltv_by_grade - 1급지 (기본값 A그룹): {region} -> LTV {result}%")
+            # 키움저축-리테일 LTV 차감 적용
+            result = self._apply_kiwoom_ltv_adjustments(result, property_data)
             return result
         
         # JSON 키는 문자열이므로 int를 문자열로 변환하여 조회
         result = max_ltv_by_grade.get(str(grade))
         print(f"DEBUG: get_max_ltv_by_grade - result: {result}")  # 추가
+        
+        # 키움저축-리테일 LTV 차감 적용
+        result = self._apply_kiwoom_ltv_adjustments(result, property_data)
+        
         return result
+    
+    def _apply_kiwoom_ltv_adjustments(self, max_ltv: Optional[float], property_data: Optional[Dict[str, Any]]) -> Optional[float]:
+        """
+        키움저축-리테일: primary_ltv_adjustments 적용
+        - 신용등급 7-8구간: LTV 5% 차감
+        - 전용면적 110㎡ 초과: LTV 5% 차감
+        
+        Args:
+            max_ltv: 최대 LTV
+            property_data: 담보물건 정보
+            
+        Returns:
+            차감 적용된 최대 LTV
+        """
+        if max_ltv is None or property_data is None:
+            return max_ltv
+        
+        is_kiwoom_retail = "키움저축-리테일" in self.bank_name or "키움저축리테일" in self.bank_name
+        if not is_kiwoom_retail:
+            return max_ltv
+        
+        primary_ltv_adjustments = self.config.get("primary_ltv_adjustments", {})
+        if not primary_ltv_adjustments:
+            return max_ltv
+        
+        total_reduction = 0.0
+        
+        # 신용등급 7-8구간 차감 확인
+        credit_grade_7_8_reduction = primary_ltv_adjustments.get("credit_grade_7_8_ltv_reduction", 0)
+        if credit_grade_7_8_reduction > 0:
+            credit_score = property_data.get("credit_score")
+            if credit_score is not None:
+                credit_grade = self.credit_score_to_grade(credit_score)
+                if credit_grade in [7, 8]:
+                    total_reduction += credit_grade_7_8_reduction
+                    print(f"DEBUG: _apply_kiwoom_ltv_adjustments - 키움저축-리테일: 신용등급 {credit_grade}등급으로 LTV {credit_grade_7_8_reduction}% 차감")
+        
+        # 전용면적 110㎡ 초과 차감 확인
+        area_over_110_reduction = primary_ltv_adjustments.get("area_over_110_ltv_reduction", 0)
+        if area_over_110_reduction > 0:
+            area = property_data.get("area")
+            if area is not None:
+                try:
+                    area_float = float(area)
+                    if area_float > 110:
+                        total_reduction += area_over_110_reduction
+                        print(f"DEBUG: _apply_kiwoom_ltv_adjustments - 키움저축-리테일: 전용면적 {area_float}㎡ 초과로 LTV {area_over_110_reduction}% 차감")
+                except (ValueError, TypeError):
+                    pass
+        
+        # 차감 적용
+        if total_reduction > 0:
+            result = max(0, max_ltv - total_reduction)
+            print(f"DEBUG: _apply_kiwoom_ltv_adjustments - 키움저축-리테일: 총 LTV {total_reduction}% 차감 적용, 최종 LTV: {result}% (원래: {max_ltv}%)")
+            return result
+        
+        return max_ltv
     
     def _get_ok_credit_grade_number(self, credit_score: int) -> Optional[int]:
         """
