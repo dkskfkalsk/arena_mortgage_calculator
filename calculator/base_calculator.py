@@ -1880,6 +1880,24 @@ class BaseCalculator:
         grade_rates = ltv_rates[ltv_key]
         print(f"DEBUG: get_interest_rate - grade_rates for LTV {ltv_key}: {grade_rates}")  # 추가
         
+        # show_interest_rate_range 플래그 확인: 신용등급 구분 없이 금리 구간 표시 여부
+        show_interest_rate_range = self.config.get("show_interest_rate_range", False)
+        if show_interest_rate_range:
+            # 신용등급 구분 없이 해당 LTV의 최저~최고 금리 범위 반환
+            all_rates = [v for v in grade_rates.values() if isinstance(v, (int, float))]
+            if all_rates:
+                min_rate = min(all_rates)
+                max_rate = max(all_rates)
+                print(f"DEBUG: get_interest_rate - show_interest_rate_range=true, returning range: {min_rate}~{max_rate}% (신용등급 구분 없음)")  # 추가
+                return {
+                    "interest_rate": None,
+                    "interest_rate_range": (min_rate, max_rate),
+                    "credit_grade": None
+                }
+            else:
+                print(f"DEBUG: get_interest_rate - show_interest_rate_range=true but no rates found")
+        
+        # 기존 로직: 신용등급별 금리 반환
         if credit_grade is not None:
             # 신용등급이 있으면 해당 등급의 금리 반환
             grade_key = str(credit_grade)
