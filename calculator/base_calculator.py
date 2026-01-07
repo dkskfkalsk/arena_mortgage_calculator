@@ -1713,9 +1713,11 @@ class BaseCalculator:
         
         if is_refinance:
             # 대환인 경우:
-            # 추가로 받을 수 있는 금액(원금) = LTV 최대 금액 - 대환할 근저당권 원금 - 나머지 근저당권 채권최고액
+            # 1단계: 가용한도 = 최대LTV금액 - 유지하는근저당권채권최고액
+            available_amount = max_amount_principal - total_mortgage
+            # 2단계: 최종가용한도 = 가용한도 - 대환하는근저당권원금
             # 마이너스도 허용 (대환 한도 부족해도 산출)
-            available_principal = max_amount_principal - refinance_principal - total_mortgage
+            available_principal = available_amount - refinance_principal
             
             # 대환 총 실행금액(원금) = 대환원금 + 추가금
             total_refinance_amount = refinance_principal + available_principal
@@ -1724,7 +1726,7 @@ class BaseCalculator:
                 "total_amount": total_refinance_amount,
                 "available_amount": available_principal
             }
-            print(f"DEBUG: calculate_available_amount - 대환: available_principal={available_principal}, total_refinance_amount={total_refinance_amount}, result={result}")  # 추가
+            print(f"DEBUG: calculate_available_amount - 대환: available_amount(1단계)={available_amount}, available_principal(최종)={available_principal}, total_refinance_amount={total_refinance_amount}, result={result}")  # 추가
             return result
         else:
             # 후순위인 경우: 채권최고액 기준으로 차감
