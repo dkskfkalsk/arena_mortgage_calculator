@@ -825,6 +825,33 @@ class BaseCalculator:
         self._is_subordinate = len(other_mortgages) > 0  # 후순위 여부
         self._current_property_data = property_data
         
+        # 후순위/선순위에 따른 최대 LTV 재조정 (키움저축-리테일 등)
+        # 후순위 여부를 확인한 후에 max_ltv_subordinate 또는 max_ltv_primary 적용
+        original_max_ltv = max_ltv  # 기존 값 저장 (디버그용)
+        if self._is_subordinate:
+            # 후순위인 경우: max_ltv_subordinate 확인
+            max_ltv_subordinate = self.config.get("max_ltv_subordinate")
+            if max_ltv_subordinate is not None:
+                # 후순위인 경우: max_ltv_subordinate를 우선 적용
+                # 급지 제한이 0이면 취급 불가 (예: 6급지), 그 외에는 max_ltv_subordinate 사용
+                if max_ltv is not None and max_ltv == 0:
+                    # 급지 제한이 0이면 취급 불가
+                    pass  # max_ltv는 0으로 유지
+                else:
+                    # 급지 제한이 있거나 없거나, 후순위일 때는 max_ltv_subordinate 사용
+                    max_ltv = max_ltv_subordinate
+                print(f"DEBUG: BaseCalculator.calculate - 후순위 대출, max_ltv_subordinate 적용: {max_ltv_subordinate}%, 기존 max_ltv(급지별): {original_max_ltv}%, 최종 max_ltv: {max_ltv}%")
+        else:
+            # 선순위인 경우: max_ltv_primary 확인
+            max_ltv_primary = self.config.get("max_ltv_primary")
+            if max_ltv_primary is not None:
+                # 선순위인 경우: max_ltv_primary와 급지별 제한 중 작은 값 사용
+                if max_ltv is not None:
+                    max_ltv = min(max_ltv, max_ltv_primary)
+                else:
+                    max_ltv = max_ltv_primary
+                print(f"DEBUG: BaseCalculator.calculate - 선순위 대출, max_ltv_primary 적용: {max_ltv_primary}%, 기존 max_ltv(급지별): {original_max_ltv}%, 최종 max_ltv: {max_ltv}%")
+        
         # 가계 상품: 빌라인 경우 선순위만 산출
         if is_household_product:
             property_type = property_data.get("property_type", "")
