@@ -648,7 +648,7 @@ class BaseCalculator:
             # 일반 처리
             # BNK캐피탈인 경우 대환 가능 기관 체크
             is_bnk = self.bank_name == "BNK캐피탈" or "BNK캐피탈" in self.bank_name or "비엔케이캐피탈" in self.bank_name
-            refinanceable_institutions = self.config.get("refinanceable_institutions", []) if is_bnk else []
+            business_product_names = self.config.get("business_product_names", []) if is_bnk else []
             
             for mortgage in mortgages:
                 if mortgage.get("is_refinance", False):
@@ -657,9 +657,9 @@ class BaseCalculator:
                     
                     # BNK캐피탈인 경우 대환 가능 여부 확인
                     can_refinance = False
-                    if is_bnk and refinanceable_institutions:
+                    if is_bnk and business_product_names:
                         # 리스트에 있는 기관인지 확인
-                        for ref_inst in refinanceable_institutions:
+                        for ref_inst in business_product_names:
                             ref_inst_clean = ref_inst.replace(" ", "")
                             if ref_inst_clean in institution_clean:
                                 can_refinance = True
@@ -713,7 +713,7 @@ class BaseCalculator:
                         requested_institutions.append(mortgage.get("institution", ""))
                 
                 institutions_str = ", ".join(requested_institutions) if requested_institutions else "요청된 기관"
-                refinanceable_list = self.config.get("refinanceable_institutions", [])
+                refinanceable_list = self.config.get("business_product_names", [])
                 refinanceable_str = ", ".join(refinanceable_list[:5]) + ("..." if len(refinanceable_list) > 5 else "")
                 
                 return {
