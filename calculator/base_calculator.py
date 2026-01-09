@@ -1869,11 +1869,22 @@ class BaseCalculator:
         
         # 기존 방식 (interest_rates_by_ltv 사용)
         # 키움저축-리테일 등 후순위/선순위 구분이 있는 경우 처리
+        # 애큐온저축은행: 후순위 금리는 급지별로 다름 (subordinate_interest_rates_by_ltv_region)
         is_subordinate = getattr(self, '_is_subordinate', False)
         subordinate_rates = self.config.get("subordinate_interest_rates_by_ltv", {})
+        subordinate_rates_by_region = self.config.get("subordinate_interest_rates_by_ltv_region", {})
         primary_rates = self.config.get("primary_interest_rates_by_ltv", {})
         
-        if is_subordinate and subordinate_rates:
+        # 애큐온저축은행: 후순위 금리가 급지별로 있는 경우
+        if is_subordinate and subordinate_rates_by_region and region_grade is not None:
+            region_grade_str = str(region_grade)
+            if region_grade_str in subordinate_rates_by_region:
+                ltv_rates = subordinate_rates_by_region[region_grade_str]
+                print(f"DEBUG: get_interest_rate - 애큐온저축은행 후순위 대출, subordinate_interest_rates_by_ltv_region 사용 (급지 {region_grade})")
+            else:
+                ltv_rates = {}
+                print(f"DEBUG: get_interest_rate - 애큐온저축은행 후순위 대출, 급지 {region_grade}에 대한 금리 정보 없음")
+        elif is_subordinate and subordinate_rates:
             # 후순위 대출이고 subordinate_interest_rates_by_ltv가 있으면 사용
             ltv_rates = subordinate_rates
             print(f"DEBUG: get_interest_rate - 후순위 대출, subordinate_interest_rates_by_ltv 사용")
