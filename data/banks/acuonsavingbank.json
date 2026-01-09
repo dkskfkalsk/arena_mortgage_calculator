@@ -296,6 +296,17 @@
     "제주특별자치도제주시": 6,
     "제주특별자치도서귀포시": 6
   },
+  "max_ltv_by_grade": {
+    "1": 90,
+    "2": 90,
+    "3": 90,
+    "4": 90,
+    "6": 0
+  },
+  "max_ltv_primary": 85,
+  "max_ltv_subordinate": 90,
+  "ltv_steps_primary": [85, 82, 80, 77, 75, 72, 70],
+  "ltv_steps_subordinate": [90, 88, 87, 85, 82, 80, 77, 75, 72, 70],
   "credit_score_to_grade": {
     "920-999": 1,
     "880-919": 2,
