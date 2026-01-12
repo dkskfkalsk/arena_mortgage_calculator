@@ -381,8 +381,11 @@ class BaseCalculator:
                 logger.warning(f"BaseCalculator.calculate - KB price {kb_price}만원 < min_kb_price {min_kb_price}만원, 취급 불가")
                 validation_errors.append(f"KB시세 {kb_price:,.0f}만원은 최소 {min_kb_price:,.0f}만원 이상이어야 취급 가능합니다 (현재: {kb_price:,.0f}만원, 부족: {min_kb_price - kb_price:,.0f}만원)")
         
-        # 특이사항 검증: 불가 키워드 체크
+        # 특이사항 및 직업 정보 추출 (한 번만 조회하여 재사용)
         special_notes = property_data.get("special_notes", "") or ""
+        occupation = property_data.get("occupation", "") or ""
+        
+        # 특이사항 검증: 불가 키워드 체크
         # 기본 불가 키워드
         restricted_keywords = ["압류", "가압류", "경매취하자금"]
         # 추가 불가 키워드 (미래하우스론 등 특정 상품용)
@@ -399,6 +402,48 @@ class BaseCalculator:
         
         if found_keywords:
             validation_errors.append(f"특이사항에 '{', '.join(found_keywords)}'가 포함되어 취급 불가합니다")
+        
+        # 직업 제한 확인 (restricted_occupations)
+        restricted_occupations_config = self.config.get("restricted_occupations", {})
+        if restricted_occupations_config.get("enabled", False):
+            if occupation:
+                keywords = restricted_occupations_config.get("keywords", [])
+                found_occupation_keywords = []
+                for keyword in keywords:
+                    if keyword in occupation:
+                        found_occupation_keywords.append(keyword)
+                        log_print(f"DEBUG: BaseCalculator.calculate - 직업 '{occupation}'에 제한 키워드 '{keyword}' 발견, 취급 불가")
+                        logger.warning(f"BaseCalculator.calculate - 직업 '{occupation}'에 제한 키워드 '{keyword}' 발견, 취급 불가")
+                
+                if found_occupation_keywords:
+                    comment = restricted_occupations_config.get("comment", "제한업종")
+                    validation_errors.append(f"직업 '{occupation}'은(는) {comment}으로 취급 불가합니다 (발견된 키워드: {', '.join(found_occupation_keywords)})")
+        
+        # 법인사업자 제한 확인 (corporate_business_restriction)
+        corporate_business_config = self.config.get("corporate_business_restriction", {})
+        if corporate_business_config.get("enabled", False):
+            keywords = corporate_business_config.get("keywords", [])
+            found_corporate_keywords = []
+            
+            # 직업 필드에서 확인
+            if occupation:
+                for keyword in keywords:
+                    if keyword in occupation:
+                        found_corporate_keywords.append(keyword)
+                        log_print(f"DEBUG: BaseCalculator.calculate - 직업 '{occupation}'에 '{keyword}' 발견, 취급 불가")
+                        logger.warning(f"BaseCalculator.calculate - 직업 '{occupation}'에 '{keyword}' 발견, 취급 불가")
+            
+            # 특이사항에서도 확인
+            if special_notes:
+                for keyword in keywords:
+                    if keyword in special_notes:
+                        found_corporate_keywords.append(keyword)
+                        log_print(f"DEBUG: BaseCalculator.calculate - 특이사항에 '{keyword}' 발견, 취급 불가")
+                        logger.warning(f"BaseCalculator.calculate - 특이사항에 '{keyword}' 발견, 취급 불가")
+            
+            if found_corporate_keywords:
+                comment = corporate_business_config.get("comment", "법인사업자 취급 불가")
+                validation_errors.append(comment)
         
         # 고객 나이 검증: 75세 이하만 취급
         max_age = self.config.get("max_age")
@@ -883,7 +928,6 @@ class BaseCalculator:
             print(f"DEBUG: BaseCalculator.calculate - config에서 최대 한도 제한: {max_amount_limit}만원")
         
         if taxi_limit_config.get("enabled", False):
-            special_notes = property_data.get("special_notes", "")
             if special_notes:
                 keywords = taxi_limit_config.get("keywords", [])
                 for keyword in keywords:
