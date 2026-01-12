@@ -871,31 +871,34 @@ class BaseCalculator:
         self._current_property_data = property_data
         
         # 후순위/선순위에 따른 최대 LTV 재조정 (키움저축-리테일 등)
-        # 후순위 여부를 확인한 후에 max_ltv_subordinate 또는 max_ltv_primary 적용
-        original_max_ltv = max_ltv  # 기존 값 저장 (디버그용)
-        if self._is_subordinate:
-            # 후순위인 경우: max_ltv_subordinate 확인
-            max_ltv_subordinate = self.config.get("max_ltv_subordinate")
-            if max_ltv_subordinate is not None:
-                # 후순위인 경우: max_ltv_subordinate를 우선 적용
-                # 급지 제한이 0이면 취급 불가 (예: 6급지), 그 외에는 max_ltv_subordinate 사용
-                if max_ltv is not None and max_ltv == 0:
-                    # 급지 제한이 0이면 취급 불가
-                    pass  # max_ltv는 0으로 유지
-                else:
-                    # 급지 제한이 있거나 없거나, 후순위일 때는 max_ltv_subordinate 사용
-                    max_ltv = max_ltv_subordinate
-                print(f"DEBUG: BaseCalculator.calculate - 후순위 대출, max_ltv_subordinate 적용: {max_ltv_subordinate}%, 기존 max_ltv(급지별): {original_max_ltv}%, 최종 max_ltv: {max_ltv}%")
-        else:
-            # 선순위인 경우: max_ltv_primary 확인
-            max_ltv_primary = self.config.get("max_ltv_primary")
-            if max_ltv_primary is not None:
-                # 선순위인 경우: max_ltv_primary와 급지별 제한 중 작은 값 사용
-                if max_ltv is not None:
-                    max_ltv = min(max_ltv, max_ltv_primary)
-                else:
-                    max_ltv = max_ltv_primary
-                print(f"DEBUG: BaseCalculator.calculate - 선순위 대출, max_ltv_primary 적용: {max_ltv_primary}%, 기존 max_ltv(급지별): {original_max_ltv}%, 최종 max_ltv: {max_ltv}%")
+        # 애큐온저축은행: max_ltv_by_priority_grade_region을 사용한 경우 재조정 불필요
+        max_ltv_by_priority = self.config.get("max_ltv_by_priority_grade_region", {})
+        if not max_ltv_by_priority:
+            # max_ltv_by_priority_grade_region 설정이 없는 경우에만 재조정
+            original_max_ltv = max_ltv  # 기존 값 저장 (디버그용)
+            if self._is_subordinate:
+                # 후순위인 경우: max_ltv_subordinate 확인
+                max_ltv_subordinate = self.config.get("max_ltv_subordinate")
+                if max_ltv_subordinate is not None:
+                    # 후순위인 경우: max_ltv_subordinate를 우선 적용
+                    # 급지 제한이 0이면 취급 불가 (예: 6급지), 그 외에는 max_ltv_subordinate 사용
+                    if max_ltv is not None and max_ltv == 0:
+                        # 급지 제한이 0이면 취급 불가
+                        pass  # max_ltv는 0으로 유지
+                    else:
+                        # 급지 제한이 있거나 없거나, 후순위일 때는 max_ltv_subordinate 사용
+                        max_ltv = max_ltv_subordinate
+                    print(f"DEBUG: BaseCalculator.calculate - 후순위 대출, max_ltv_subordinate 적용: {max_ltv_subordinate}%, 기존 max_ltv(급지별): {original_max_ltv}%, 최종 max_ltv: {max_ltv}%")
+            else:
+                # 선순위인 경우: max_ltv_primary 확인
+                max_ltv_primary = self.config.get("max_ltv_primary")
+                if max_ltv_primary is not None:
+                    # 선순위인 경우: max_ltv_primary와 급지별 제한 중 작은 값 사용
+                    if max_ltv is not None:
+                        max_ltv = min(max_ltv, max_ltv_primary)
+                    else:
+                        max_ltv = max_ltv_primary
+                    print(f"DEBUG: BaseCalculator.calculate - 선순위 대출, max_ltv_primary 적용: {max_ltv_primary}%, 기존 max_ltv(급지별): {original_max_ltv}%, 최종 max_ltv: {max_ltv}%")
         
         # 가계 상품: 빌라인 경우 선순위만 산출
         if is_household_product:
@@ -1476,6 +1479,49 @@ class BaseCalculator:
                         max_ltv = self._apply_kiwoom_ltv_adjustments(max_ltv, property_data)
                         return max_ltv
         
+        # 애큐온저축은행: max_ltv_by_priority_grade_region 설정 확인 (선순위/후순위, 신용등급, 급지별 최대 LTV)
+        max_ltv_by_priority = self.config.get("max_ltv_by_priority_grade_region", {})
+        if max_ltv_by_priority and property_data is not None:
+            # 후순위 여부 확인 (mortgages가 있으면 후순위)
+            mortgages = property_data.get("mortgages", [])
+            is_subordinate = len(mortgages) > 0
+            
+            # 신용점수로 신용등급 확인
+            credit_score = property_data.get("credit_score")
+            credit_grade = self.credit_score_to_grade(credit_score) if credit_score is not None else None
+            
+            priority_key = "subordinate" if is_subordinate else "primary"
+            
+            if priority_key in max_ltv_by_priority:
+                grade_config = max_ltv_by_priority[priority_key]
+                
+                # 신용등급에 따라 키 선택
+                grade_key = None
+                if credit_grade is not None:
+                    if 1 <= credit_grade <= 6:
+                        grade_key = "1-6"
+                    elif credit_grade == 7:
+                        grade_key = "7"
+                    elif credit_grade == 8:
+                        grade_key = "8"
+                
+                if grade_key and grade_key in grade_config:
+                    region_ltv_map = grade_config[grade_key]
+                    if region_ltv_map is not None:
+                        # 급지별 최대 LTV 조회
+                        grade_str = str(grade)
+                        if grade_str in region_ltv_map:
+                            result = region_ltv_map[grade_str]
+                            print(f"DEBUG: get_max_ltv_by_grade - 애큐온저축은행 {priority_key} 대출, 신용등급 {credit_grade} ({grade_key}), 급지 {grade} -> LTV {result}%")
+                            # 키움저축-리테일 LTV 차감 적용
+                            result = self._apply_kiwoom_ltv_adjustments(result, property_data)
+                            return result
+                    else:
+                        # null인 경우 취급 불가
+                        print(f"DEBUG: get_max_ltv_by_grade - 애큐온저축은행 {priority_key} 대출, 신용등급 {credit_grade} ({grade_key})는 null로 취급 불가")
+                        return None
+        
+        # 기존 로직 (max_ltv_by_grade 사용)
         max_ltv_by_grade = self.config.get("max_ltv_by_grade", {})
         print(f"DEBUG: get_max_ltv_by_grade - grade: {grade} (type: {type(grade)}), region: {region}, max_ltv_by_grade keys: {list(max_ltv_by_grade.keys())}")  # 추가
         
