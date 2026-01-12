@@ -1198,10 +1198,20 @@ class BaseCalculator:
                 
                 print(f"DEBUG: LTV {ltv} - amount_info: {amount_info}")  # 추가
                 
-                # 가용 한도가 0 이하면 스킵 (대환인 경우는 마이너스여도 산출)
+                # 요청사항에 '부족자금'이 있는지 확인
+                requests = property_data.get("requests", "") or ""
+                allow_negative_available = "부족자금" in requests
+                
+                # 가용 한도가 마이너스일 경우 처리
+                # - 대환인 경우: 마이너스여도 산출
+                # - 요청사항에 '부족자금'이 있는 경우: 마이너스여도 산출
+                # - 그 외: 가용 한도가 0 이하면 스킵
                 if not is_refinance and amount_info["available_amount"] <= 0:
-                    print(f"DEBUG: LTV {ltv} - available_amount <= 0, skipping")  # 추가
-                    continue
+                    if not allow_negative_available:
+                        print(f"DEBUG: LTV {ltv} - available_amount <= 0, skipping (부족자금 요청 없음)")  # 추가
+                        continue
+                    else:
+                        print(f"DEBUG: LTV {ltv} - available_amount <= 0, but allowing due to '부족자금' request")  # 추가
                 
                 # 금리 조회 (82% LTV의 경우 region_grade에 따라 다른 금리 적용)
                 rate_info = self.get_interest_rate(credit_score, credit_grade, ltv, grade)
