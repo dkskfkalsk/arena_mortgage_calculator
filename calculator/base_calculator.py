@@ -2017,13 +2017,31 @@ class BaseCalculator:
         print(f"DEBUG: get_interest_rate - ltv: {ltv}, credit_score: {credit_score}, credit_grade: {credit_grade}, region_grade: {region_grade}, is_subordinate: {is_subordinate}")  # 추가
         print(f"DEBUG: get_interest_rate - ltv_key: {ltv_key}, available ltv_keys: {list(ltv_rates.keys())}")  # 추가
         
+        # 애큐온저축은행: LTV 키가 없으면 가장 가까운 낮은(이하) 금리 사용
+        is_acuon = self.bank_name == "애큐온저축은행" or "애큐온" in self.bank_name
         if ltv_key not in ltv_rates:
-            print(f"DEBUG: get_interest_rate - LTV {ltv_key} not found in interest_rates_by_ltv")  # 추가
-            return {
-                "interest_rate": None,
-                "interest_rate_range": None,
-                "credit_grade": credit_grade
-            }
+            if is_acuon and ((is_subordinate and subordinate_rates_by_region) or (not is_subordinate and primary_rates)):
+                # 애큐온저축은행이고 후순위/선순위 금리 테이블을 사용하는 경우
+                # 사용 가능한 LTV 키 중에서 요청된 LTV 이상인 것 중 가장 작은 값 찾기 (요청된 LTV 이하의 금리)
+                available_keys = [int(k) for k in ltv_rates.keys() if k.isdigit() and int(k) >= ltv]
+                if available_keys:
+                    closest_key = min(available_keys)  # 요청된 LTV 이상인 것 중 가장 작은 값 (예: 87% → 90%, 82% → 85%, 77% → 80%)
+                    ltv_key = str(closest_key)
+                    print(f"DEBUG: get_interest_rate - 애큐온저축은행: LTV {ltv}%에 대한 키 없음, 가장 가까운 이하 금리 키 {ltv_key}% 사용")
+                else:
+                    print(f"DEBUG: get_interest_rate - 애큐온저축은행: LTV {ltv}%에 대한 적절한 금리 키를 찾을 수 없음")
+                    return {
+                        "interest_rate": None,
+                        "interest_rate_range": None,
+                        "credit_grade": credit_grade
+                    }
+            else:
+                print(f"DEBUG: get_interest_rate - LTV {ltv_key} not found in interest_rates_by_ltv")  # 추가
+                return {
+                    "interest_rate": None,
+                    "interest_rate_range": None,
+                    "credit_grade": credit_grade
+                }
         
         grade_rates = ltv_rates[ltv_key]
         print(f"DEBUG: get_interest_rate - grade_rates for LTV {ltv_key}: {grade_rates}")  # 추가
