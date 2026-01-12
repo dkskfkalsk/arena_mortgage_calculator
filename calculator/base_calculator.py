@@ -1005,17 +1005,9 @@ class BaseCalculator:
                 results = []
             else:
                 # 금리 조회를 위해 가장 가까운 ltv_steps 값 찾기
-                # 후순위/선순위 구분이 있는 경우 처리
+                # 후순위/선순위 구분이 있는 경우 처리 (신용등급별 LTV steps 사용)
                 is_subordinate = getattr(self, '_is_subordinate', False)
-                subordinate_steps = self.config.get("ltv_steps_subordinate", [])
-                primary_steps = self.config.get("ltv_steps_primary", [])
-                
-                if is_subordinate and subordinate_steps:
-                    ltv_steps = subordinate_steps
-                elif not is_subordinate and primary_steps:
-                    ltv_steps = primary_steps
-                else:
-                    ltv_steps = self.config.get("ltv_steps", [90, 85, 80, 75, 70, 65])
+                ltv_steps = self._get_ltv_steps_by_grade(is_subordinate, credit_grade)
                 
                 closest_ltv_for_rate = None
                 if ltv_steps:
@@ -1091,17 +1083,9 @@ class BaseCalculator:
             else:
                 # 계산된 정확한 LTV 사용 (ltv_steps에 없어도 됨)
                 # 금리 조회를 위해 가장 가까운 ltv_steps 값 찾기
-                # 후순위/선순위 구분이 있는 경우 처리
+                # 후순위/선순위 구분이 있는 경우 처리 (신용등급별 LTV steps 사용)
                 is_subordinate = getattr(self, '_is_subordinate', False)
-                subordinate_steps = self.config.get("ltv_steps_subordinate", [])
-                primary_steps = self.config.get("ltv_steps_primary", [])
-                
-                if is_subordinate and subordinate_steps:
-                    ltv_steps = subordinate_steps
-                elif not is_subordinate and primary_steps:
-                    ltv_steps = primary_steps
-                else:
-                    ltv_steps = self.config.get("ltv_steps", [90, 85, 80, 75, 70, 65])
+                ltv_steps = self._get_ltv_steps_by_grade(is_subordinate, credit_grade)
                 
                 closest_ltv_for_rate = None
                 if ltv_steps:
@@ -1175,22 +1159,9 @@ class BaseCalculator:
                     print(f"DEBUG: BaseCalculator.calculate - 사업자금: max_ltv={max_ltv}, filtered ltv_steps={ltv_steps}")
                 else:
                     # 후순위/선순위 구분이 있는 경우 처리 (키움저축-리테일 등)
+                    # 신용등급별 LTV steps 사용
                     is_subordinate = getattr(self, '_is_subordinate', False)
-                    subordinate_steps = self.config.get("ltv_steps_subordinate", [])
-                    primary_steps = self.config.get("ltv_steps_primary", [])
-                    
-                    if is_subordinate and subordinate_steps:
-                        # 후순위 대출이고 ltv_steps_subordinate가 있으면 사용
-                        ltv_steps = subordinate_steps
-                        print(f"DEBUG: BaseCalculator.calculate - 후순위 대출, ltv_steps_subordinate 사용: {ltv_steps}")
-                    elif not is_subordinate and primary_steps:
-                        # 선순위 대출이고 ltv_steps_primary가 있으면 사용
-                        ltv_steps = primary_steps
-                        print(f"DEBUG: BaseCalculator.calculate - 선순위 대출, ltv_steps_primary 사용: {ltv_steps}")
-                    else:
-                        # 기본값: ltv_steps 사용
-                        ltv_steps = self.config.get("ltv_steps", [90, 85, 80, 75, 70, 65])
-                        print(f"DEBUG: BaseCalculator.calculate - 기본 ltv_steps 사용: {ltv_steps}")
+                    ltv_steps = self._get_ltv_steps_by_grade(is_subordinate, credit_grade)
             
             print(f"DEBUG: BaseCalculator.calculate - max_ltv: {max_ltv}, ltv_steps: {ltv_steps}")  # 추가
             
@@ -1346,6 +1317,55 @@ class BaseCalculator:
         
         print(f"DEBUG: credit_score_to_grade - no match found, returning None")  # 추가
         return None
+    
+    def _get_ltv_steps_by_grade(self, is_subordinate: bool, credit_grade: Optional[int]) -> List[int]:
+        """
+        신용등급별 LTV steps 조회
+        ltv_by_priority_business_type_grade 설정이 있으면 사용하고, 없으면 기존 로직 사용
+        """
+        ltv_by_priority = self.config.get("ltv_by_priority_business_type_grade", {})
+        if ltv_by_priority:
+            # 신용등급별 LTV steps 사용
+            priority_key = "subordinate" if is_subordinate else "primary"
+            business_type = "regular"  # startup은 제거됨
+            
+            if priority_key in ltv_by_priority and business_type in ltv_by_priority[priority_key]:
+                grade_config = ltv_by_priority[priority_key][business_type]
+                
+                # 신용등급에 따라 키 선택
+                grade_key = None
+                if credit_grade is not None:
+                    if 1 <= credit_grade <= 6:
+                        grade_key = "1-6"
+                    elif credit_grade == 7:
+                        grade_key = "7"
+                    elif credit_grade == 8:
+                        grade_key = "8"
+                
+                if grade_key and grade_key in grade_config:
+                    ltv_steps = grade_config[grade_key]
+                    if ltv_steps is not None:
+                        print(f"DEBUG: _get_ltv_steps_by_grade - {priority_key} 대출, 신용등급 {credit_grade} ({grade_key}), ltv_by_priority_business_type_grade 사용: {ltv_steps}")
+                        return ltv_steps
+                    else:
+                        # null인 경우 취급 불가
+                        print(f"DEBUG: _get_ltv_steps_by_grade - {priority_key} 대출, 신용등급 {credit_grade} ({grade_key})는 null로 취급 불가")
+                        return []
+        
+        # ltv_by_priority_business_type_grade 설정이 없거나 해당 등급이 없으면 기존 로직 사용
+        subordinate_steps = self.config.get("ltv_steps_subordinate", [])
+        primary_steps = self.config.get("ltv_steps_primary", [])
+        
+        if is_subordinate and subordinate_steps:
+            print(f"DEBUG: _get_ltv_steps_by_grade - 후순위 대출, ltv_steps_subordinate 사용: {subordinate_steps}")
+            return subordinate_steps
+        elif not is_subordinate and primary_steps:
+            print(f"DEBUG: _get_ltv_steps_by_grade - 선순위 대출, ltv_steps_primary 사용: {primary_steps}")
+            return primary_steps
+        else:
+            default_steps = self.config.get("ltv_steps", [90, 85, 80, 75, 70, 65])
+            print(f"DEBUG: _get_ltv_steps_by_grade - 기본 ltv_steps 사용: {default_steps}")
+            return default_steps
     
     def validate_kb_price(self, kb_price: Any) -> Optional[float]:
         """
