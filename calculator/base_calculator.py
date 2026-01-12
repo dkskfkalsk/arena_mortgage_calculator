@@ -445,6 +445,29 @@ class BaseCalculator:
                 comment = corporate_business_config.get("comment", "법인사업자 취급 불가")
                 validation_errors.append(comment)
         
+        # 키움저축-리테일: 사업자보유 부가세누락신고조건 체크
+        is_kiwoom_retail = self.bank_name == "키움저축-리테일" or "키움저축-리테일" in self.bank_name
+        if is_kiwoom_retail:
+            # 직업이 "사업자"가 아니면 한도 산출 안 함
+            if not occupation or "사업자" not in occupation:
+                log_print(f"DEBUG: BaseCalculator.calculate - 키움저축-리테일: 직업 '{occupation}'에 '사업자' 없음, 취급 불가")
+                logger.warning(f"BaseCalculator.calculate - 키움저축-리테일: 직업 '{occupation}'에 '사업자' 없음, 취급 불가")
+                validation_errors.append(f"직업이 '사업자'인 경우만 취급 가능합니다 (현재 직업: '{occupation}')")
+            else:
+                # "직장인(사업자보유)" 등 직업에 "사업자보유"가 포함된 경우, 특이사항/요청사항 체크
+                if "사업자보유" in occupation or "직장인" in occupation:
+                    requests = property_data.get("requests", "") or ""
+                    combined_text = special_notes + " " + requests
+                    
+                    # "사업자보유"와 "부가세 누락" 또는 "부가세 누락신고" 키워드 체크
+                    has_business_holder = "사업자보유" in combined_text or "사업자 보유" in combined_text
+                    has_tax_missing = "부가세" in combined_text and "누락" in combined_text
+                    
+                    if has_business_holder and has_tax_missing:
+                        log_print(f"DEBUG: BaseCalculator.calculate - 키움저축-리테일: 특이사항/요청사항에 '사업자보유 부가세누락신고조건' 발견, 취급 불가")
+                        logger.warning(f"BaseCalculator.calculate - 키움저축-리테일: 특이사항/요청사항에 '사업자보유 부가세누락신고조건' 발견, 취급 불가")
+                        validation_errors.append("사업자보유 부가세누락신고조건인 경우 취급 불가합니다")
+        
         # 고객 나이 검증: 75세 이하만 취급
         max_age = self.config.get("max_age")
         if max_age is not None:
