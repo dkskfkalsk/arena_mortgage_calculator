@@ -1203,10 +1203,9 @@ class BaseCalculator:
                 allow_negative_available = "부족자금" in requests
                 
                 # 가용 한도가 마이너스일 경우 처리
-                # - 대환인 경우: 마이너스여도 산출
-                # - 요청사항에 '부족자금'이 있는 경우: 마이너스여도 산출
-                # - 그 외: 가용 한도가 0 이하면 스킵
-                if not is_refinance and amount_info["available_amount"] <= 0:
+                # - 요청사항에 '부족자금'이 있는 경우만: 마이너스여도 산출
+                # - 그 외: 가용 한도가 0 이하면 스킵 (대환이든 후순위든 상관없이)
+                if amount_info["available_amount"] <= 0:
                     if not allow_negative_available:
                         print(f"DEBUG: LTV {ltv} - available_amount <= 0, skipping (부족자금 요청 없음)")  # 추가
                         continue
