@@ -724,18 +724,20 @@ class BaseCalculator:
                     other_mortgages.append(mortgage)
         else:
             # 일반 처리
-            # BNK캐피탈인 경우 대환 가능 기관 체크
+            # BNK캐피탈 또는 OK저축은행인 경우 대환 가능 기관 체크
             is_bnk = self.bank_name == "BNK캐피탈" or "BNK캐피탈" in self.bank_name or "비엔케이캐피탈" in self.bank_name
-            business_product_names = self.config.get("business_product_names", []) if is_bnk else []
+            is_ok_bank = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
+            is_business_product = is_bnk or is_ok_bank
+            business_product_names = self.config.get("business_product_names", []) if is_business_product else []
             
             for mortgage in mortgages:
                 if mortgage.get("is_refinance", False):
                     institution = mortgage.get("institution", "")
                     institution_clean = institution.replace(" ", "")
                     
-                    # BNK캐피탈인 경우 대환 가능 여부 확인
+                    # BNK캐피탈 또는 OK저축은행인 경우 대환 가능 여부 확인
                     can_refinance = False
-                    if is_bnk and business_product_names:
+                    if is_business_product and business_product_names:
                         # 리스트에 있는 기관인지 확인
                         for ref_inst in business_product_names:
                             ref_inst_clean = ref_inst.replace(" ", "")
@@ -746,9 +748,10 @@ class BaseCalculator:
                         # 리스트에 없지만 '사업자금' 문자열이 있으면 대환 가능
                         if not can_refinance and "사업자금" in institution:
                             can_refinance = True
-                            print(f"DEBUG: BaseCalculator.calculate - BNK캐피탈: '{institution}'에 '사업자금' 포함되어 대환 가능")
+                            bank_display_name = "BNK캐피탈" if is_bnk else "OK저축은행"
+                            print(f"DEBUG: BaseCalculator.calculate - {bank_display_name}: '{institution}'에 '사업자금' 포함되어 대환 가능")
                     else:
-                        # BNK캐피탈이 아니면 대환 가능
+                        # BNK캐피탈 또는 OK저축은행이 아니면 대환 가능
                         can_refinance = True
                     
                     if can_refinance:
@@ -757,7 +760,8 @@ class BaseCalculator:
                         print(f"DEBUG: BaseCalculator.calculate - 대환할 근저당권 발견: priority={mortgage.get('priority')}, institution={institution}, principal={mortgage_amount}만원")
                     else:
                         # 대환 불가능한 기관은 후순위로 처리
-                        print(f"DEBUG: BaseCalculator.calculate - BNK캐피탈: '{institution}'는 대환 가능 기관이 아니므로 후순위로 처리")
+                        bank_display_name = "BNK캐피탈" if is_bnk else "OK저축은행"
+                        print(f"DEBUG: BaseCalculator.calculate - {bank_display_name}: '{institution}'는 대환 가능 기관이 아니므로 후순위로 처리")
                         other_mortgages.append(mortgage)
                 else:
                     other_mortgages.append(mortgage)
@@ -870,12 +874,20 @@ class BaseCalculator:
                     if mortgage.get("is_refinance", False):
                         institution = mortgage.get("institution", "")
                         institution_clean = institution.replace(" ", "")
+                        found_in_list = False
                         for product_name in business_product_names:
                             product_name_clean = product_name.replace(" ", "")
                             if product_name_clean in institution_clean:
                                 can_refinance = True
                                 refinance_institutions.append(institution)
+                                found_in_list = True
                                 break
+                        
+                        # 리스트에 없지만 '사업자금' 문자열이 있으면 대환 가능
+                        if not found_in_list and "사업자금" in institution:
+                            can_refinance = True
+                            refinance_institutions.append(institution)
+                            print(f"DEBUG: BaseCalculator.calculate - OK저축은행 사업자 상품: '{institution}'에 '사업자금' 포함되어 대환 가능")
                 
                 if not can_refinance:
                     print(f"DEBUG: BaseCalculator.calculate - OK 저축은행 사업자 상품: 대환 요청된 기관이 사업자 상품이 아님")
