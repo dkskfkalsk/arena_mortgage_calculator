@@ -454,11 +454,22 @@ class BaseCalculator:
                 logger.warning(f"BaseCalculator.calculate - 키움저축-리테일: 직업 '{occupation}'에 '사업자' 없음, 취급 불가")
                 validation_errors.append(f"직업이 '사업자'인 경우만 취급 가능합니다 (현재 직업: '{occupation}')")
             else:
+                requests = property_data.get("requests", "") or ""
+                combined_text = special_notes + " " + requests
+                
+                # "부가세 누락", "즉발", "즉발보유" 키워드 체크
+                restricted_keywords = ["부가세 누락", "즉발", "즉발보유", "부가세"]
+                found_restricted_keywords = []
+                for keyword in restricted_keywords:
+                    if keyword in combined_text:
+                        found_restricted_keywords.append(keyword)
+                
+                if found_restricted_keywords:
+                    log_print(f"DEBUG: BaseCalculator.calculate - 키움저축-리테일: 특이사항/요청사항에 제한 키워드 발견: {', '.join(found_restricted_keywords)}, 취급 불가")
+                    logger.warning(f"BaseCalculator.calculate - 키움저축-리테일: 특이사항/요청사항에 제한 키워드 발견: {', '.join(found_restricted_keywords)}, 취급 불가")
+                    validation_errors.append(f"특이사항/요청사항에 '{', '.join(found_restricted_keywords)}' 키워드가 있어 취급 불가합니다")
                 # "직장인(사업자보유)" 등 직업에 "사업자보유"가 포함된 경우, 특이사항/요청사항 체크
-                if "사업자보유" in occupation or "직장인" in occupation:
-                    requests = property_data.get("requests", "") or ""
-                    combined_text = special_notes + " " + requests
-                    
+                elif "사업자보유" in occupation or "직장인" in occupation:
                     # "사업자보유"와 "부가세 누락" 또는 "부가세 누락신고" 키워드 체크
                     has_business_holder = "사업자보유" in combined_text or "사업자 보유" in combined_text
                     has_tax_missing = "부가세" in combined_text and "누락" in combined_text
