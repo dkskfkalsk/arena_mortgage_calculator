@@ -467,7 +467,6 @@ class BaseCalculator:
                 if found_restricted_keywords:
                     log_print(f"DEBUG: BaseCalculator.calculate - 키움저축-리테일: 특이사항/요청사항에 제한 키워드 발견: {', '.join(found_restricted_keywords)}, 취급 불가")
                     logger.warning(f"BaseCalculator.calculate - 키움저축-리테일: 특이사항/요청사항에 제한 키워드 발견: {', '.join(found_restricted_keywords)}, 취급 불가")
-                    validation_errors.append(f"특이사항/요청사항에 '{', '.join(found_restricted_keywords)}' 키워드가 있어 취급 불가합니다")
                 # "직장인(사업자보유)" 등 직업에 "사업자보유"가 포함된 경우, 특이사항/요청사항 체크
                 elif "사업자보유" in occupation or "직장인" in occupation:
                     # "사업자보유"와 "부가세 누락" 또는 "부가세 누락신고" 키워드 체크
