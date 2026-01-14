@@ -446,12 +446,25 @@ class BaseCalculator:
                 validation_errors.append(comment)
         
         # 키움저축-리테일: 사업자보유 부가세누락신고조건 체크
-        is_kiwoom_retail = self.bank_name == "키움저축-리테일" or "키움저축-리테일" in self.bank_name
-        if is_kiwoom_retail:
+        # 제한 조건이 적용되는 금융사 목록 (새 금융사 추가 시 여기에만 추가하면 됨)
+        # 형식: {"표시명": ["매칭키워드1", "매칭키워드2", ...]}
+        restricted_banks = {
+            "키움저축-리테일": ["키움저축-리테일"],
+            "페퍼저축은행-사업자": ["페퍼저축은행-사업자", "페퍼저축은행"]
+        }
+        
+        # 현재 금융사가 제한 목록에 있는지 확인
+        bank_display_name = None
+        for display_name, keywords in restricted_banks.items():
+            if any(keyword in self.bank_name for keyword in keywords):
+                bank_display_name = display_name
+                break
+        
+        if bank_display_name:
             # 직업이 "사업자"가 아니면 한도 산출 안 함
             if not occupation or "사업자" not in occupation:
-                log_print(f"DEBUG: BaseCalculator.calculate - 키움저축-리테일: 직업 '{occupation}'에 '사업자' 없음, 취급 불가")
-                logger.warning(f"BaseCalculator.calculate - 키움저축-리테일: 직업 '{occupation}'에 '사업자' 없음, 취급 불가")
+                log_print(f"DEBUG: BaseCalculator.calculate - {bank_display_name}: 직업 '{occupation}'에 '사업자' 없음, 취급 불가")
+                logger.warning(f"BaseCalculator.calculate - {bank_display_name}: 직업 '{occupation}'에 '사업자' 없음, 취급 불가")
                 validation_errors.append(f"직업이 '사업자'인 경우만 취급 가능합니다 (현재 직업: '{occupation}')")
             else:
                 requests = property_data.get("requests", "") or ""
@@ -465,8 +478,9 @@ class BaseCalculator:
                         found_restricted_keywords.append(keyword)
                 
                 if found_restricted_keywords:
-                    log_print(f"DEBUG: BaseCalculator.calculate - 키움저축-리테일: 특이사항/요청사항에 제한 키워드 발견: {', '.join(found_restricted_keywords)}, 취급 불가")
-                    logger.warning(f"BaseCalculator.calculate - 키움저축-리테일: 특이사항/요청사항에 제한 키워드 발견: {', '.join(found_restricted_keywords)}, 취급 불가")
+                    log_print(f"DEBUG: BaseCalculator.calculate - {bank_display_name}: 특이사항/요청사항에 제한 키워드 발견: {', '.join(found_restricted_keywords)}, 취급 불가")
+                    logger.warning(f"BaseCalculator.calculate - {bank_display_name}: 특이사항/요청사항에 제한 키워드 발견: {', '.join(found_restricted_keywords)}, 취급 불가")
+                    validation_errors.append(f"특이사항/요청사항에 '{', '.join(found_restricted_keywords)}'가 포함되어 취급 불가합니다")
                 # "직장인(사업자보유)" 등 직업에 "사업자보유"가 포함된 경우, 특이사항/요청사항 체크
                 elif "사업자보유" in occupation or "직장인" in occupation:
                     # "사업자보유"와 "부가세 누락" 또는 "부가세 누락신고" 키워드 체크
@@ -474,8 +488,8 @@ class BaseCalculator:
                     has_tax_missing = "부가세" in combined_text and "누락" in combined_text
                     
                     if has_business_holder and has_tax_missing:
-                        log_print(f"DEBUG: BaseCalculator.calculate - 키움저축-리테일: 특이사항/요청사항에 '사업자보유 부가세누락신고조건' 발견, 취급 불가")
-                        logger.warning(f"BaseCalculator.calculate - 키움저축-리테일: 특이사항/요청사항에 '사업자보유 부가세누락신고조건' 발견, 취급 불가")
+                        log_print(f"DEBUG: BaseCalculator.calculate - {bank_display_name}: 특이사항/요청사항에 '사업자보유 부가세누락신고조건' 발견, 취급 불가")
+                        logger.warning(f"BaseCalculator.calculate - {bank_display_name}: 특이사항/요청사항에 '사업자보유 부가세누락신고조건' 발견, 취급 불가")
                         validation_errors.append("사업자보유 부가세누락신고조건인 경우 취급 불가합니다")
         
         # 고객 나이 검증: 75세 이하만 취급
