@@ -1268,6 +1268,7 @@ class BaseCalculator:
             print(f"DEBUG: BaseCalculator.calculate - no results found for {self.bank_name}")
             # 최대 LTV로 계산했을 때 가용 한도 확인
             max_ltv_amount = kb_price * (max_ltv / 100)
+            min_amount = self.config.get("min_amount", 3000)
             
             # 대환인 경우: 대환할 근저당권의 원금 + 나머지 근저당권의 채권최고액을 합산하여 체크
             # 대환이 아닌 경우: 기존 근저당권의 채권최고액만 체크
@@ -1289,8 +1290,21 @@ class BaseCalculator:
                             f"기존 근저당권 채권최고액({total_mortgage_for_check:,.0f}만원)이 최대 한도({max_ltv_amount:,.0f}만원, LTV {max_ltv}%)를 초과하여 추가 대출 불가능",
                             f"초과 금액: {shortage:,.0f}만원 (기존 채권최고액 {total_mortgage_for_check:,.0f}만원 - 최대 한도 {max_ltv_amount:,.0f}만원)"
                         ],
-                        "min_amount": self.config.get("min_amount", 3000)
+                        "min_amount": min_amount
                     }
+                else:
+                    # 최대 LTV로 계산했을 때 가용한도 확인
+                    max_available = max_ltv_amount - total_mortgage_for_check
+                    max_available_rounded = self.round_down_to_hundred_thousand(max_available)
+                    if max_available_rounded > 0 and max_available_rounded < min_amount:
+                        print(f"DEBUG: BaseCalculator.calculate - 최대 가용한도 {max_available_rounded}만원이 최소진행금액 {min_amount}만원보다 작음")
+                        return {
+                            "bank_name": self.bank_name,
+                            "results": [],
+                            "conditions": self.config.get("conditions", []),
+                            "errors": [f"최소진행금액 부족 (가용한도: {max_available_rounded:,.0f}만원, 최소진행금액: {min_amount:,.0f}만원)"],
+                            "min_amount": min_amount
+                        }
             else:
                 # 대환이 아닌 경우: 기존 로직 유지
                 if total_mortgage > max_ltv_amount:
@@ -1304,8 +1318,21 @@ class BaseCalculator:
                             f"기존 근저당권 채권최고액({total_mortgage:,.0f}만원)이 최대 한도({max_ltv_amount:,.0f}만원, LTV {max_ltv}%)를 초과하여 추가 대출 불가능",
                             f"초과 금액: {shortage:,.0f}만원 (기존 채권최고액 {total_mortgage:,.0f}만원 - 최대 한도 {max_ltv_amount:,.0f}만원)"
                         ],
-                        "min_amount": self.config.get("min_amount", 3000)
+                        "min_amount": min_amount
                     }
+                else:
+                    # 최대 LTV로 계산했을 때 가용한도 확인
+                    max_available = max_ltv_amount - total_mortgage
+                    max_available_rounded = self.round_down_to_hundred_thousand(max_available)
+                    if max_available_rounded > 0 and max_available_rounded < min_amount:
+                        print(f"DEBUG: BaseCalculator.calculate - 최대 가용한도 {max_available_rounded}만원이 최소진행금액 {min_amount}만원보다 작음")
+                        return {
+                            "bank_name": self.bank_name,
+                            "results": [],
+                            "conditions": self.config.get("conditions", []),
+                            "errors": [f"최소진행금액 부족 (가용한도: {max_available_rounded:,.0f}만원, 최소진행금액: {min_amount:,.0f}만원)"],
+                            "min_amount": min_amount
+                        }
             
             print(f"DEBUG: BaseCalculator.calculate - no results found for {self.bank_name}, returning None")
             return None
