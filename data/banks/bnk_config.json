@@ -154,6 +154,7 @@
     "울산광역시북구": 6,
     "울산광역시울주군": 6,
     "세종특별자치시세종시": 6,
+    "세종특별자치시": 6,
     "강원특별자치도춘천시": 6,
     "강원특별자치도원주시": 6,
     "강원특별자치도강릉시": 6,
@@ -361,8 +362,6 @@
     "710-764": 6,
     "656-709": 7
   },
-  "_comment_show_interest_rate_range": "신용등급 구분 없이 금리 구간 표시 여부 설정 (true: 신용등급 무시하고 최저~최고 금리 구간 표시 예: 9.0~18.0%, false: 신용등급별 금리 표시 예: 9.0% (5등급))",
-  "show_interest_rate_range": false,
   "min_kb_price": 5000,
   "max_age": 75,
   "interest_rate_by_ltv_grade": {
@@ -474,6 +473,25 @@
     "자주, 담채: 75세 이하",
     "대출 취급직전 1개월 이내 말소이력 있을 시 취급 불가",
     "특이사항에 '압류', '가압류', '경매취하자금' 있으면 취급 불가"
-  ]
+  ],
+  "_comment_show_interest_rate_range": "신용등급 구분 없이 금리 구간 표시 여부 설정 (true: 신용등급 무시하고 최저~최고 금리 구간 표시 예: 9.0~18.0%, false: 신용등급별 금리 표시 예: 9.0% (5등급))",
+  "show_interest_rate_range": false,
+  "validation_rules": {
+    "_comment": "금융사별 제한 조건 설정 (enabled: true일 때만 적용)",
+    "enabled": false,
+    "occupation_requirements": {
+      "_comment": "직업 요구사항 (required_keywords: 필수 키워드, forbidden_keywords: 금지 키워드, check_fields: 체크할 필드)",
+      "required_keywords": [],
+      "forbidden_keywords": [],
+      "check_fields": ["occupation", "special_notes", "requests"]
+    },
+    "restricted_keywords": {
+      "_comment": "제한 키워드 체크 (check_fields: 체크할 필드, keywords: 제한 키워드 목록)",
+      "check_fields": ["special_notes", "requests"],
+      "keywords": [],
+      "error_message": "특이사항/요청사항에 '{keywords}'가 포함되어 취급 불가합니다"
+    },
+    "complex_rules": []
+  }
 }
 
