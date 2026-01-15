@@ -445,52 +445,8 @@ class BaseCalculator:
                 comment = corporate_business_config.get("comment", "법인사업자 취급 불가")
                 validation_errors.append(comment)
         
-        # 키움저축-리테일: 사업자보유 부가세누락신고조건 체크
-        # 제한 조건이 적용되는 금융사 목록 (새 금융사 추가 시 여기에만 추가하면 됨)
-        # 형식: {"표시명": ["매칭키워드1", "매칭키워드2", ...]}
-        restricted_banks = {
-            "키움저축-리테일": ["키움저축-리테일"],
-            "페퍼저축은행-사업자": ["페퍼저축은행-사업자", "페퍼저축은행"]
-        }
-        
-        # 현재 금융사가 제한 목록에 있는지 확인
-        bank_display_name = None
-        for display_name, keywords in restricted_banks.items():
-            if any(keyword in self.bank_name for keyword in keywords):
-                bank_display_name = display_name
-                break
-        
-        if bank_display_name:
-            # 직업이 "사업자"가 아니면 한도 산출 안 함
-            if not occupation or "사업자" not in occupation:
-                log_print(f"DEBUG: BaseCalculator.calculate - {bank_display_name}: 직업 '{occupation}'에 '사업자' 없음, 취급 불가")
-                logger.warning(f"BaseCalculator.calculate - {bank_display_name}: 직업 '{occupation}'에 '사업자' 없음, 취급 불가")
-                validation_errors.append(f"직업이 '사업자'인 경우만 취급 가능합니다 (현재 직업: '{occupation}')")
-            else:
-                requests = property_data.get("requests", "") or ""
-                combined_text = special_notes + " " + requests
-                
-                # "부가세 누락", "즉발", "즉발보유" 키워드 체크
-                restricted_keywords = ["부가세 누락", "즉발", "즉발보유", "부가세"]
-                found_restricted_keywords = []
-                for keyword in restricted_keywords:
-                    if keyword in combined_text:
-                        found_restricted_keywords.append(keyword)
-                
-                if found_restricted_keywords:
-                    log_print(f"DEBUG: BaseCalculator.calculate - {bank_display_name}: 특이사항/요청사항에 제한 키워드 발견: {', '.join(found_restricted_keywords)}, 취급 불가")
-                    logger.warning(f"BaseCalculator.calculate - {bank_display_name}: 특이사항/요청사항에 제한 키워드 발견: {', '.join(found_restricted_keywords)}, 취급 불가")
-                    validation_errors.append(f"특이사항/요청사항에 '{', '.join(found_restricted_keywords)}'가 포함되어 취급 불가합니다")
-                # "직장인(사업자보유)" 등 직업에 "사업자보유"가 포함된 경우, 특이사항/요청사항 체크
-                elif "사업자보유" in occupation or "직장인" in occupation:
-                    # "사업자보유"와 "부가세 누락" 또는 "부가세 누락신고" 키워드 체크
-                    has_business_holder = "사업자보유" in combined_text or "사업자 보유" in combined_text
-                    has_tax_missing = "부가세" in combined_text and "누락" in combined_text
-                    
-                    if has_business_holder and has_tax_missing:
-                        log_print(f"DEBUG: BaseCalculator.calculate - {bank_display_name}: 특이사항/요청사항에 '사업자보유 부가세누락신고조건' 발견, 취급 불가")
-                        logger.warning(f"BaseCalculator.calculate - {bank_display_name}: 특이사항/요청사항에 '사업자보유 부가세누락신고조건' 발견, 취급 불가")
-                        validation_errors.append("사업자보유 부가세누락신고조건인 경우 취급 불가합니다")
+        # 금융사별 validation_rules 체크 (설정 파일에서 정의된 제한 조건)
+        self._validate_validation_rules(property_data, validation_errors)
         
         # 고객 나이 검증: 75세 이하만 취급
         max_age = self.config.get("max_age")
@@ -1284,6 +1240,12 @@ class BaseCalculator:
                 final_amount = self.round_down_to_hundred_thousand(final_amount)
                 final_total_amount = self.round_down_to_hundred_thousand(amount_info["total_amount"])
                 
+                # 최소진행금액 체크: min_amount보다 작으면 결과에서 제외
+                min_amount = self.config.get("min_amount")
+                if min_amount is not None and final_amount < min_amount:
+                    print(f"DEBUG: LTV {ltv} - final_amount {final_amount}만원이 min_amount {min_amount}만원보다 작아서 제외")
+                    continue
+                
                 result = {
                     "ltv": ltv,
                     "amount": final_amount,
@@ -1437,6 +1399,151 @@ class BaseCalculator:
             default_steps = self.config.get("ltv_steps", [90, 85, 80, 75, 70, 65])
             print(f"DEBUG: _get_ltv_steps_by_grade - 기본 ltv_steps 사용: {default_steps}")
             return default_steps
+    
+    def _validate_validation_rules(
+        self, 
+        property_data: Dict[str, Any], 
+        validation_errors: List[str]
+    ) -> None:
+        """
+        설정 파일의 validation_rules를 읽어서 검증 수행
+        
+        Args:
+            property_data: 부동산 정보
+            validation_errors: 검증 오류 목록 (추가할 에러를 여기에 append)
+        """
+        validation_rules = self.config.get("validation_rules", {})
+        if not validation_rules.get("enabled", False):
+            return
+        
+        occupation = property_data.get("occupation", "") or ""
+        special_notes = property_data.get("special_notes", "") or ""
+        requests = property_data.get("requests", "") or ""
+        combined_text = (special_notes + " " + requests).strip()
+        
+        # 1. 직업 요구사항 체크 (required_keywords, forbidden_keywords)
+        occupation_requirements = validation_rules.get("occupation_requirements", {})
+        if occupation_requirements:
+            required_keywords = occupation_requirements.get("required_keywords", [])
+            forbidden_keywords = occupation_requirements.get("forbidden_keywords", [])
+            check_fields = occupation_requirements.get("check_fields", ["occupation", "special_notes", "requests"])
+            
+            # 필수 키워드 체크
+            if required_keywords:
+                found_required = False
+                for keyword in required_keywords:
+                    if "occupation" in check_fields and occupation and keyword in occupation:
+                        found_required = True
+                        break
+                    if "special_notes" in check_fields and special_notes and keyword in special_notes:
+                        found_required = True
+                        break
+                    if "requests" in check_fields and requests and keyword in requests:
+                        found_required = True
+                        break
+                
+                if not found_required:
+                    error_msg_template = occupation_requirements.get("error_message", 
+                        f"직업이 '{', '.join(required_keywords)}'인 경우만 취급 가능합니다 (현재 직업: '{{occupation}}')")
+                    error_msg = error_msg_template.format(occupation=occupation if occupation else "정보없음")
+                    log_print(f"DEBUG: BaseCalculator._validate_validation_rules - 필수 키워드 없음: {required_keywords}")
+                    logger.warning(f"BaseCalculator._validate_validation_rules - 필수 키워드 없음: {required_keywords}")
+                    validation_errors.append(error_msg)
+                    return  # 필수 조건 불만족 시 다른 체크 스킵
+            
+            # 금지 키워드 체크
+            if forbidden_keywords:
+                found_forbidden = []
+                for keyword in forbidden_keywords:
+                    if "occupation" in check_fields and occupation and keyword in occupation:
+                        found_forbidden.append(keyword)
+                        log_print(f"DEBUG: BaseCalculator._validate_validation_rules - 직업 '{occupation}'에 금지 키워드 '{keyword}' 발견")
+                        logger.warning(f"BaseCalculator._validate_validation_rules - 직업 '{occupation}'에 금지 키워드 '{keyword}' 발견")
+                    if "special_notes" in check_fields and special_notes and keyword in special_notes:
+                        if keyword not in found_forbidden:
+                            found_forbidden.append(keyword)
+                            log_print(f"DEBUG: BaseCalculator._validate_validation_rules - 특이사항에 금지 키워드 '{keyword}' 발견")
+                            logger.warning(f"BaseCalculator._validate_validation_rules - 특이사항에 금지 키워드 '{keyword}' 발견")
+                    if "requests" in check_fields and requests and keyword in requests:
+                        if keyword not in found_forbidden:
+                            found_forbidden.append(keyword)
+                            log_print(f"DEBUG: BaseCalculator._validate_validation_rules - 요청사항에 금지 키워드 '{keyword}' 발견")
+                            logger.warning(f"BaseCalculator._validate_validation_rules - 요청사항에 금지 키워드 '{keyword}' 발견")
+                
+                if found_forbidden:
+                    error_msg = occupation_requirements.get("forbidden_error_message",
+                        f"'{', '.join(found_forbidden)}'는 취급 불가합니다")
+                    validation_errors.append(error_msg)
+                    return  # 금지 키워드 발견 시 다른 체크 스킵
+        
+        # 2. 제한 키워드 체크 (restricted_keywords)
+        restricted_keywords_config = validation_rules.get("restricted_keywords", {})
+        if restricted_keywords_config:
+            check_fields = restricted_keywords_config.get("check_fields", ["special_notes", "requests"])
+            keywords = restricted_keywords_config.get("keywords", [])
+            
+            found_keywords = []
+            for keyword in keywords:
+                for field in check_fields:
+                    if field == "special_notes" and special_notes and keyword in special_notes:
+                        if keyword not in found_keywords:
+                            found_keywords.append(keyword)
+                            log_print(f"DEBUG: BaseCalculator._validate_validation_rules - 특이사항에 제한 키워드 '{keyword}' 발견")
+                            logger.warning(f"BaseCalculator._validate_validation_rules - 특이사항에 제한 키워드 '{keyword}' 발견")
+                    elif field == "requests" and requests and keyword in requests:
+                        if keyword not in found_keywords:
+                            found_keywords.append(keyword)
+                            log_print(f"DEBUG: BaseCalculator._validate_validation_rules - 요청사항에 제한 키워드 '{keyword}' 발견")
+                            logger.warning(f"BaseCalculator._validate_validation_rules - 요청사항에 제한 키워드 '{keyword}' 발견")
+            
+            if found_keywords:
+                error_msg_template = restricted_keywords_config.get("error_message",
+                    "특이사항/요청사항에 '{keywords}'가 포함되어 취급 불가합니다")
+                error_msg = error_msg_template.format(keywords=', '.join(found_keywords))
+                validation_errors.append(error_msg)
+                return  # 제한 키워드 발견 시 복합 규칙 체크 스킵
+        
+        # 3. 복합 규칙 체크 (complex_rules)
+        complex_rules = validation_rules.get("complex_rules", [])
+        for rule in complex_rules:
+            conditions = rule.get("conditions", {})
+            occupation_keywords = conditions.get("occupation_keywords", [])
+            combined_text_keywords = conditions.get("combined_text_keywords", [])
+            require_all = conditions.get("require_all", True)
+            
+            # 직업 키워드 체크
+            has_occupation_match = False
+            if occupation_keywords:
+                for keyword in occupation_keywords:
+                    if keyword in occupation:
+                        has_occupation_match = True
+                        break
+            
+            # 복합 텍스트 키워드 체크
+            has_combined_match = False
+            if combined_text_keywords:
+                if require_all:
+                    # 모든 키워드가 있어야 함
+                    has_combined_match = all(keyword in combined_text for keyword in combined_text_keywords)
+                else:
+                    # 하나라도 있으면 됨
+                    has_combined_match = any(keyword in combined_text for keyword in combined_text_keywords)
+            
+            # 규칙 조건 충족 여부 확인
+            rule_triggered = False
+            if require_all:
+                # 모든 조건을 만족해야 함
+                rule_triggered = (not occupation_keywords or has_occupation_match) and (not combined_text_keywords or has_combined_match)
+            else:
+                # 하나라도 만족하면 됨
+                rule_triggered = (occupation_keywords and has_occupation_match) or (combined_text_keywords and has_combined_match)
+            
+            if rule_triggered:
+                error_msg = rule.get("error_message", f"{rule.get('name', '규칙')}인 경우 취급 불가합니다")
+                log_print(f"DEBUG: BaseCalculator._validate_validation_rules - 복합 규칙 '{rule.get('name')}' 충족, 취급 불가")
+                logger.warning(f"BaseCalculator._validate_validation_rules - 복합 규칙 '{rule.get('name')}' 충족, 취급 불가")
+                validation_errors.append(error_msg)
+                return  # 복합 규칙 충족 시 다른 규칙 체크는 하지 않음
     
     def validate_kb_price(self, kb_price: Any) -> Optional[float]:
         """

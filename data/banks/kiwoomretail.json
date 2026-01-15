@@ -140,6 +140,7 @@
     "울산광역시북구": 6,
     "울산광역시울주군": 6,
     "세종특별자치시세종시": 6,
+    "세종특별자치시": 6,
     "강원특별자치도춘천시": 6,
     "강원특별자치도원주시": 6,
     "강원특별자치도강릉시": 6,
@@ -538,6 +539,36 @@
   "restricted_keywords": ["압류", "가압류"],
   "allowed_keywords": ["말소조건"],
   "_comment_show_interest_rate_range": "신용등급 구분 없이 금리 구간 표시 여부 설정 (true: 신용등급 무시하고 최저~최고 금리 구간 표시 예: 9.0~18.0%, false: 신용등급별 금리 표시 예: 9.0% (5등급))",
-  "show_interest_rate_range": false
+  "show_interest_rate_range": false,
+  "validation_rules": {
+    "_comment": "금융사별 제한 조건 설정 (enabled: true일 때만 적용)",
+    "enabled": true,
+    "occupation_requirements": {
+      "_comment": "직업 요구사항 (required_keywords: 필수 키워드, forbidden_keywords: 금지 키워드, check_fields: 체크할 필드)",
+      "required_keywords": ["사업자"],
+      "forbidden_keywords": [],
+      "check_fields": ["occupation"],
+      "error_message": "직업이 '사업자'인 경우만 취급 가능합니다 (현재 직업: '{occupation}')"
+    },
+    "restricted_keywords": {
+      "_comment": "제한 키워드 체크 (check_fields: 체크할 필드, keywords: 제한 키워드 목록)",
+      "check_fields": ["special_notes", "requests"],
+      "keywords": ["부가세 누락", "즉발", "즉발보유", "부가세"],
+      "error_message": "특이사항/요청사항에 '{keywords}'가 포함되어 취급 불가합니다"
+    },
+    "complex_rules": [
+      {
+        "_comment": "복합 규칙: 사업자보유 부가세누락신고조건",
+        "name": "사업자보유 부가세누락신고조건",
+        "conditions": {
+          "_comment": "require_all: true면 모든 조건 만족 시, false면 하나라도 만족 시",
+          "occupation_keywords": ["사업자보유", "직장인"],
+          "combined_text_keywords": ["사업자보유", "부가세", "누락"],
+          "require_all": true
+        },
+        "error_message": "사업자보유 부가세누락신고조건인 경우 취급 불가합니다"
+      }
+    ]
+  }
 }
 
