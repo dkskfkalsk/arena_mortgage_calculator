@@ -161,13 +161,15 @@ def format_result(bank_result: Dict[str, Any]) -> str:
 
 
 def format_all_results(
-    all_results: List[Dict[str, Any]]
+    all_results: List[Dict[str, Any]],
+    property_data: Optional[Dict[str, Any]] = None
 ) -> str:
     """
     모든 금융사 결과를 포맷팅
     
     Args:
         all_results: 모든 금융사 계산 결과 리스트
+        property_data: 파싱된 담보물건 정보 (근저당권 정보 포함, 선택적)
     
     Returns:
         포맷팅된 문자열
@@ -175,11 +177,124 @@ def format_all_results(
     if not all_results:
         return "산출 가능한 금융사가 없습니다.\n\n※ KB시세가 없으면 산출이 불가능합니다."
     
+    # 전체 결과에서 대환/후순위 여부 및 대환하는 기관 목록 확인
+    all_refinance_results = []
+    all_subordinate_results = []
+    all_refinance_institutions_set = set()
+    
+    for bank_result in all_results:
+        results = bank_result.get("results", [])
+        if not results:
+            continue
+        
+        # 각 결과의 대환 여부 확인
+        for result in results:
+            is_refinance = result.get("is_refinance", False)
+            if is_refinance:
+                all_refinance_results.append(bank_result)
+                # 대환하는 기관 목록 수집
+                refinance_institutions = result.get("refinance_institutions")
+                if refinance_institutions:
+                    if isinstance(refinance_institutions, list):
+                        all_refinance_institutions_set.update(refinance_institutions)
+                    else:
+                        all_refinance_institutions_set.add(str(refinance_institutions))
+            else:
+                all_subordinate_results.append(bank_result)
+    
+    # 순위 계산
+    priority_text = ""
+    if property_data:
+        mortgages = property_data.get("mortgages", [])
+        if mortgages:
+            # 대환하는 근저당권 확인
+            refinance_mortgages = [m for m in mortgages if m.get("is_refinance", False)]
+            remaining_mortgages = [m for m in mortgages if not m.get("is_refinance", False)]
+            
+            # 대환하는 근저당권이 있는 경우
+            if refinance_mortgages:
+                # 대환하는 근저당권 중 가장 낮은 순위 확인
+                refinance_priorities = [m.get("priority", 0) for m in refinance_mortgages if m.get("priority")]
+                min_refinance_priority = min(refinance_priorities) if refinance_priorities else None
+                
+                # 1순위를 대환하는 경우
+                if min_refinance_priority == 1:
+                    priority_text = "선순위"
+                else:
+                    # 남는 근저당권들을 순위 순으로 정렬
+                    remaining_mortgages_sorted = sorted(remaining_mortgages, key=lambda x: x.get("priority", 999))
+                    
+                    # 대환 후 순위 재배치
+                    # 남는 근저당권이 있으면 가장 높은 순위 찾기
+                    if remaining_mortgages_sorted:
+                        # 남는 근저당권 중 가장 높은 순위 (재배치 전 원래 순위)
+                        max_remaining_priority = max(m.get("priority", 0) for m in remaining_mortgages_sorted)
+                        # 진행 순위 = 가장 높은 남는 순위 + 1
+                        # 하지만 중간 순위를 대환하는 경우도 고려
+                        # 예: 1,2,3,4 중 2,3 대환 → 1은 1순위 유지, 4는 2순위로 올라감 → 진행: 3순위
+                        
+                        # 더 정확하게: 대환하는 순위 중 가장 낮은 순위가 진행 순위
+                        if min_refinance_priority:
+                            priority_text = f"{min_refinance_priority}순위"
+                    else:
+                        # 모든 근저당권을 대환하는 경우
+                        priority_text = "선순위"
+            else:
+                # 대환하지 않는 경우: 후순위 진행
+                if remaining_mortgages:
+                    # 남는 근저당권 중 가장 높은 순위 찾기
+                    max_remaining_priority = max(m.get("priority", 0) for m in remaining_mortgages)
+                    # 진행 순위 = 가장 높은 남는 순위 + 1
+                    next_priority = max_remaining_priority + 1
+                    priority_text = f"{next_priority}순위"
+                else:
+                    # 근저당권이 없는 경우
+                    priority_text = "선순위"
+    
+    # 전체 진행 여부 판단
+    header_lines = []
+    if all_refinance_results and not all_subordinate_results:
+        # 모든 결과가 대환인 경우
+        if all_refinance_institutions_set:
+            institutions_str = ", ".join(sorted(all_refinance_institutions_set))
+            if priority_text:
+                header_lines.append(f"※ 대환 진행 ({institutions_str}) - {priority_text} 진행")
+            else:
+                header_lines.append(f"※ 대환 진행 ({institutions_str})")
+        else:
+            if priority_text:
+                header_lines.append(f"※ 대환 진행 - {priority_text} 진행")
+            else:
+                header_lines.append("※ 대환 진행")
+    elif all_subordinate_results and not all_refinance_results:
+        # 모든 결과가 후순위인 경우
+        if priority_text:
+            header_lines.append(f"※ 후순위 진행 - {priority_text} 진행")
+        else:
+            header_lines.append("※ 후순위 진행")
+    elif all_refinance_results and all_subordinate_results:
+        # 혼합된 경우
+        if all_refinance_institutions_set:
+            institutions_str = ", ".join(sorted(all_refinance_institutions_set))
+            if priority_text:
+                header_lines.append(f"※ 대환/후순위 혼합 진행 (대환: {institutions_str}) - {priority_text} 진행")
+            else:
+                header_lines.append(f"※ 대환/후순위 혼합 진행 (대환: {institutions_str})")
+        else:
+            if priority_text:
+                header_lines.append(f"※ 대환/후순위 혼합 진행 - {priority_text} 진행")
+            else:
+                header_lines.append("※ 대환/후순위 혼합 진행")
+    
     formatted_results = []
     
     for bank_result in all_results:
         formatted = format_result(bank_result)
         formatted_results.append(formatted)
     
-    return "\n\n".join(formatted_results)
+    # 헤더가 있으면 맨 위에 추가
+    if header_lines:
+        return "\n".join(header_lines) + "\n\n" + "\n\n".join(formatted_results)
+    else:
+        return "\n\n".join(formatted_results)
 

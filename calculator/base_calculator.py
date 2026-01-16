@@ -653,6 +653,7 @@ class BaseCalculator:
         # 대환할 근저당권 찾기 (여러 개 대비하여 누적합으로 처리)
         refinance_principal = 0.0  # 대환할 근저당권 원금 합계
         refinance_institutions = []  # 대환하는 금융사 이름 리스트 (가계자금용)
+        all_refinance_institutions = []  # 대환하는 모든 금융사 이름 리스트 (전체용)
         other_mortgages = []  # 나머지 근저당권들
         
         # 가계자금인 경우: 물상담보 제외, business_product_names에 없는 것만 대환 가능
@@ -727,6 +728,8 @@ class BaseCalculator:
                     if can_refinance:
                         mortgage_amount = float(mortgage.get("amount", 0) or 0)
                         refinance_principal += mortgage_amount
+                        if institution not in all_refinance_institutions:
+                            all_refinance_institutions.append(institution)
                         print(f"DEBUG: BaseCalculator.calculate - 대환할 근저당권 발견: priority={mortgage.get('priority')}, institution={institution}, principal={mortgage_amount}만원")
                     else:
                         # 대환 불가능한 기관은 후순위로 처리

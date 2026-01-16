@@ -243,7 +243,7 @@ def get_application():
                 print(f"[WEBHOOK] Results count: {len(results) if results else 0}", file=sys.stderr, flush=True)
                 logger.info(f"handle_message - results count: {len(results) if results else 0}")
                 
-                formatted_result = format_all_results(results)
+                formatted_result = format_all_results(results, property_data)
                 print("[WEBHOOK] Sending reply message...", file=sys.stderr, flush=True)
                 await message.reply_text(formatted_result)
                 print("[WEBHOOK] Message sent successfully!", file=sys.stderr, flush=True)

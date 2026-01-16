@@ -64,7 +64,7 @@ async def calculate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         results = BaseCalculator.calculate_all_banks(property_data)
         
         # 결과 포맷팅
-        formatted_result = format_all_results(results)
+        formatted_result = format_all_results(results, property_data)
         
         # 결과 전송
         await update.message.reply_text(formatted_result)
