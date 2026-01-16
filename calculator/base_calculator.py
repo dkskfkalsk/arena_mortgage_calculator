@@ -1289,10 +1289,7 @@ class BaseCalculator:
                         "bank_name": self.bank_name,
                         "results": [],
                         "conditions": self.config.get("conditions", []),
-                        "errors": [
-                            f"기존 근저당권 채권최고액({total_mortgage_for_check:,.0f}만원)이 최대 한도({max_ltv_amount:,.0f}만원, LTV {max_ltv}%)를 초과하여 추가 대출 불가능",
-                            f"초과 금액: {shortage:,.0f}만원 (기존 채권최고액 {total_mortgage_for_check:,.0f}만원 - 최대 한도 {max_ltv_amount:,.0f}만원)"
-                        ],
+                        "errors": [f"기존 근저당권이 최대 한도 초과 (초과: {shortage:,.0f}만원)"],
                         "min_amount": min_amount
                     }
                 else:
@@ -1317,10 +1314,7 @@ class BaseCalculator:
                         "bank_name": self.bank_name,
                         "results": [],
                         "conditions": self.config.get("conditions", []),
-                        "errors": [
-                            f"기존 근저당권 채권최고액({total_mortgage:,.0f}만원)이 최대 한도({max_ltv_amount:,.0f}만원, LTV {max_ltv}%)를 초과하여 추가 대출 불가능",
-                            f"초과 금액: {shortage:,.0f}만원 (기존 채권최고액 {total_mortgage:,.0f}만원 - 최대 한도 {max_ltv_amount:,.0f}만원)"
-                        ],
+                        "errors": [f"기존 근저당권이 최대 한도 초과 (초과: {shortage:,.0f}만원)"],
                         "min_amount": min_amount
                     }
                 else:
