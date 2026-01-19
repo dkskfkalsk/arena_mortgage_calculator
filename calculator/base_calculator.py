@@ -941,6 +941,14 @@ class BaseCalculator:
         credit_score = property_data.get("credit_score")
         credit_grade = self.credit_score_to_grade(credit_score)
         
+        # MG캐피탈: 내부 등급 파싱 (등급 우선)
+        is_mg_capital = self.bank_name == "MG캐피탈" or "MG캐피탈" in self.bank_name or "엠지케피탈" in self.bank_name
+        if is_mg_capital:
+            mg_internal_grade = self._parse_mg_internal_grade(property_data)
+            if mg_internal_grade is not None:
+                credit_grade = mg_internal_grade
+                print(f"DEBUG: BaseCalculator.calculate - MG캐피탈 내부 등급 적용: {credit_grade}등급")
+        
         # 택시 관련 한도 제한 확인
         taxi_limit_config = self.config.get("taxi_limit", {})
         max_amount_limit = None
@@ -2086,6 +2094,48 @@ class BaseCalculator:
             }
             print(f"DEBUG: calculate_available_amount - 후순위: available_principal={available_principal}, result={result}")  # 추가
             return result
+    
+    def _parse_mg_internal_grade(self, property_data: Optional[Dict[str, Any]]) -> Optional[int]:
+        """
+        MG캐피탈 내부 등급 파싱
+        
+        신용점수란, 특이사항, 요청사항에서 다음 형식의 등급을 추출:
+        - "1등급" ~ "7등급"
+        - "내부 1등급" ~ "내부 7등급"
+        
+        Args:
+            property_data: 담보물건 정보
+        
+        Returns:
+            내부 등급 (1-7) 또는 None
+        """
+        import re
+        
+        if property_data is None:
+            return None
+        
+        # 확인할 필드들 (우선순위: 신용점수 > 특이사항 > 요청사항)
+        fields_to_check = [
+            property_data.get("credit_score"),  # 신용점수란에 "내부 3등급" 등이 있을 수 있음
+            property_data.get("special_notes"),
+            property_data.get("requests")
+        ]
+        
+        # 등급 패턴: "내부 1등급", "내부1등급", "1등급" 등
+        pattern = r'(?:내부\s*)?([1-7])등급'
+        
+        for field in fields_to_check:
+            if field is None:
+                continue
+            
+            field_str = str(field)
+            match = re.search(pattern, field_str)
+            if match:
+                grade = int(match.group(1))
+                print(f"DEBUG: _parse_mg_internal_grade - 내부 등급 발견: {grade}등급 (원본: '{field_str}')")
+                return grade
+        
+        return None
     
     def _check_mg_promotion(
         self,
