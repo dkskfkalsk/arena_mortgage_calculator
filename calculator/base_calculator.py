@@ -2114,9 +2114,9 @@ class BaseCalculator:
         if property_data is None:
             return None
         
-        # 확인할 필드들 (우선순위: 신용점수 > 특이사항 > 요청사항)
+        # 확인할 필드들 (우선순위: 신용점수 원본 > 특이사항 > 요청사항)
         fields_to_check = [
-            property_data.get("credit_score"),  # 신용점수란에 "내부 3등급" 등이 있을 수 있음
+            property_data.get("credit_score_raw"),  # 신용점수란 원본 (검증 전 값, "내부 4등급" 등)
             property_data.get("special_notes"),
             property_data.get("requests")
         ]
