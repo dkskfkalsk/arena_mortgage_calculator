@@ -207,6 +207,10 @@ class BaseCalculator:
                 "errors": []
             }
         """
+        # 프로모션 플래그 초기화
+        self._promotion_applied = False
+        self._promotion_name = None
+        
         # 모든 검증 오류를 수집
         validation_errors = []
         
@@ -1335,8 +1339,16 @@ class BaseCalculator:
             return None
         
         print(f"DEBUG: BaseCalculator.calculate - {self.bank_name} found {len(results)} results")  # 추가
+        
+        # MG캐피탈 프로모션 적용 시 은행명 변경
+        final_bank_name = self.bank_name
+        if getattr(self, '_promotion_applied', False):
+            promotion_name = getattr(self, '_promotion_name', '프로모션 금리 적용')
+            final_bank_name = f"{self.bank_name}({promotion_name})"
+            print(f"DEBUG: BaseCalculator.calculate - 프로모션 적용, 은행명 변경: {final_bank_name}")
+        
         return {
-            "bank_name": self.bank_name,
+            "bank_name": final_bank_name,
             "results": results,
             "conditions": self.config.get("conditions", []),
             "errors": [],
@@ -2075,6 +2087,111 @@ class BaseCalculator:
             print(f"DEBUG: calculate_available_amount - 후순위: available_principal={available_principal}, result={result}")  # 추가
             return result
     
+    def _check_mg_promotion(
+        self,
+        ltv: int,
+        region_grade: Optional[Union[int, str]],
+        credit_grade: Optional[int],
+        property_data: Optional[Dict[str, Any]]
+    ) -> float:
+        """
+        MG캐피탈 프로모션 조건 체크 및 할인율 반환
+        
+        프로모션 조건:
+        1. 물건지 급지 1, 2급지
+        2. 고객 신용등급 5등급 이내
+        3. 아파트, 주상복합 200세대 이상
+        4. LTV 85% 이내
+        
+        할인:
+        - 1급지: -0.3%
+        - 2급지: -0.4%
+        
+        Args:
+            ltv: LTV 비율
+            region_grade: 지역 급지
+            credit_grade: 신용등급
+            property_data: 담보물건 정보
+        
+        Returns:
+            할인율 (음수값, 예: -0.3) 또는 0.0 (프로모션 미적용)
+        """
+        promotions = self.config.get("promotions", [])
+        if not promotions:
+            return 0.0
+        
+        for promotion in promotions:
+            conditions = promotion.get("conditions", {})
+            discounts = promotion.get("discounts", {})
+            apply_to = promotion.get("apply_to", ["primary", "subordinate"])
+            
+            # 선/후순위 적용 여부 체크
+            is_subordinate = getattr(self, '_is_subordinate', False)
+            loan_type = "subordinate" if is_subordinate else "primary"
+            if loan_type not in apply_to:
+                print(f"DEBUG: _check_mg_promotion - 프로모션 미적용 (대출타입 {loan_type} 미해당)")
+                continue
+            
+            # 조건 1: 급지 체크 (1, 2급지만)
+            allowed_grades = conditions.get("region_grades", [])
+            if region_grade is None or int(region_grade) not in allowed_grades:
+                print(f"DEBUG: _check_mg_promotion - 프로모션 미적용 (급지 {region_grade} 미해당, 허용: {allowed_grades})")
+                continue
+            
+            # 조건 2: 신용등급 체크 (5등급 이내)
+            max_credit_grade = conditions.get("max_credit_grade")
+            if max_credit_grade is not None:
+                if credit_grade is None or credit_grade > max_credit_grade:
+                    print(f"DEBUG: _check_mg_promotion - 프로모션 미적용 (신용등급 {credit_grade} > {max_credit_grade}등급)")
+                    continue
+            
+            # 조건 3: 물건 타입 및 세대수 체크
+            if property_data:
+                property_type = property_data.get("property_type", "")
+                allowed_property_types = conditions.get("property_types", [])
+                
+                # 물건 타입 체크
+                type_matched = False
+                for allowed_type in allowed_property_types:
+                    if allowed_type in property_type:
+                        type_matched = True
+                        break
+                
+                if not type_matched:
+                    print(f"DEBUG: _check_mg_promotion - 프로모션 미적용 (물건타입 {property_type} 미해당, 허용: {allowed_property_types})")
+                    continue
+                
+                # 세대수 체크
+                min_household_count = conditions.get("min_household_count")
+                if min_household_count is not None:
+                    household_count = property_data.get("household_count")
+                    if household_count is None or household_count < min_household_count:
+                        print(f"DEBUG: _check_mg_promotion - 프로모션 미적용 (세대수 {household_count} < {min_household_count})")
+                        continue
+            else:
+                # property_data가 없으면 프로모션 미적용
+                print(f"DEBUG: _check_mg_promotion - 프로모션 미적용 (property_data 없음)")
+                continue
+            
+            # 조건 4: LTV 체크
+            max_ltv = conditions.get("max_ltv")
+            if max_ltv is not None and ltv > max_ltv:
+                print(f"DEBUG: _check_mg_promotion - 프로모션 미적용 (LTV {ltv}% > {max_ltv}%)")
+                continue
+            
+            # 모든 조건 충족 - 급지에 따른 할인율 반환
+            region_grade_str = str(int(region_grade))
+            discount = discounts.get(region_grade_str, 0.0)
+            print(f"DEBUG: _check_mg_promotion - 프로모션 적용! 급지 {region_grade}, 할인: {discount}%")
+            
+            # 프로모션 적용 플래그 설정
+            self._promotion_applied = True
+            self._promotion_name = promotion.get("name", "프로모션")
+            
+            return discount
+        
+        return 0.0
+    
     def get_interest_rate(
         self, 
         credit_score: Optional[int], 
@@ -2249,6 +2366,7 @@ class BaseCalculator:
         is_mg_capital = self.bank_name == "MG캐피탈" or "MG캐피탈" in self.bank_name or "엠지케피탈" in self.bank_name
         grade_additional_rate = 0.0
         non_apartment_additional_rate = 0.0
+        promotion_discount = 0.0
         
         if is_mg_capital:
             # 급지별 가산금리 적용
@@ -2266,6 +2384,11 @@ class BaseCalculator:
                 if not is_apartment_or_complex:
                     non_apartment_additional_rate = self.config.get("non_apartment_additional_rate", 1.0)
                     print(f"DEBUG: get_interest_rate - MG캐피탈 아파트/주상복합이 아닌 경우 가산금리: {non_apartment_additional_rate}% (물건 타입: {property_type})")
+            
+            # MG캐피탈 프로모션 체크 및 할인 적용
+            promotion_discount = self._check_mg_promotion(ltv, region_grade, credit_grade, property_data)
+            if promotion_discount != 0.0:
+                print(f"DEBUG: get_interest_rate - MG캐피탈 프로모션 할인: {promotion_discount}% (급지 {region_grade})")
         
         # show_interest_rate_range 플래그 확인: 신용등급 구분 없이 금리 구간 표시 여부
         show_interest_rate_range = self.config.get("show_interest_rate_range", False)
@@ -2273,13 +2396,14 @@ class BaseCalculator:
             # 신용등급 구분 없이 해당 LTV의 최저~최고 금리 범위 반환
             all_rates = [v for v in grade_rates.values() if isinstance(v, (int, float))]
             if all_rates:
-                min_rate = min(all_rates) + grade_additional_rate + non_apartment_additional_rate
-                max_rate = max(all_rates) + grade_additional_rate + non_apartment_additional_rate
-                print(f"DEBUG: get_interest_rate - show_interest_rate_range=true, returning range: {min_rate}~{max_rate}% (신용등급 구분 없음, 급지 가산: {grade_additional_rate}%, 비아파트 가산: {non_apartment_additional_rate}%)")  # 추가
+                min_rate = min(all_rates) + grade_additional_rate + non_apartment_additional_rate + promotion_discount
+                max_rate = max(all_rates) + grade_additional_rate + non_apartment_additional_rate + promotion_discount
+                print(f"DEBUG: get_interest_rate - show_interest_rate_range=true, returning range: {min_rate}~{max_rate}% (신용등급 구분 없음, 급지 가산: {grade_additional_rate}%, 비아파트 가산: {non_apartment_additional_rate}%, 프로모션: {promotion_discount}%)")  # 추가
                 return {
                     "interest_rate": None,
                     "interest_rate_range": (round(min_rate, 2), round(max_rate, 2)),
-                    "credit_grade": None
+                    "credit_grade": None,
+                    "promotion_applied": promotion_discount != 0.0
                 }
             else:
                 print(f"DEBUG: get_interest_rate - show_interest_rate_range=true but no rates found")
@@ -2291,13 +2415,14 @@ class BaseCalculator:
             print(f"DEBUG: get_interest_rate - looking for grade_key: {grade_key}")  # 추가
             if grade_key in grade_rates:
                 rate = grade_rates[grade_key]
-                # MG캐피탈: 급지별 가산금리 및 아파트/주상복합이 아닌 경우 +1% 적용
-                final_rate = rate + grade_additional_rate + non_apartment_additional_rate
-                print(f"DEBUG: get_interest_rate - found rate: {rate}% for grade {credit_grade}, final rate: {final_rate}% (급지 가산: {grade_additional_rate}%, 비아파트 가산: {non_apartment_additional_rate}%)")  # 추가
+                # MG캐피탈: 급지별 가산금리 및 아파트/주상복합이 아닌 경우 +1% 적용 + 프로모션 할인
+                final_rate = rate + grade_additional_rate + non_apartment_additional_rate + promotion_discount
+                print(f"DEBUG: get_interest_rate - found rate: {rate}% for grade {credit_grade}, final rate: {final_rate}% (급지 가산: {grade_additional_rate}%, 비아파트 가산: {non_apartment_additional_rate}%, 프로모션: {promotion_discount}%)")  # 추가
                 return {
                     "interest_rate": round(final_rate, 2),
                     "interest_rate_range": None,
-                    "credit_grade": credit_grade
+                    "credit_grade": credit_grade,
+                    "promotion_applied": promotion_discount != 0.0
                 }
             else:
                 print(f"DEBUG: get_interest_rate - grade_key {grade_key} not found in grade_rates")  # 추가
@@ -2305,13 +2430,14 @@ class BaseCalculator:
         # 신용점수/등급이 없으면 최저~최고 금리 범위 반환
         all_rates = [v for v in grade_rates.values() if isinstance(v, (int, float))]
         if all_rates:
-            min_rate = min(all_rates) + grade_additional_rate + non_apartment_additional_rate
-            max_rate = max(all_rates) + grade_additional_rate + non_apartment_additional_rate
-            print(f"DEBUG: get_interest_rate - no credit_grade, returning range: {min_rate}~{max_rate} (급지 가산: {grade_additional_rate}%, 비아파트 가산: {non_apartment_additional_rate}%)")  # 추가
+            min_rate = min(all_rates) + grade_additional_rate + non_apartment_additional_rate + promotion_discount
+            max_rate = max(all_rates) + grade_additional_rate + non_apartment_additional_rate + promotion_discount
+            print(f"DEBUG: get_interest_rate - no credit_grade, returning range: {min_rate}~{max_rate} (급지 가산: {grade_additional_rate}%, 비아파트 가산: {non_apartment_additional_rate}%, 프로모션: {promotion_discount}%)")  # 추가
             return {
                 "interest_rate": None,
                 "interest_rate_range": (round(min_rate, 2), round(max_rate, 2)),
-                "credit_grade": None
+                "credit_grade": None,
+                "promotion_applied": promotion_discount != 0.0
             }
         
         print(f"DEBUG: get_interest_rate - no rates found, returning None")  # 추가
