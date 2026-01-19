@@ -210,6 +210,7 @@ class BaseCalculator:
         # 프로모션 플래그 초기화
         self._promotion_applied = False
         self._promotion_name = None
+        self._promotion_rejection_reason = None
         
         # 모든 검증 오류를 수집
         validation_errors = []
@@ -1350,17 +1351,24 @@ class BaseCalculator:
         
         # MG캐피탈 프로모션 적용 시 은행명 변경
         final_bank_name = self.bank_name
+        promotion_rejection_reason = None
         if getattr(self, '_promotion_applied', False):
             promotion_name = getattr(self, '_promotion_name', '프로모션 금리 적용')
             final_bank_name = f"{self.bank_name}({promotion_name})"
             print(f"DEBUG: BaseCalculator.calculate - 프로모션 적용, 은행명 변경: {final_bank_name}")
+        else:
+            # 1,2급지인데 프로모션 미적용인 경우 사유 포함
+            promotion_rejection_reason = getattr(self, '_promotion_rejection_reason', None)
+            if promotion_rejection_reason:
+                print(f"DEBUG: BaseCalculator.calculate - 프로모션 미적용 사유: {promotion_rejection_reason}")
         
         return {
             "bank_name": final_bank_name,
             "results": results,
             "conditions": self.config.get("conditions", []),
             "errors": [],
-            "min_amount": self.config.get("min_amount", 3000)  # 기본값 3000만원
+            "min_amount": self.config.get("min_amount", 3000),  # 기본값 3000만원
+            "promotion_rejection_reason": promotion_rejection_reason  # 프로모션 미적용 사유 (1,2급지만)
         }
     
     def credit_score_to_grade(self, credit_score: Optional[int]) -> Optional[int]:
@@ -2188,12 +2196,15 @@ class BaseCalculator:
                 print(f"DEBUG: _check_mg_promotion - 프로모션 미적용 (급지 {region_grade} 미해당, 허용: {allowed_grades})")
                 continue
             
+            # 1,2급지인 경우에만 미적용 사유 수집
+            rejection_reasons = []
+            
             # 조건 2: 신용등급 체크 (5등급 이내)
             max_credit_grade = conditions.get("max_credit_grade")
             if max_credit_grade is not None:
                 if credit_grade is None or credit_grade > max_credit_grade:
+                    rejection_reasons.append(f"신용등급 {credit_grade}등급 (5등급 이내)")
                     print(f"DEBUG: _check_mg_promotion - 프로모션 미적용 (신용등급 {credit_grade} > {max_credit_grade}등급)")
-                    continue
             
             # 조건 3: 물건 타입 및 세대수 체크
             if property_data:
@@ -2208,25 +2219,30 @@ class BaseCalculator:
                         break
                 
                 if not type_matched:
+                    rejection_reasons.append(f"물건타입 {property_type}")
                     print(f"DEBUG: _check_mg_promotion - 프로모션 미적용 (물건타입 {property_type} 미해당, 허용: {allowed_property_types})")
-                    continue
                 
                 # 세대수 체크
                 min_household_count = conditions.get("min_household_count")
                 if min_household_count is not None:
                     household_count = property_data.get("household_count")
                     if household_count is None or household_count < min_household_count:
+                        rejection_reasons.append(f"세대수 {household_count or '정보없음'}세대 (200세대 이상)")
                         print(f"DEBUG: _check_mg_promotion - 프로모션 미적용 (세대수 {household_count} < {min_household_count})")
-                        continue
             else:
                 # property_data가 없으면 프로모션 미적용
+                rejection_reasons.append("물건정보 없음")
                 print(f"DEBUG: _check_mg_promotion - 프로모션 미적용 (property_data 없음)")
-                continue
             
             # 조건 4: LTV 체크
             max_ltv = conditions.get("max_ltv")
             if max_ltv is not None and ltv > max_ltv:
+                rejection_reasons.append(f"LTV {ltv}% (85% 이내)")
                 print(f"DEBUG: _check_mg_promotion - 프로모션 미적용 (LTV {ltv}% > {max_ltv}%)")
+            
+            # 미적용 사유가 있으면 저장하고 continue
+            if rejection_reasons:
+                self._promotion_rejection_reason = ", ".join(rejection_reasons)
                 continue
             
             # 모든 조건 충족 - 급지에 따른 할인율 반환
@@ -2237,6 +2253,7 @@ class BaseCalculator:
             # 프로모션 적용 플래그 설정
             self._promotion_applied = True
             self._promotion_name = promotion.get("name", "프로모션")
+            self._promotion_rejection_reason = None  # 적용되면 사유 초기화
             
             return discount
         

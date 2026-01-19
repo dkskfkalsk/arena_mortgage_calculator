@@ -152,6 +152,11 @@ def format_result(bank_result: Dict[str, Any]) -> str:
     if fixed_rate_comment:
         lines.append(fixed_rate_comment)
     
+    # MG캐피탈 프로모션 미적용 사유 표시 (1,2급지인데 미적용인 경우)
+    promotion_rejection_reason = bank_result.get("promotion_rejection_reason")
+    if promotion_rejection_reason and "MG캐피탈" in bank_name:
+        lines.append(f"(프로모션 미적용: {promotion_rejection_reason})")
+    
     # 특이 조건 추가
     if conditions:
         for condition in conditions[:3]:  # 최대 3개만 표시
