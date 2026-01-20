@@ -247,70 +247,130 @@ def get_application():
 
         def format_registry_result(result, caption, file_name):
             """등기부등본 분석 결과를 텔레그램 메시지 형식으로 포맷"""
+            import re
+            
             lines = []
-            lines.append("📋 【 등기부등본 분석 결과 】")
-            lines.append(f"📁 파일: {file_name}")
-            lines.append("=" * 35)
             
-            # 기본 정보
-            lines.append(f"\n🏠 부동산 정보")
-            lines.append(f"• 고유번호: {result.고유번호 or '확인불가'}")
-            lines.append(f"• 주소: {result.부동산_주소 or '확인불가'}")
-            lines.append(f"• 면적: {result.면적 or '확인불가'}")
-            lines.append(f"• 층수: {result.층수정보 or '확인불가'}")
+            # 소유자 정보 (이름, 나이)
+            if result.소유자목록:
+                owner = result.소유자목록[0]
+                # 생년월일에서 나이 계산
+                age = ""
+                if owner.생년월일:
+                    try:
+                        birth_year = int(owner.생년월일.split('.')[0])
+                        from datetime import datetime
+                        current_year = datetime.now().year
+                        age = f"({str(current_year - birth_year)[2:]})"  # 2자리 나이
+                    except:
+                        age = ""
+                
+                lines.append(f"성   명 : {owner.성명} {age}")
+                lines.append(f"직   업 : ")
+                lines.append(f"신용점수 : ")
+                lines.append(f"거주여부 : ")
+                
+                # 소유현황
+                share = owner.지분 if owner.지분 else "단독소유"
+                lines.append(f"소유현황 : {share}")
+            else:
+                lines.append(f"성   명 : 확인불가")
+                lines.append(f"직   업 : ")
+                lines.append(f"신용점수 : ")
+                lines.append(f"거주여부 : ")
+                lines.append(f"소유현황 : ")
             
-            # 소유자 정보
-            lines.append(f"\n👤 소유자 정보 ({len(result.소유자목록)}명)")
-            for i, owner in enumerate(result.소유자목록, 1):
-                lines.append(f"  {i}. {owner.성명} ({owner.생년월일})")
-                lines.append(f"     지분: {owner.지분}")
-                lines.append(f"     주소: {owner.주소}")
+            # 주소 (층수 포함)
+            address = result.부동산_주소 or "확인불가"
+            floor_info = result.층수정보 or ""
             
-            if result.소유권이전일:
-                lines.append(f"• 소유권이전일: {result.소유권이전일}")
+            # 층수 정보에서 총층수 추출
+            total_floor = ""
+            unit_info = ""
+            if floor_info:
+                # "15층 중 2층 203호" 형태에서 파싱
+                floor_match = re.search(r'(\d+)층\s*중', floor_info)
+                if floor_match:
+                    total_floor = f"{floor_match.group(1)}층"
+                
+                # 호수 정보
+                unit_match = re.search(r'(\d+)호', floor_info)
+                if unit_match:
+                    unit_info = f"{unit_match.group(1)}호"
             
-            # 근저당권 정보
-            lines.append(f"\n💰 근저당권 설정 내역 ({len(result.근저당권목록)}건)")
+            # 주소 포맷팅
+            if total_floor:
+                lines.append(f"주   소 : {address} (총층수 {total_floor}) {unit_info}")
+            else:
+                lines.append(f"주   소 : {address}")
+            
+            # 총층수
+            if total_floor:
+                lines.append(f"총층수 : {total_floor}")
+            else:
+                lines.append(f"총층수 : ")
+            
+            # 면적
+            lines.append(f"면   적 : {result.면적 or ''}")
+            
+            # 세대수, 구분, KB시세 (사용자가 메시지로 입력할 부분)
+            lines.append(f"세대수 : ")
+            lines.append(f"구   분 : ")
+            lines.append(f"KB시세 : 일반      만원")
+            lines.append(f"            하한      만원")
+            
+            # 근저당권 설정 내역
+            lines.append(f"=========설정내역=========")
+            
             if result.근저당권목록:
                 total_amount = 0
                 for i, m in enumerate(result.근저당권목록, 1):
-                    lines.append(f"  {i}. [{m.순위번호}번] {m.채권최고액}")
-                    lines.append(f"     근저당권자: {m.근저당권자}")
-                    lines.append(f"     채무자: {m.채무자}")
-                    lines.append(f"     설정일: {m.설정일}")
-                    # 금액 합계 계산
-                    import re
-                    amount_match = re.search(r'([\d,]+)원', m.채권최고액)
+                    # 금액을 만원 단위로 변환
+                    amount_match = re.search(r'([\d,]+)\s*원', m.채권최고액)
                     if amount_match:
-                        total_amount += int(amount_match.group(1).replace(',', ''))
-                
-                if total_amount > 0:
-                    lines.append(f"\n  📊 근저당 합계: 금 {total_amount:,}원")
+                        amount_won = int(amount_match.group(1).replace(',', ''))
+                        amount_man = amount_won // 10000  # 만원 단위
+                        total_amount += amount_won
+                        amount_str = f"{amount_man:,}만원"
+                    else:
+                        amount_str = m.채권최고액
+                    
+                    # 근저당권자 이름 간소화 (주식회사, 유한회사 등 제거)
+                    creditor = m.근저당권자
+                    creditor = re.sub(r'^주식회사', '', creditor)
+                    creditor = re.sub(r'^유한회사', '', creditor)
+                    creditor = re.sub(r'^사단법인', '', creditor)
+                    creditor = creditor.strip()
+                    
+                    lines.append(f"{i}순위 : {creditor}")
+                    lines.append(f"           {amount_str}")
             else:
-                lines.append("  • 설정된 근저당권 없음")
+                lines.append("설정된 근저당권 없음")
             
-            # 압류/가압류 정보
+            lines.append(f"========================")
+            
+            # 압류/가압류 및 경매 정보 (특이사항에 포함)
+            special_notes = []
+            
             if result.압류목록:
-                lines.append(f"\n⚠️ 압류/가압류 ({len(result.압류목록)}건)")
-                for i, s in enumerate(result.압류목록, 1):
-                    lines.append(f"  {i}. [{s.종류}] 권리자: {s.권리자}")
-                    lines.append(f"     접수일: {s.접수일}")
+                seizure_info = []
+                for s in result.압류목록:
+                    seizure_info.append(f"{s.종류}({s.권리자})")
+                special_notes.append("압류: " + ", ".join(seizure_info))
             
-            # 경매 정보
             if result.경매목록:
-                lines.append(f"\n🔨 경매 정보 ({len(result.경매목록)}건)")
-                for i, a in enumerate(result.경매목록, 1):
-                    lines.append(f"  {i}. [{a.종류}] 채권자: {a.채권자}")
-                    lines.append(f"     접수일: {a.접수일}")
-                    if a.사건번호:
-                        lines.append(f"     사건번호: {a.사건번호}")
+                auction_info = []
+                for a in result.경매목록:
+                    auction_info.append(f"{a.종류}({a.채권자})")
+                special_notes.append("경매: " + ", ".join(auction_info))
             
-            # 캡션에 추가 정보가 있으면 표시
+            # 특이사항
+            lines.append(f"특이사항 : {' / '.join(special_notes) if special_notes else ''}")
+            lines.append(f"요청사항 : ")
+            
+            # 캡션에 추가 정보가 있으면 아래에 추가
             if caption:
-                lines.append(f"\n📝 첨부 메시지:")
-                lines.append(caption)
-            
-            lines.append("\n" + "=" * 35)
+                lines.append(f"\n[첨부 메시지]\n{caption}")
             
             return "\n".join(lines)
 
