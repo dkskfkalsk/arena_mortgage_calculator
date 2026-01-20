@@ -643,10 +643,19 @@
     "comment": "법인사업자 취급 불가"
   },
   "min_kb_price": 20000,
-  "lower_bound_price_conditions": {
+  "lower_bound_price": {
     "enabled": true,
-    "floors": [1, 2],
-    "description": "1~2층, 1개동 아파트"
+    "apartment": {
+      "rules": [
+        { "lower_bound_floors": [1, 2] }
+      ]
+    },
+    "residential_commercial": {
+      "rules": [
+        { "lower_bound_floors": [1, 2] }
+      ]
+    },
+    "description": "1~2층, 1개동 아파트 하한가 적용"
   },
   "price_sources": {
     "_comment": "시세 소스 사용 여부 설정 (1: 사용, 0: 사용안함). 우선순위: kb_price > kb_ai_price > bank_appraisal_price > realestatetech_price > korea_realestate_price > housematch_price",

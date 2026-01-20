@@ -432,6 +432,16 @@
   },
   "lower_bound_price": {
     "enabled": true,
+    "apartment": {
+      "rules": [
+        { "lower_bound_floors": [1, 2] }
+      ]
+    },
+    "residential_commercial": {
+      "rules": [
+        { "lower_bound_floors": [1, 2] }
+      ]
+    },
     "description": "아파트/주상복합 1,2층은 하한가 적용"
   },
   "min_amount": 3000,

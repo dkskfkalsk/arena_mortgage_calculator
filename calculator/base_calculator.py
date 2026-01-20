@@ -216,10 +216,12 @@ class BaseCalculator:
         validation_errors = []
         
         # KB시세 검증
-        kb_price_raw = property_data.get("kb_price")
+        # 파서에서 kb_price_raw(원본 문자열)와 kb_price(숫자)를 분리해서 전달
+        # kb_price_raw가 있으면 원본 문자열 사용, 없으면 kb_price를 원본으로 사용 (하위호환)
+        kb_price_raw = property_data.get("kb_price_raw") or property_data.get("kb_price")
         log_print(f"DEBUG: BaseCalculator.calculate - kb_price_raw: {kb_price_raw}, type: {type(kb_price_raw)}")
         logger.debug(f"BaseCalculator.calculate - kb_price_raw: {kb_price_raw}, type: {type(kb_price_raw)}")
-        kb_price = self.validate_kb_price(kb_price_raw)
+        kb_price = self.validate_kb_price(property_data.get("kb_price") if property_data.get("kb_price_raw") else kb_price_raw)
         log_print(f"DEBUG: BaseCalculator.calculate - kb_price after validation: {kb_price}")
         logger.debug(f"BaseCalculator.calculate - kb_price after validation: {kb_price}")
         
@@ -494,29 +496,55 @@ class BaseCalculator:
         
         # 하한가 적용 조건 확인
         lower_bound_config = self.config.get("lower_bound_price", {})
+        lower_bound_applied = False  # 하한가 적용 여부 플래그
         if lower_bound_config.get("enabled", False):
             # 하한가 적용 조건 확인
             property_type = property_data.get("property_type", "")
             address = property_data.get("address", "")
+            total_floors = property_data.get("total_floors")  # 건물 총층수
             
-            # 아파트/주상복합 확인
-            is_apartment_or_complex = property_type and ("아파트" in property_type or "주상복합" in property_type)
+            # 아파트/주상복합 구분
+            is_apartment = property_type and "아파트" in property_type and "주상복합" not in property_type
+            is_residential_commercial = property_type and "주상복합" in property_type
             
-            # 1,2층 확인 (주소에서 층수 추출)
+            # 현재 층수 추출 (주소에서)
             floor = None
             if address:
                 import re
-                floor_match = re.search(r'(\d+)층', address)
+                # 총층수 패턴 제외하고 현재 층수만 추출
+                # "6층 (총층수 10층)" 에서 6만 추출
+                floor_match = re.search(r'(\d+)층(?!\s*\))', address)
                 if floor_match:
                     floor = int(floor_match.group(1))
             
-            # 하한가 적용 조건: 아파트/주상복합이고 1층 또는 2층
-            if is_apartment_or_complex and floor in [1, 2]:
+            log_print(f"DEBUG: 하한가 체크 - property_type: {property_type}, floor: {floor}, total_floors: {total_floors}")
+            
+            # 새 양식: 물건 타입별 rules 확인
+            apply_lower_bound = False
+            
+            if is_apartment and "apartment" in lower_bound_config:
+                # 아파트 조건 확인
+                apartment_rules = lower_bound_config["apartment"].get("rules", [])
+                apply_lower_bound = self._check_lower_bound_rules(apartment_rules, floor, total_floors)
+                log_print(f"DEBUG: 아파트 하한가 규칙 적용 결과: {apply_lower_bound}")
+            elif is_residential_commercial and "residential_commercial" in lower_bound_config:
+                # 주상복합 조건 확인
+                rc_rules = lower_bound_config["residential_commercial"].get("rules", [])
+                apply_lower_bound = self._check_lower_bound_rules(rc_rules, floor, total_floors)
+                log_print(f"DEBUG: 주상복합 하한가 규칙 적용 결과: {apply_lower_bound}")
+            elif (is_apartment or is_residential_commercial) and "apartment" not in lower_bound_config and "residential_commercial" not in lower_bound_config:
+                # 기존 양식 호환: 단순히 아파트/주상복합 1,2층 체크
+                if floor in [1, 2]:
+                    apply_lower_bound = True
+                    log_print(f"DEBUG: 기존 양식 하한가 적용 (1,2층)")
+            
+            if apply_lower_bound:
                 lower_bound_price = extract_lower_bound_price(kb_price_raw)
                 if lower_bound_price is not None:
-                    log_print(f"DEBUG: BaseCalculator.calculate - 하한가 적용: 일반가 {kb_price}만원 -> 하한가 {lower_bound_price}만원 (아파트/주상복합 {floor}층)")
-                    logger.info(f"BaseCalculator.calculate - 하한가 적용: 일반가 {kb_price}만원 -> 하한가 {lower_bound_price}만원 (아파트/주상복합 {floor}층)")
+                    log_print(f"DEBUG: BaseCalculator.calculate - 하한가 적용: 일반가 {kb_price}만원 -> 하한가 {lower_bound_price}만원 ({property_type} {floor}층, 총 {total_floors}층)")
+                    logger.info(f"BaseCalculator.calculate - 하한가 적용: 일반가 {kb_price}만원 -> 하한가 {lower_bound_price}만원 ({property_type} {floor}층, 총 {total_floors}층)")
                     kb_price = lower_bound_price
+                    lower_bound_applied = True
                 else:
                     log_print(f"DEBUG: BaseCalculator.calculate - 하한가 적용 조건 충족하지만 하한가 추출 실패")
                     logger.warning("BaseCalculator.calculate - 하한가 적용 조건 충족하지만 하한가 추출 실패")
@@ -1368,7 +1396,8 @@ class BaseCalculator:
             "conditions": self.config.get("conditions", []),
             "errors": [],
             "min_amount": self.config.get("min_amount", 3000),  # 기본값 3000만원
-            "promotion_rejection_reason": promotion_rejection_reason  # 프로모션 미적용 사유 (1,2급지만)
+            "promotion_rejection_reason": promotion_rejection_reason,  # 프로모션 미적용 사유 (1,2급지만)
+            "lower_bound_applied": lower_bound_applied  # 하한가 적용 여부
         }
     
     def credit_score_to_grade(self, credit_score: Optional[int]) -> Optional[int]:
@@ -2025,6 +2054,48 @@ class BaseCalculator:
                 return ltv
         
         return None
+    
+    def _check_lower_bound_rules(self, rules: List[Dict], floor: Optional[int], total_floors: Optional[int]) -> bool:
+        """
+        하한가 적용 규칙 체크
+        
+        Args:
+            rules: 하한가 규칙 리스트
+            floor: 현재 층수
+            total_floors: 건물 총층수
+        
+        Returns:
+            하한가 적용 여부
+        """
+        if floor is None:
+            return False
+        
+        for rule in rules:
+            # 총층수 조건 확인
+            total_floors_min = rule.get("total_floors_min")
+            total_floors_max = rule.get("total_floors_max")
+            lower_bound_floors = rule.get("lower_bound_floors", [])
+            
+            # 총층수 조건이 있는 경우
+            if total_floors_min is not None or total_floors_max is not None:
+                if total_floors is None:
+                    # 총층수 정보가 없으면 이 규칙은 건너뜀
+                    continue
+                
+                # 최소 총층수 조건 확인
+                if total_floors_min is not None and total_floors < total_floors_min:
+                    continue
+                
+                # 최대 총층수 조건 확인
+                if total_floors_max is not None and total_floors > total_floors_max:
+                    continue
+            
+            # 총층수 조건을 만족하면, 현재 층수가 하한가 적용 층수에 포함되는지 확인
+            if floor in lower_bound_floors:
+                log_print(f"DEBUG: _check_lower_bound_rules - 규칙 매칭: floor={floor}, total_floors={total_floors}, rule={rule}")
+                return True
+        
+        return False
     
     def calculate_total_mortgage(self, mortgages: List[Dict[str, Any]]) -> float:
         """

@@ -436,6 +436,23 @@
   "min_amount": 2000,
   "conditions": [
   ],
+  "lower_bound_price": {
+    "enabled": true,
+    "apartment": {
+      "rules": [
+        { "total_floors_min": 30, "lower_bound_floors": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] },
+        { "total_floors_min": 8, "total_floors_max": 29, "lower_bound_floors": [1, 2] },
+        { "total_floors_max": 7, "lower_bound_floors": [1] }
+      ]
+    },
+    "residential_commercial": {
+      "rules": [
+        { "total_floors_min": 20, "lower_bound_floors": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] },
+        { "total_floors_max": 19, "lower_bound_floors": [1, 2, 3, 4, 5] }
+      ]
+    },
+    "description": "아파트: 7층이하 1층, 8~29층 1~2층, 30층이상 1~10층 하한가 / 주상복합: 19층이하 1~5층, 20층이상 1~10층 하한가"
+  },
   "_comment_show_interest_rate_range": "신용등급 구분 없이 금리 구간 표시 여부 설정 (true: 신용등급 무시하고 최저~최고 금리 구간 표시 예: 9.0~18.0%, false: 신용등급별 금리 표시 예: 9.0% (5등급))",
   "show_interest_rate_range": false,
   "validation_rules": {

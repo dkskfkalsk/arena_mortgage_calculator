@@ -37,7 +37,7 @@ def format_result(bank_result: Dict[str, Any]) -> str:
     결과 포맷팅
     
     예:
-    * BNK캐피탈 (4등급기준)
+    * BNK캐피탈 (4등급기준) (하한가 적용)
     후순위 74% 43,900만 / 6.65%
     """
     bank_name = bank_result.get("bank_name", "Unknown")
@@ -45,6 +45,10 @@ def format_result(bank_result: Dict[str, Any]) -> str:
     conditions = bank_result.get("conditions", [])
     errors = bank_result.get("errors", [])
     min_amount = bank_result.get("min_amount", 3000)  # 기본값 3000만원
+    lower_bound_applied = bank_result.get("lower_bound_applied", False)  # 하한가 적용 여부
+    
+    # 하한가 적용 표시 문자열
+    lower_bound_suffix = " (하한가 적용)" if lower_bound_applied else ""
     
     # 취급 불가지역인 경우
     if errors and "취급 불가지역" in errors:
@@ -72,9 +76,9 @@ def format_result(bank_result: Dict[str, Any]) -> str:
         
         # 헤더 (신용등급이 있으면 표시)
         if credit_grade:
-            header = f"* {bank_name} ({credit_grade}등급기준)"
+            header = f"* {bank_name} ({credit_grade}등급기준){lower_bound_suffix}"
         else:
-            header = f"* {bank_name}"
+            header = f"* {bank_name}{lower_bound_suffix}"
         
         return f"{header}\n최소진행금액 부족으로 진행 어렵습니다"
     
@@ -84,9 +88,9 @@ def format_result(bank_result: Dict[str, Any]) -> str:
     
     # 헤더 (신용등급이 있으면 표시)
     if credit_grade:
-        header = f"* {bank_name} ({credit_grade}등급기준)"
+        header = f"* {bank_name} ({credit_grade}등급기준){lower_bound_suffix}"
     else:
-        header = f"* {bank_name}"
+        header = f"* {bank_name}{lower_bound_suffix}"
     
     lines = [header]
     

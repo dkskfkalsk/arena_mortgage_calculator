@@ -408,6 +408,22 @@
     "_comment_multi_family_house": "공동주택"
   },
   "conditions": [],
+  "lower_bound_price": {
+    "enabled": true,
+    "apartment": {
+      "rules": [
+        { "total_floors_min": 7, "lower_bound_floors": [1, 2] },
+        { "total_floors_max": 6, "lower_bound_floors": [1] }
+      ]
+    },
+    "residential_commercial": {
+      "rules": [
+        { "total_floors_min": 7, "lower_bound_floors": [1, 2] },
+        { "total_floors_max": 6, "lower_bound_floors": [1] }
+      ]
+    },
+    "description": "6층 이하 물건 1층 하한가, 7층 이상 물건 1~2층 하한가"
+  },
   "promotions": [
     {
       "name": "프로모션 금리 적용",

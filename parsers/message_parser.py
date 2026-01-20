@@ -37,6 +37,7 @@ class MessageParser:
             "address": None,
             "area": None,
             "household_count": None,
+            "total_floors": None,  # 건물 총층수
             "property_type": None,
             "kb_price": None,
             "mortgages": [],
@@ -195,9 +196,11 @@ class MessageParser:
         
         print(f"DEBUG: Before validation - kb_price: {data['kb_price']}")
         if data["kb_price"]:
+            # 원본 문자열 저장 (하한가 추출 등에 사용)
+            data["kb_price_raw"] = data["kb_price"]
             validated_price = validate_kb_price(data["kb_price"])
             data["kb_price"] = validated_price
-            print(f"DEBUG: After validation - kb_price: {data['kb_price']}")
+            print(f"DEBUG: After validation - kb_price: {data['kb_price']}, kb_price_raw: {data['kb_price_raw']}")
         else:
             print(f"DEBUG: No KB price found in parsed data")
             print(f"DEBUG: Full text sample: {message_text[:500]}")
@@ -455,6 +458,11 @@ class MessageParser:
         elif "주소" in key_clean:  # 공백 제거된 키로 비교
             data["address"] = value
             print(f"DEBUG: Address set - key: '{key}', value: '{value}'")
+            # 주소에서 총층수 추출 시도 (예: "6층 (총층수 10층) 602호" 또는 "(총 10층)")
+            total_floors_match = re.search(r'(?:총층수|총)\s*(\d+)\s*층', value)
+            if total_floors_match and data.get("total_floors") is None:
+                data["total_floors"] = int(total_floors_match.group(1))
+                print(f"DEBUG: Parsed total_floors from address - {total_floors_match.group(1)}층")
         
         elif "면적" in key_clean:
             # 면적에서 숫자 추출 (예: "25.95㎡")
@@ -467,6 +475,13 @@ class MessageParser:
             match = re.search(r"(\d+)", value)
             if match:
                 data["household_count"] = int(match.group(1))
+        
+        elif "총층수" in key_clean:
+            # 총층수에서 숫자 추출 (예: "10층")
+            match = re.search(r"(\d+)", value)
+            if match:
+                data["total_floors"] = int(match.group(1))
+                print(f"DEBUG: Parsed total_floors from key - {match.group(1)}층")
         
         elif "구분" in key_clean:
             data["property_type"] = value
