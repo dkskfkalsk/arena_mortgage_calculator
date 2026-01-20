@@ -414,11 +414,8 @@ def get_application():
                 if unit_match:
                     unit_info = f"{unit_match.group(1)}호"
             
-            # 주소 포맷팅
-            if total_floor:
-                lines.append(f"주   소 : {address} (총층수 {total_floor}) {unit_info}")
-            else:
-                lines.append(f"주   소 : {address}")
+            # 주소 포맷팅 (총층수는 별도 줄에 표시하므로 주소에는 포함하지 않음)
+            lines.append(f"주   소 : {address}")
             
             # 총층수
             if total_floor:
@@ -436,7 +433,7 @@ def get_application():
             kb_price = caption_info['kb_price']
             kb_price_low = caption_info['kb_price_low']
             lines.append(f"KB시세 : 일반 {kb_price}만원" if kb_price else f"KB시세 : 일반      만원")
-            lines.append(f"            하한 {kb_price_low}만원" if kb_price_low else f"            하한      만원")
+            lines.append(f"KB시세 : 하한 {kb_price_low}만원" if kb_price_low else f"KB시세 : 하한      만원")
             
             # 근저당권 설정 내역
             lines.append(f"=========설정내역=========")

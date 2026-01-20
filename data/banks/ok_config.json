@@ -486,7 +486,7 @@
     "detached_house": 1,
     "_comment_detached_house": "단독주택",
     "multi_family_house": 1,
-    "_comment_multi_family_house": "공동주택"
+    "_comment_multi_family_house": "공동주택 "
   },
   "conditions": [
     
