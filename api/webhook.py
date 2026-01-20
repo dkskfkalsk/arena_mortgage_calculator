@@ -245,9 +245,118 @@ def get_application():
                 logger.error(f"Error analyzing PDF: {str(e)}", exc_info=True)
                 await message.reply_text(f"❌ PDF 분석 중 오류가 발생했습니다.\n\n오류: {str(e)}")
 
+        def parse_caption_info(caption):
+            """캡션에서 고객 정보 추출"""
+            import re
+            info = {
+                'job': '',           # 직업 (사업자, 직장인 등)
+                'credit_score': '',  # 신용점수
+                'residence': '',     # 거주여부
+                'households': '',    # 세대수
+                'property_type': '', # 구분 (아파트, 빌라 등)
+                'kb_price': '',      # KB시세 일반
+                'kb_price_low': '',  # KB시세 하한
+                'special_notes': '', # 특이사항
+                'request': '',       # 요청사항
+            }
+            
+            if not caption:
+                return info
+            
+            caption_lower = caption.lower()
+            
+            # 직업 추출 (사업자, 직장인, 프리랜서, 무직 등)
+            job_patterns = [
+                (r'사업자', '사업자'),
+                (r'직장인', '직장인'),
+                (r'프리랜서', '프리랜서'),
+                (r'무직', '무직'),
+                (r'자영업', '자영업'),
+                (r'공무원', '공무원'),
+                (r'전문직', '전문직'),
+            ]
+            for pattern, job_name in job_patterns:
+                if re.search(pattern, caption):
+                    info['job'] = job_name
+                    break
+            
+            # 신용점수 추출 (신용점수 850, 신용 850, 850점 등)
+            credit_patterns = [
+                r'신용\s*[점수]*\s*[:：]?\s*(\d{3})',
+                r'신용\s*(\d{3})',
+                r'(\d{3})\s*점',
+            ]
+            for pattern in credit_patterns:
+                match = re.search(pattern, caption)
+                if match:
+                    score = int(match.group(1))
+                    if 300 <= score <= 1000:  # 유효한 신용점수 범위
+                        info['credit_score'] = str(score)
+                        break
+            
+            # 거주여부 추출
+            if re.search(r'거주|실거주|본인\s*거주', caption):
+                info['residence'] = '거주'
+            elif re.search(r'비거주|임대|전세', caption):
+                info['residence'] = '비거주'
+            
+            # 세대수 추출 (세대수 700, 700세대 등)
+            households_patterns = [
+                r'세대\s*[수]*\s*[:：]?\s*(\d+)',
+                r'(\d+)\s*세대',
+            ]
+            for pattern in households_patterns:
+                match = re.search(pattern, caption)
+                if match:
+                    info['households'] = match.group(1) + '세대'
+                    break
+            
+            # 구분 추출 (아파트, 빌라, 오피스텔 등)
+            property_patterns = [
+                (r'아파트', '아파트'),
+                (r'빌라', '빌라'),
+                (r'오피스텔', '오피스텔'),
+                (r'다세대', '다세대'),
+                (r'다가구', '다가구'),
+                (r'단독주택', '단독주택'),
+                (r'연립', '연립'),
+            ]
+            for pattern, prop_type in property_patterns:
+                if re.search(pattern, caption):
+                    info['property_type'] = prop_type
+                    break
+            
+            # KB시세 추출 (일반가 7000만, kb시세 7000, 시세 7000만원 등)
+            kb_patterns = [
+                r'(?:kb\s*)?(?:시세|일반\s*가?)\s*[:：]?\s*(\d+(?:,\d+)?)\s*만?\s*(?:원)?',
+                r'(\d+(?:,\d+)?)\s*만\s*원?\s*(?:시세|일반)',
+            ]
+            for pattern in kb_patterns:
+                match = re.search(pattern, caption, re.IGNORECASE)
+                if match:
+                    price = match.group(1).replace(',', '')
+                    info['kb_price'] = f"{int(price):,}"
+                    break
+            
+            # KB시세 하한 추출 (하한 6500, 하한가 6500만 등)
+            kb_low_patterns = [
+                r'하한\s*[가]?\s*[:：]?\s*(\d+(?:,\d+)?)\s*만?\s*(?:원)?',
+            ]
+            for pattern in kb_low_patterns:
+                match = re.search(pattern, caption, re.IGNORECASE)
+                if match:
+                    price = match.group(1).replace(',', '')
+                    info['kb_price_low'] = f"{int(price):,}"
+                    break
+            
+            return info
+
         def format_registry_result(result, caption, file_name):
             """등기부등본 분석 결과를 텔레그램 메시지 형식으로 포맷"""
             import re
+            
+            # 캡션에서 추가 정보 추출
+            caption_info = parse_caption_info(caption)
             
             lines = []
             
@@ -261,23 +370,24 @@ def get_application():
                         birth_year = int(owner.생년월일.split('.')[0])
                         from datetime import datetime
                         current_year = datetime.now().year
-                        age = f"({str(current_year - birth_year)[2:]})"  # 2자리 나이
+                        calculated_age = current_year - birth_year
+                        age = f"({calculated_age})"  # 만 나이
                     except:
                         age = ""
                 
                 lines.append(f"성   명 : {owner.성명} {age}")
-                lines.append(f"직   업 : ")
-                lines.append(f"신용점수 : ")
-                lines.append(f"거주여부 : ")
+                lines.append(f"직   업 : {caption_info['job']}")
+                lines.append(f"신용점수 : {caption_info['credit_score']}")
+                lines.append(f"거주여부 : {caption_info['residence']}")
                 
                 # 소유현황
                 share = owner.지분 if owner.지분 else "단독소유"
                 lines.append(f"소유현황 : {share}")
             else:
                 lines.append(f"성   명 : 확인불가")
-                lines.append(f"직   업 : ")
-                lines.append(f"신용점수 : ")
-                lines.append(f"거주여부 : ")
+                lines.append(f"직   업 : {caption_info['job']}")
+                lines.append(f"신용점수 : {caption_info['credit_score']}")
+                lines.append(f"거주여부 : {caption_info['residence']}")
                 lines.append(f"소유현황 : ")
             
             # 주소 (층수 포함)
@@ -288,10 +398,16 @@ def get_application():
             total_floor = ""
             unit_info = ""
             if floor_info:
-                # "15층 중 2층 203호" 형태에서 파싱
+                # "15층 중 2층 203호" 또는 "17층 1802호" 형태에서 파싱
+                # 총층수: 첫번째 숫자+층
                 floor_match = re.search(r'(\d+)층\s*중', floor_info)
                 if floor_match:
                     total_floor = f"{floor_match.group(1)}층"
+                else:
+                    # "17층 1802호" 형태에서 17층 추출
+                    floor_match = re.search(r'^(\d+)층', floor_info)
+                    if floor_match:
+                        total_floor = f"{floor_match.group(1)}층"
                 
                 # 호수 정보
                 unit_match = re.search(r'(\d+)호', floor_info)
@@ -313,11 +429,14 @@ def get_application():
             # 면적
             lines.append(f"면   적 : {result.면적 or ''}")
             
-            # 세대수, 구분, KB시세 (사용자가 메시지로 입력할 부분)
-            lines.append(f"세대수 : ")
-            lines.append(f"구   분 : ")
-            lines.append(f"KB시세 : 일반      만원")
-            lines.append(f"            하한      만원")
+            # 세대수, 구분, KB시세 (캡션에서 추출한 정보 사용)
+            lines.append(f"세대수 : {caption_info['households']}")
+            lines.append(f"구   분 : {caption_info['property_type']}")
+            
+            kb_price = caption_info['kb_price']
+            kb_price_low = caption_info['kb_price_low']
+            lines.append(f"KB시세 : 일반 {kb_price}만원" if kb_price else f"KB시세 : 일반      만원")
+            lines.append(f"            하한 {kb_price_low}만원" if kb_price_low else f"            하한      만원")
             
             # 근저당권 설정 내역
             lines.append(f"=========설정내역=========")
@@ -367,10 +486,6 @@ def get_application():
             # 특이사항
             lines.append(f"특이사항 : {' / '.join(special_notes) if special_notes else ''}")
             lines.append(f"요청사항 : ")
-            
-            # 캡션에 추가 정보가 있으면 아래에 추가
-            if caption:
-                lines.append(f"\n[첨부 메시지]\n{caption}")
             
             return "\n".join(lines)
 
