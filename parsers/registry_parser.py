@@ -3,9 +3,10 @@
 등기부등본 PDF 파싱 모듈
 - 9가지 핵심 정보 자동 추출
 - 일반 등기부등본 및 경매 물건지 등기부등본 지원
+- PyMuPDF(fitz) 사용으로 빠른 텍스트 추출
 """
 
-import pdfplumber
+import fitz  # PyMuPDF
 import re
 import os
 import json
@@ -155,15 +156,18 @@ class RegistryParser:
         self.pages_text = []
     
     def extract_text_from_pdf(self, pdf_path: str) -> str:
-        """PDF에서 텍스트 추출"""
+        """PDF에서 텍스트 추출 (PyMuPDF 사용 - 고속)"""
         all_text = []
         self.pages_text = []
         
-        with pdfplumber.open(pdf_path) as pdf:
-            for page in pdf.pages:
-                text = page.extract_text() or ""
+        doc = fitz.open(pdf_path)
+        try:
+            for page in doc:
+                text = page.get_text() or ""
                 all_text.append(text)
                 self.pages_text.append(text)
+        finally:
+            doc.close()
         
         self.text = "\n".join(all_text)
         return self.text
