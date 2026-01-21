@@ -250,49 +250,80 @@ def get_application():
             import re
             info = {
                 'job': '',           # 직업 (사업자, 직장인 등)
-                'credit_score': '',  # 신용점수
+                'credit_score': '',  # 신용점수 또는 신용등급
                 'residence': '',     # 거주여부
                 'households': '',    # 세대수
                 'property_type': '', # 구분 (아파트, 빌라 등)
                 'kb_price': '',      # KB시세 일반
                 'kb_price_low': '',  # KB시세 하한
-                'special_notes': '', # 특이사항
+                'special_notes': [], # 특이사항 (리스트로 변경)
                 'request': '',       # 요청사항
+                'borrower_name': '', # 차주 이름
+                'collateral_provider': '', # 담보제공자 이름
+                'name_display': '',  # 최종 표시할 이름 형식
             }
             
             if not caption:
                 return info
             
-            caption_lower = caption.lower()
+            # 차주/담보제공자 구분 추출
+            # 형식: "윤행자(차주),최효석" 또는 "윤행자(차), 최효석(담)" 등
+            borrower_match = re.search(r'([가-힣]+)\s*\(\s*(?:차주?|차)\s*\)', caption)
+            if borrower_match:
+                info['borrower_name'] = borrower_match.group(1)
+            
+            collateral_match = re.search(r'([가-힣]+)\s*\(\s*(?:담보?|담)\s*\)', caption)
+            if collateral_match:
+                info['collateral_provider'] = collateral_match.group(1)
+            
+            # 차주만 있고 담보제공자가 명시 안된 경우: "윤행자(차주),최효석" 형태
+            if info['borrower_name'] and not info['collateral_provider']:
+                # 차주 다음에 오는 이름을 담보제공자로 인식
+                after_borrower = re.search(r'\(\s*(?:차주?|차)\s*\)\s*[,/\s]+\s*([가-힣]+)', caption)
+                if after_borrower:
+                    info['collateral_provider'] = after_borrower.group(1)
             
             # 직업 추출 (사업자, 직장인, 프리랜서, 무직 등)
-            job_patterns = [
-                (r'사업자', '사업자'),
-                (r'직장인', '직장인'),
-                (r'프리랜서', '프리랜서'),
-                (r'무직', '무직'),
-                (r'자영업', '자영업'),
-                (r'공무원', '공무원'),
-                (r'전문직', '전문직'),
-            ]
-            for pattern, job_name in job_patterns:
-                if re.search(pattern, caption):
-                    info['job'] = job_name
-                    break
-            
-            # 신용점수 추출 (신용점수 850, 신용 850, 850점 등)
-            credit_patterns = [
-                r'신용\s*[점수]*\s*[:：]?\s*(\d{3})',
-                r'신용\s*(\d{3})',
-                r'(\d{3})\s*점',
-            ]
-            for pattern in credit_patterns:
-                match = re.search(pattern, caption)
-                if match:
-                    score = int(match.group(1))
-                    if 300 <= score <= 1000:  # 유효한 신용점수 범위
-                        info['credit_score'] = str(score)
+            # 가라사업자는 별도 처리
+            if re.search(r'가라\s*사업자', caption):
+                info['job'] = '사업자'
+                info['special_notes'].append('즉발보유(부가세 누락신고 조건)')
+            else:
+                job_patterns = [
+                    (r'사업자', '사업자'),
+                    (r'직장인', '직장인'),
+                    (r'프리랜서', '프리랜서'),
+                    (r'무직', '무직'),
+                    (r'자영업', '자영업'),
+                    (r'공무원', '공무원'),
+                    (r'전문직', '전문직'),
+                ]
+                for pattern, job_name in job_patterns:
+                    if re.search(pattern, caption):
+                        info['job'] = job_name
                         break
+            
+            # 신용등급 추출 (4등급, 5등급 등)
+            grade_match = re.search(r'(\d{1,2})\s*등급', caption)
+            if grade_match:
+                grade = int(grade_match.group(1))
+                if 1 <= grade <= 10:
+                    info['credit_score'] = f"{grade}등급"
+            
+            # 신용점수 추출 (신용점수 850, 신용 850, 850점 등) - 등급이 없는 경우만
+            if not info['credit_score']:
+                credit_patterns = [
+                    r'신용\s*[점수]*\s*[:：]?\s*(\d{3})',
+                    r'신용\s*(\d{3})',
+                    r'(\d{3})\s*점',
+                ]
+                for pattern in credit_patterns:
+                    match = re.search(pattern, caption)
+                    if match:
+                        score = int(match.group(1))
+                        if 300 <= score <= 1000:  # 유효한 신용점수 범위
+                            info['credit_score'] = str(score)
+                            break
             
             # 거주여부 추출
             if re.search(r'거주|실거주|본인\s*거주', caption):
@@ -338,9 +369,9 @@ def get_application():
                     info['kb_price'] = f"{int(price):,}"
                     break
             
-            # KB시세 하한 추출 (하한 6500, 하한가 6500만 등)
+            # KB시세 하한 추출 (하한 6500, 하한가 6500만, KB하한가 240,000만 등)
             kb_low_patterns = [
-                r'하한\s*[가]?\s*[:：]?\s*(\d+(?:,\d+)?)\s*만?\s*(?:원)?',
+                r'(?:kb\s*)?하한\s*[가]?\s*[:：]?\s*(\d+(?:,\d+)?)\s*만?\s*(?:원)?',
             ]
             for pattern in kb_low_patterns:
                 match = re.search(pattern, caption, re.IGNORECASE)
@@ -361,6 +392,10 @@ def get_application():
             lines = []
             
             # 소유자 정보 (이름, 나이)
+            # 차주/담보제공자 구분이 있는 경우 처리
+            borrower = caption_info.get('borrower_name', '')
+            collateral_provider = caption_info.get('collateral_provider', '')
+            
             if result.소유자목록:
                 owner = result.소유자목록[0]
                 # 생년월일에서 나이 계산
@@ -375,7 +410,18 @@ def get_application():
                     except:
                         age = ""
                 
-                lines.append(f"성   명 : {owner.성명} {age}")
+                # 차주/담보제공자 구분이 있는 경우
+                if borrower and collateral_provider:
+                    # 담보제공자 나이 (등기부 소유자 = 담보제공자)
+                    name_display = f"{borrower}(차), {collateral_provider}(담) {age}"
+                elif borrower:
+                    # 차주만 있는 경우 (담보제공자는 등기부 소유자)
+                    name_display = f"{borrower}(차), {owner.성명}(담) {age}"
+                else:
+                    # 일반적인 경우 (등기부 소유자가 차주)
+                    name_display = f"{owner.성명} {age}"
+                
+                lines.append(f"성   명 : {name_display}")
                 lines.append(f"직   업 : {caption_info['job']}")
                 lines.append(f"신용점수 : {caption_info['credit_score']}")
                 lines.append(f"거주여부 : {caption_info['residence']}")
@@ -384,7 +430,15 @@ def get_application():
                 share = owner.지분 if owner.지분 else "단독소유"
                 lines.append(f"소유현황 : {share}")
             else:
-                lines.append(f"성   명 : 확인불가")
+                # 등기부에서 소유자를 못 찾은 경우
+                if borrower and collateral_provider:
+                    name_display = f"{borrower}(차), {collateral_provider}(담)"
+                elif borrower:
+                    name_display = f"{borrower}(차)"
+                else:
+                    name_display = "확인불가"
+                
+                lines.append(f"성   명 : {name_display}")
                 lines.append(f"직   업 : {caption_info['job']}")
                 lines.append(f"신용점수 : {caption_info['credit_score']}")
                 lines.append(f"거주여부 : {caption_info['residence']}")
@@ -467,6 +521,10 @@ def get_application():
             
             # 압류/가압류 및 경매 정보 (특이사항에 포함)
             special_notes = []
+            
+            # 캡션에서 추출한 특이사항 추가 (즉발보유 등)
+            if caption_info.get('special_notes'):
+                special_notes.extend(caption_info['special_notes'])
             
             if result.압류목록:
                 seizure_info = []
