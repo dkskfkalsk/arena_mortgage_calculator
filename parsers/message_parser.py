@@ -243,6 +243,20 @@ class MessageParser:
         if data["requests"]:
             print(f"DEBUG: Parsing refinance info from requests: {data['requests']}")
             
+            # "N순위 한도 확인" 패턴을 대환 요청으로 처리
+            # 예: "2순위 한도 확인", "2순위 한도확인", "2순위 한도"
+            limit_check_match = re.search(r'(\d+)순위\s*한도', data["requests"])
+            if limit_check_match:
+                priority = int(limit_check_match.group(1))
+                print(f"DEBUG: Found '한도 확인' pattern - priority: {priority}, treating as refinance request")
+                
+                # 해당 순위의 근저당권을 대환으로 설정
+                for mortgage in data["mortgages"]:
+                    if mortgage.get("priority") == priority:
+                        mortgage["is_refinance"] = True
+                        print(f"DEBUG: Set is_refinance=True for mortgage: priority={priority}, institution='{mortgage.get('institution')}'")
+                        break
+            
             # 전체 대환 처리 (요청사항에 "전체 대환"이 포함된 경우)
             if "전체 대환" in data["requests"]:
                 print(f"DEBUG: Found '전체 대환' in requests, setting all mortgages to refinance")
