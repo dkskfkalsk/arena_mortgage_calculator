@@ -206,9 +206,10 @@ def get_application():
             print(f"[WEBHOOK] PDF document received: {file_name}", file=sys.stderr, flush=True)
             logger.info(f"PDF document received: {file_name}")
             
+            processing_msg = None  # 분석 중 메시지 저장용
             try:
                 # 파일 다운로드
-                await message.reply_text(f"📄 등기부등본 분석 중... ({file_name})")
+                processing_msg = await message.reply_text(f"📄 등기부등본 분석 중... ({file_name})")
                 
                 file = await document.get_file()
                 file_bytes = await file.download_as_bytearray()
@@ -230,6 +231,14 @@ def get_application():
                     
                     # 결과 포맷팅
                     response = format_registry_result(result, caption, file_name)
+                    
+                    # "분석 중" 메시지 삭제
+                    if processing_msg:
+                        try:
+                            await processing_msg.delete()
+                        except Exception as del_err:
+                            print(f"[WEBHOOK] Failed to delete processing message: {str(del_err)}", file=sys.stderr, flush=True)
+                    
                     await message.reply_text(response)
                     
                 finally:
@@ -243,6 +252,14 @@ def get_application():
             except Exception as e:
                 print(f"[WEBHOOK] Error analyzing PDF: {str(e)}", file=sys.stderr, flush=True)
                 logger.error(f"Error analyzing PDF: {str(e)}", exc_info=True)
+                
+                # 오류 발생 시에도 "분석 중" 메시지 삭제
+                if processing_msg:
+                    try:
+                        await processing_msg.delete()
+                    except:
+                        pass
+                
                 await message.reply_text(f"❌ PDF 분석 중 오류가 발생했습니다.\n\n오류: {str(e)}")
 
         def parse_caption_info(caption):

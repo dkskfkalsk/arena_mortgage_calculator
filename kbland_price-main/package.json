@@ -1,0 +1,8 @@
+{
+  "name": "kb-real-estate-simple",
+  "version": "1.0.0",
+  "description": "KB부동산 단지명 저장",
+  "dependencies": {
+    "@notionhq/client": "^2.2.14"
+  }
+}
