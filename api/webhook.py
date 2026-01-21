@@ -416,6 +416,43 @@ def get_application():
                     info['area'] = f"{match.group(1)}㎡"
                     break
             
+            # 요청사항 추출
+            requests = []
+            
+            # N순위 대환조건 (1순위 대환조건, 2순위 대환조건 등)
+            rank_match = re.search(r'(\d)\s*순위\s*대환\s*조?건?', caption)
+            if rank_match:
+                requests.append(f"{rank_match.group(1)}순위 대환조건")
+            
+            # 금융사명 대환조건 (애큐온 대환, 카카오뱅크 대환조건 등)
+            bank_patterns = [
+                r'(애큐온|카카오뱅크|카카오|제주은행|신한|국민|우리|하나|기업|농협|SC|씨티|케이뱅크|토스|OK저축은행|페퍼|웰컴|SBI|JB우리|MG|BNK|키움)\s*(?:저축은행|은행|캐피탈)?\s*대환\s*조?건?',
+            ]
+            for pattern in bank_patterns:
+                match = re.search(pattern, caption, re.IGNORECASE)
+                if match:
+                    bank_name = match.group(1)
+                    if f"{bank_name} 대환조건" not in ' '.join(requests):
+                        requests.append(f"{bank_name} 대환조건")
+            
+            # 후순위 요청
+            if re.search(r'후순위', caption):
+                requests.append("후순위 추가대출")
+            
+            # 추가대출 요청
+            if re.search(r'추가\s*대출', caption) and "후순위" not in caption:
+                requests.append("추가대출")
+            
+            # 선순위 대환
+            if re.search(r'선순위\s*대환', caption):
+                requests.append("선순위 대환")
+            
+            # 전액 대환
+            if re.search(r'전액\s*대환', caption):
+                requests.append("전액 대환")
+            
+            info['request'] = ' / '.join(requests) if requests else ''
+            
             return info
 
         def format_registry_result(result, caption, file_name):
@@ -577,7 +614,10 @@ def get_application():
             
             # 특이사항
             lines.append(f"특이사항 : {' / '.join(special_notes) if special_notes else ''}")
-            lines.append(f"요청사항 : ")
+            
+            # 요청사항
+            request_text = caption_info.get('request', '')
+            lines.append(f"요청사항 : {request_text}")
             
             return "\n".join(lines)
 
