@@ -74,6 +74,9 @@ class RegistryDocument:
     # 경매 정보
     경매목록: List[AuctionInfo] = None
     
+    # 환매특약/전매제한 정보
+    환매특약: str = ""
+    
     # 원본 텍스트
     원본텍스트: str = ""
     
@@ -99,6 +102,7 @@ class RegistryDocument:
             "근저당권목록": [asdict(m) for m in self.근저당권목록],
             "압류목록": [asdict(s) for s in self.압류목록],
             "경매목록": [asdict(a) for a in self.경매목록],
+            "환매특약": self.환매특약,
         }
     
     def summary(self) -> str:
@@ -189,6 +193,7 @@ class RegistryParser:
         doc.근저당권목록 = self._extract_mortgages()
         doc.압류목록 = self._extract_seizures()
         doc.경매목록 = self._extract_auctions()
+        doc.환매특약 = self._extract_special_conditions()
         
         return doc
     
@@ -510,28 +515,62 @@ class RegistryParser:
         return unique
     
     def _extract_auctions(self) -> List[AuctionInfo]:
-        """경매 정보 추출"""
+        """경매 정보 추출 (말소되지 않은 것만)"""
         auctions = []
         
         # 임의경매, 강제경매 패턴
-        auction_pattern = r'(임의경매개시결정|강제경매개시결정)\s+(\d{4})년(\d{1,2})월(\d{1,2})일.*?(?:채권자|신청인)\s+(\S+)'
+        auction_pattern = r'(\d+)\s+(임의경매개시결정|강제경매개시결정)\s+(\d{4})년(\d{1,2})월(\d{1,2})일.*?(?:채권자|신청인)\s+(\S+)'
         
         matches = re.finditer(auction_pattern, self.text)
         for match in matches:
-            auction_type = match.group(1).replace("개시결정", "")
-            year = match.group(2)
-            month = match.group(3).zfill(2)
-            day = match.group(4).zfill(2)
-            creditor = match.group(5)
+            rank = match.group(1)
+            auction_type = match.group(2).replace("개시결정", "")
+            year = match.group(3)
+            month = match.group(4).zfill(2)
+            day = match.group(5).zfill(2)
+            creditor = match.group(6)
             
-            auction = AuctionInfo(
-                종류=auction_type,
-                채권자=creditor,
-                접수일=f"{year}.{month}.{day}"
-            )
-            auctions.append(auction)
+            # 해당 경매가 말소되었는지 확인
+            cancel_patterns = [
+                rf'{rank}번임의경매개시결.*?등기말소',
+                rf'{rank}번강제경매개시결.*?등기말소',
+                rf'{rank}번\s*임의경매.*?말소',
+                rf'{rank}번\s*강제경매.*?말소',
+            ]
+            
+            is_cancelled = False
+            for pattern in cancel_patterns:
+                if re.search(pattern, self.text, re.DOTALL):
+                    is_cancelled = True
+                    break
+            
+            if not is_cancelled:
+                auction = AuctionInfo(
+                    종류=auction_type,
+                    채권자=creditor,
+                    접수일=f"{year}.{month}.{day}"
+                )
+                auctions.append(auction)
         
         return auctions
+    
+    def _extract_special_conditions(self) -> str:
+        """환매특약/전매제한 정보 추출"""
+        special_conditions = []
+        
+        # 환매특약 패턴 (줄바꿈이 중간에 들어가는 경우도 처리: "환매특\n약")
+        if re.search(r'환매\s*특\s*약', self.text, re.DOTALL):
+            special_conditions.append("환매특약")
+        
+        # 전매제한 (주택법 관련) - 줄바꿈 허용
+        if re.search(r'주택법.*?제\d+조.*?기간.*?지나기\s*전', self.text, re.DOTALL):
+            special_conditions.append("전매제한")
+        
+        # 금지사항 (소유권 제한) - 줄바꿈 허용
+        if re.search(r'금지\s*사항.*?소유권.*?제한', self.text, re.DOTALL):
+            special_conditions.append("소유권제한")
+        
+        return ", ".join(special_conditions) if special_conditions else ""
 
 
 def analyze_pdf(pdf_path: str) -> RegistryDocument:

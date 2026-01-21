@@ -586,7 +586,12 @@ def get_application():
                     creditor = re.sub(r'^사단법인', '', creditor)
                     creditor = creditor.strip()
                     
-                    lines.append(f"{i}순위 : {creditor}")
+                    # 채무자 정보 추가
+                    debtor = m.채무자 if m.채무자 else ""
+                    if debtor:
+                        lines.append(f"{i}순위 : {creditor}({debtor})")
+                    else:
+                        lines.append(f"{i}순위 : {creditor}")
                     lines.append(f"           {amount_str}")
             else:
                 lines.append("설정된 근저당권 없음")
@@ -611,6 +616,10 @@ def get_application():
                 for a in result.경매목록:
                     auction_info.append(f"{a.종류}({a.채권자})")
                 special_notes.append("경매: " + ", ".join(auction_info))
+            
+            # 환매특약/전매제한 정보 추가
+            if hasattr(result, '환매특약') and result.환매특약:
+                special_notes.append(result.환매특약)
             
             # 특이사항
             lines.append(f"특이사항 : {' / '.join(special_notes) if special_notes else ''}")
