@@ -2,6 +2,8 @@
   "bank_name": "BNK캐피탈",
   "target_regions": ["서울", "경기", "인천", "부산"],
   "product_type": "business",
+  "self_refinance_excluded": ["BNK캐피탈", "비엔케이캐피탈", "비엔케이캐피탈"],
+  "_comment_self_refinance_excluded": "본인 금융사 대환 불가 - 후순위 추가대출로 처리",
   "business_product_names": [
     "MG캐피탈",
     "엠지케피탈",
@@ -41,7 +43,9 @@
     "현대캐피탈",
     "엠캐피탈",
     "유니온저축은행",
-    "페퍼저축은행"
+    "페퍼저축은행",
+    "월컴저축",
+    "월컴저축은행"
   ],
   "region_grades": {
     "서울특별시강동구": 1,
