@@ -278,6 +278,7 @@ def get_application():
                 'borrower_name': '', # 차주 이름
                 'collateral_provider': '', # 담보제공자 이름
                 'name_display': '',  # 최종 표시할 이름 형식
+                'area': '',          # 면적 (캡션에서 입력한 경우)
             }
             
             if not caption:
@@ -301,24 +302,30 @@ def get_application():
                     info['collateral_provider'] = after_borrower.group(1)
             
             # 직업 추출 (사업자, 직장인, 프리랜서, 무직 등)
-            # 가라사업자는 별도 처리
-            if re.search(r'가라\s*사업자', caption):
-                info['job'] = '사업자'
-                info['special_notes'].append('즉발보유(부가세 누락신고 조건)')
-            else:
-                job_patterns = [
-                    (r'사업자', '사업자'),
-                    (r'직장인', '직장인'),
-                    (r'프리랜서', '프리랜서'),
-                    (r'무직', '무직'),
-                    (r'자영업', '자영업'),
-                    (r'공무원', '공무원'),
-                    (r'전문직', '전문직'),
-                ]
-                for pattern, job_name in job_patterns:
-                    if re.search(pattern, caption):
-                        info['job'] = job_name
-                        break
+            # 가라사업자 보유 체크 (직장인 + 사업자 보유 조건)
+            has_gara_business = re.search(r'가라\s*사업자', caption)
+            
+            # 먼저 기본 직업 추출
+            job_patterns = [
+                (r'직장인', '직장인'),
+                (r'사업자', '사업자'),
+                (r'프리랜서', '프리랜서'),
+                (r'무직', '무직'),
+                (r'자영업', '자영업'),
+                (r'공무원', '공무원'),
+                (r'전문직', '전문직'),
+            ]
+            for pattern, job_name in job_patterns:
+                # "가라사업자"는 직업 "사업자"로 인식하지 않도록 예외 처리
+                if pattern == r'사업자' and has_gara_business:
+                    continue
+                if re.search(pattern, caption):
+                    info['job'] = job_name
+                    break
+            
+            # 가라사업자 보유인 경우 특이사항에 추가
+            if has_gara_business:
+                info['special_notes'].append('사업자 보유(즉발보유, 부가세 누락신고 조건)')
             
             # 신용등급 추출 (4등급, 5등급 등)
             grade_match = re.search(r'(\d{1,2})\s*등급', caption)
@@ -395,6 +402,18 @@ def get_application():
                 if match:
                     price = match.group(1).replace(',', '')
                     info['kb_price_low'] = f"{int(price):,}"
+                    break
+            
+            # 면적 추출 (전용 83.89, 83.89㎡ 등)
+            area_patterns = [
+                r'전용\s*[:：]?\s*(\d+(?:\.\d+)?)',  # 전용 83.89
+                r'(\d+(?:\.\d+)?)\s*㎡',             # 83.89㎡
+                r'면적\s*[:：]?\s*(\d+(?:\.\d+)?)',  # 면적 83.89
+            ]
+            for pattern in area_patterns:
+                match = re.search(pattern, caption)
+                if match:
+                    info['area'] = f"{match.group(1)}㎡"
                     break
             
             return info
@@ -494,8 +513,9 @@ def get_application():
             else:
                 lines.append(f"총층수 : ")
             
-            # 면적
-            lines.append(f"면   적 : {result.면적 or ''}")
+            # 면적 (캡션에서 입력한 면적 우선, 없으면 등기부에서 추출)
+            area = caption_info.get('area') or result.면적 or ''
+            lines.append(f"면   적 : {area}")
             
             # 세대수, 구분, KB시세 (캡션에서 추출한 정보 사용)
             lines.append(f"세대수 : {caption_info['households']}")
