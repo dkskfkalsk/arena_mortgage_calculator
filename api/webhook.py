@@ -472,14 +472,34 @@ def get_application():
             
             if result.소유자목록:
                 owner = result.소유자목록[0]
-                # 생년월일에서 나이 계산
+                # 생년월일에서 나이 계산 (만나이, 한국 시간 기준)
                 age = ""
                 if owner.생년월일:
                     try:
-                        birth_year = int(owner.생년월일.split('.')[0])
                         from datetime import datetime
-                        current_year = datetime.now().year
-                        calculated_age = current_year - birth_year
+                        try:
+                            from zoneinfo import ZoneInfo
+                        except ImportError:
+                            # Python 3.8 이하의 경우
+                            from pytz import timezone
+                            ZoneInfo = lambda tz: timezone(tz)
+                        
+                        # 생년월일 형식: "YYYY.MM.DD"
+                        birth_parts = owner.생년월일.split('.')
+                        birth_year = int(birth_parts[0])
+                        birth_month = int(birth_parts[1]) if len(birth_parts) > 1 else 1
+                        birth_day = int(birth_parts[2]) if len(birth_parts) > 2 else 1
+                        
+                        # 한국 시간대(Asia/Seoul, UTC+9) 기준으로 현재 날짜 가져오기
+                        korea_tz = ZoneInfo('Asia/Seoul')
+                        today = datetime.now(korea_tz).date()
+                        birth_date = datetime(birth_year, birth_month, birth_day, tzinfo=korea_tz).date()
+                        
+                        # 만나이 계산: 생일이 지났는지 확인
+                        calculated_age = today.year - birth_year
+                        if (today.month, today.day) < (birth_month, birth_day):
+                            calculated_age -= 1
+                        
                         age = f"({calculated_age})"  # 만 나이
                     except:
                         age = ""
