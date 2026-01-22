@@ -1243,11 +1243,23 @@ class BaseCalculator:
                     is_subordinate = getattr(self, '_is_subordinate', False)
                     ltv_steps = self._get_ltv_steps_by_grade(is_subordinate, credit_grade)
             
+            # max_ltv 이하로 필터링 (급지별 최대 LTV 반영)
+            if max_ltv is not None:
+                # max_ltv 이하만 필터링 (85%는 83%를 초과하므로 제거)
+                ltv_steps = [ltv for ltv in ltv_steps if ltv <= max_ltv]
+                # max_ltv가 ltv_steps에 없으면 추가 (MG캐피탈 2급지 83% 같은 경우)
+                if max_ltv not in ltv_steps:
+                    ltv_steps.append(int(max_ltv))
+                    ltv_steps = sorted(ltv_steps, reverse=True)
+                    print(f"DEBUG: BaseCalculator.calculate - max_ltv {max_ltv}% 이하로 필터링 후 추가: {ltv_steps}")
+                else:
+                    print(f"DEBUG: BaseCalculator.calculate - max_ltv {max_ltv}% 이하로 필터링: {ltv_steps}")
+            
             print(f"DEBUG: BaseCalculator.calculate - max_ltv: {max_ltv}, ltv_steps: {ltv_steps}")  # 추가
             
             for ltv in ltv_steps:
-                # 최대 LTV를 초과하면 스킵
-                if ltv > max_ltv:
+                # 최대 LTV를 초과하면 스킵 (이미 필터링했지만 안전장치)
+                if max_ltv is not None and ltv > max_ltv:
                     print(f"DEBUG: LTV {ltv} > max_ltv {max_ltv}, skipping")  # 추가
                     continue
                 
