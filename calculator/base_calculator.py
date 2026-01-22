@@ -745,9 +745,12 @@ class BaseCalculator:
                     # self_refinance_excluded 체크: 본인 금융사 대환 불가
                     is_self_refinance_excluded = False
                     if self_refinance_excluded:
+                        # 본인 금융사인지 확인 (self.bank_name과 institution 비교)
+                        bank_name_clean = self.bank_name.replace(" ", "")
                         for excluded_name in self_refinance_excluded:
                             excluded_clean = excluded_name.replace(" ", "")
-                            if excluded_clean in institution_clean:
+                            # excluded_name이 institution에 포함되어 있고, 동시에 bank_name과도 매칭되는 경우
+                            if excluded_clean in institution_clean and excluded_clean in bank_name_clean:
                                 is_self_refinance_excluded = True
                                 print(f"DEBUG: BaseCalculator.calculate - {self.bank_name}: '{institution}'는 self_refinance_excluded에 포함되어 본인 금융사 대환 불가, 후순위로 처리")
                                 break
@@ -1244,7 +1247,7 @@ class BaseCalculator:
                     ltv_steps = self._get_ltv_steps_by_grade(is_subordinate, credit_grade)
             
             # max_ltv 이하로 필터링 (급지별 최대 LTV 반영)
-            if max_ltv is not None:
+            if max_ltv is not None and max_ltv > 0:
                 # max_ltv 이하만 필터링 (85%는 83%를 초과하므로 제거)
                 ltv_steps = [ltv for ltv in ltv_steps if ltv <= max_ltv]
                 # max_ltv가 ltv_steps에 없으면 추가 (MG캐피탈 2급지 83% 같은 경우)
@@ -1254,6 +1257,11 @@ class BaseCalculator:
                     print(f"DEBUG: BaseCalculator.calculate - max_ltv {max_ltv}% 이하로 필터링 후 추가: {ltv_steps}")
                 else:
                     print(f"DEBUG: BaseCalculator.calculate - max_ltv {max_ltv}% 이하로 필터링: {ltv_steps}")
+            
+            # ltv_steps가 비어있으면 에러
+            if not ltv_steps:
+                print(f"DEBUG: BaseCalculator.calculate - ltv_steps가 비어있음, max_ltv: {max_ltv}")
+                return None
             
             print(f"DEBUG: BaseCalculator.calculate - max_ltv: {max_ltv}, ltv_steps: {ltv_steps}")  # 추가
             
