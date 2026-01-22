@@ -273,20 +273,22 @@ class RegistryParser:
     def _extract_floor_info(self) -> str:
         """층수 정보 추출 (표제부 섹션에서 마지막 층수 추출)"""
         # JavaScript 로직 참고: 【 표 제 부 】 섹션에서 층수+면적 패턴 찾기
-        # 패턴: (\d+)층\s+\d+(\.\d+)?㎡ 형태에서 마지막 층수 추출
+        # JavaScript: text.match(/【\s*표\s*제\s*부\s*】[\s\S]*?(\d+)층\s+\d+(\.\d+)?㎡/g)
+        # 마지막 매치에서 층수 추출
         
-        # 표제부 섹션 찾기
-        table_section_pattern = r'【\s*표\s*제\s*부\s*】.*?(?=【|$)'
-        table_match = re.search(table_section_pattern, self.text, re.DOTALL | re.IGNORECASE)
+        # 표제부 섹션 찾기 (다음 【 섹션 전까지)
+        table_section_pattern = r'【\s*표\s*제\s*부\s*】[\s\S]*?(?=【|$)'
+        table_match = re.search(table_section_pattern, self.text, re.IGNORECASE)
         
         if table_match:
             table_text = table_match.group(0)
-            # 층수와 면적이 함께 나오는 패턴 찾기: "15층 83.89㎡"
+            # 표제부 안에서 층수+면적 패턴 찾기: "15층 83.89㎡" 또는 "15층 83.89 ㎡"
+            # JavaScript 패턴: (\d+)층\s+\d+(\.\d+)?㎡
             floor_area_pattern = r'(\d+)층\s+\d+(?:\.\d+)?\s*㎡'
             matches = list(re.finditer(floor_area_pattern, table_text))
             
             if matches:
-                # 마지막 매치에서 층수 추출
+                # 마지막 매치에서 층수 추출 (JavaScript와 동일)
                 last_match = matches[-1]
                 total_floor = last_match.group(1)
                 
