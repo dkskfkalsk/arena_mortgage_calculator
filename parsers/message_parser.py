@@ -217,6 +217,18 @@ class MessageParser:
                         if mortgage:
                             data["mortgages"].append(mortgage)
                             print(f"DEBUG: Parsed mortgage - combined_lines: '{combined_lines}', result: {mortgage}")
+            elif current_section == "special_notes":
+                # 특이사항 파싱
+                if data["special_notes"]:
+                    data["special_notes"] += "\n" + line
+                else:
+                    data["special_notes"] = line
+            elif current_section == "requests":
+                # 요청사항 파싱
+                if data["requests"]:
+                    data["requests"] += "\n" + line
+                else:
+                    data["requests"] = line
             else:
                 # 섹션 없이 들어오는 근저당권 라인 처리
                 # LTV 비율 라인 필터링 (예: "81.23% / 72.95%")
@@ -231,20 +243,6 @@ class MessageParser:
                         if mortgage:
                             data["mortgages"].append(mortgage)
                             print(f"DEBUG: Parsed mortgage (no section) - line: '{line}', result: {mortgage}")
-            
-            # 특이사항 파싱
-            elif current_section == "special_notes":
-                if data["special_notes"]:
-                    data["special_notes"] += "\n" + line
-                else:
-                    data["special_notes"] = line
-            
-            # 요청사항 파싱
-            elif current_section == "requests":
-                if data["requests"]:
-                    data["requests"] += "\n" + line
-                else:
-                    data["requests"] = line
             
             i += 1
         
