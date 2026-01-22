@@ -77,6 +77,9 @@ class RegistryDocument:
     # 환매특약/전매제한 정보
     환매특약: str = ""
     
+    # 별도등기 정보
+    별도등기: bool = False  # True면 별도등기 있음, False면 없거나 말소됨
+    
     # 원본 텍스트
     원본텍스트: str = ""
     
@@ -194,6 +197,7 @@ class RegistryParser:
         doc.압류목록 = self._extract_seizures()
         doc.경매목록 = self._extract_auctions()
         doc.환매특약 = self._extract_special_conditions()
+        doc.별도등기 = self._extract_separate_registry()
         
         return doc
     
@@ -571,6 +575,42 @@ class RegistryParser:
             special_conditions.append("소유권제한")
         
         return ", ".join(special_conditions) if special_conditions else ""
+    
+    def _extract_separate_registry(self) -> bool:
+        """별도등기 추출 (말소되지 않은 경우만 True)"""
+        # 별도등기/별지등기 패턴 (줄바꿈 허용)
+        separate_patterns = [
+            r'별\s*도\s*등\s*기',
+            r'별\s*지\s*등\s*기',
+            r'별\s*지',
+        ]
+        
+        has_separate = False
+        for pattern in separate_patterns:
+            if re.search(pattern, self.text, re.DOTALL):
+                has_separate = True
+                break
+        
+        if not has_separate:
+            return False
+        
+        # 말소 패턴 확인
+        cancel_patterns = [
+            r'별\s*도\s*등\s*기\s*말\s*소',
+            r'별\s*지\s*등\s*기\s*말\s*소',
+            r'별\s*지\s*말\s*소',
+            r'별\s*도\s*등\s*기\s*등\s*기\s*말\s*소',
+            r'별\s*지\s*등\s*기\s*등\s*기\s*말\s*소',
+        ]
+        
+        is_cancelled = False
+        for pattern in cancel_patterns:
+            if re.search(pattern, self.text, re.DOTALL):
+                is_cancelled = True
+                break
+        
+        # 별도등기가 있고 말소되지 않았으면 True
+        return has_separate and not is_cancelled
 
 
 def analyze_pdf(pdf_path: str) -> RegistryDocument:

@@ -621,6 +621,10 @@ def get_application():
             if hasattr(result, '환매특약') and result.환매특약:
                 special_notes.append(result.환매특약)
             
+            # 별도등기 정보 추가 (말소되지 않은 경우만)
+            if hasattr(result, '별도등기') and result.별도등기:
+                special_notes.append("별도등기 있음")
+            
             # 특이사항
             lines.append(f"특이사항 : {' / '.join(special_notes) if special_notes else ''}")
             

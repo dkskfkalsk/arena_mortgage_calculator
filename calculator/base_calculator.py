@@ -728,10 +728,13 @@ class BaseCalculator:
                     other_mortgages.append(mortgage)
         else:
             # 일반 처리
-            # BNK캐피탈 또는 OK저축은행인 경우 대환 가능 기관 체크
+            # self_refinance_excluded 체크 (본인 금융사 대환 불가)
+            self_refinance_excluded = self.config.get("self_refinance_excluded", [])
             is_bnk = self.bank_name == "BNK캐피탈" or "BNK캐피탈" in self.bank_name or "비엔케이캐피탈" in self.bank_name
             is_ok_bank = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
-            is_business_product = is_bnk or is_ok_bank
+            is_acuon = self.bank_name == "애큐온저축은행" or "애큐온" in self.bank_name
+            is_mg_capital = self.bank_name == "MG캐피탈" or "MG캐피탈" in self.bank_name or "엠지케피탈" in self.bank_name
+            is_business_product = is_bnk or is_ok_bank or is_acuon or is_mg_capital
             business_product_names = self.config.get("business_product_names", []) if is_business_product else []
             
             for mortgage in mortgages:
@@ -739,7 +742,22 @@ class BaseCalculator:
                     institution = mortgage.get("institution", "")
                     institution_clean = institution.replace(" ", "")
                     
-                    # BNK캐피탈 또는 OK저축은행인 경우 대환 가능 여부 확인
+                    # self_refinance_excluded 체크: 본인 금융사 대환 불가
+                    is_self_refinance_excluded = False
+                    if self_refinance_excluded:
+                        for excluded_name in self_refinance_excluded:
+                            excluded_clean = excluded_name.replace(" ", "")
+                            if excluded_clean in institution_clean:
+                                is_self_refinance_excluded = True
+                                print(f"DEBUG: BaseCalculator.calculate - {self.bank_name}: '{institution}'는 self_refinance_excluded에 포함되어 본인 금융사 대환 불가, 후순위로 처리")
+                                break
+                    
+                    if is_self_refinance_excluded:
+                        # 본인 금융사 대환 불가이므로 후순위로 처리
+                        other_mortgages.append(mortgage)
+                        continue
+                    
+                    # BNK캐피탈, OK저축은행, 애큐온저축은행, MG캐피탈인 경우 대환 가능 기관 체크
                     can_refinance = False
                     if is_business_product and business_product_names:
                         # 리스트에 있는 기관인지 확인
@@ -752,10 +770,10 @@ class BaseCalculator:
                         # 리스트에 없지만 '사업자금' 문자열이 있으면 대환 가능
                         if not can_refinance and "사업자금" in institution:
                             can_refinance = True
-                            bank_display_name = "BNK캐피탈" if is_bnk else "OK저축은행"
+                            bank_display_name = "BNK캐피탈" if is_bnk else ("OK저축은행" if is_ok_bank else ("애큐온저축은행" if is_acuon else "MG캐피탈"))
                             print(f"DEBUG: BaseCalculator.calculate - {bank_display_name}: '{institution}'에 '사업자금' 포함되어 대환 가능")
                     else:
-                        # BNK캐피탈 또는 OK저축은행이 아니면 대환 가능
+                        # BNK캐피탈, OK저축은행, 애큐온저축은행, MG캐피탈이 아니면 대환 가능
                         can_refinance = True
                     
                     if can_refinance:
@@ -766,7 +784,7 @@ class BaseCalculator:
                         print(f"DEBUG: BaseCalculator.calculate - 대환할 근저당권 발견: priority={mortgage.get('priority')}, institution={institution}, principal={mortgage_amount}만원")
                     else:
                         # 대환 불가능한 기관은 후순위로 처리
-                        bank_display_name = "BNK캐피탈" if is_bnk else "OK저축은행"
+                        bank_display_name = "BNK캐피탈" if is_bnk else ("OK저축은행" if is_ok_bank else ("애큐온저축은행" if is_acuon else "MG캐피탈"))
                         print(f"DEBUG: BaseCalculator.calculate - {bank_display_name}: '{institution}'는 대환 가능 기관이 아니므로 후순위로 처리")
                         other_mortgages.append(mortgage)
                 else:
@@ -1234,9 +1252,12 @@ class BaseCalculator:
                     continue
                 
                 # 가용 한도 계산
-                # OK저축은행인 경우 특별한 계산 방식 적용
-                if is_ok_bank and not is_refinance:
-                    # OK저축은행 후순위: 현재 LTV 한도에서 기존 근저당권이 차지하는 LTV 수준의 한도를 차감
+                # OK저축은행, 애큐온저축은행, MG캐피탈인 경우 특별한 계산 방식 적용
+                is_acuon = self.bank_name == "애큐온저축은행" or "애큐온" in self.bank_name
+                is_mg_capital = self.bank_name == "MG캐피탈" or "MG캐피탈" in self.bank_name or "엠지케피탈" in self.bank_name
+                
+                if (is_ok_bank or is_acuon or is_mg_capital) and not is_refinance:
+                    # 저축은행/캐피탈 후순위: 현재 LTV 한도에서 기존 근저당권이 차지하는 LTV 수준의 한도를 차감
                     # 기존 근저당권이 차지하는 LTV = total_mortgage / kb_price * 100
                     existing_ltv = (total_mortgage / kb_price) * 100 if kb_price > 0 else 0
                     # 기존 근저당권 LTV 수준의 한도 계산
@@ -1248,7 +1269,8 @@ class BaseCalculator:
                         "total_amount": max(0, available_principal),
                         "available_amount": max(0, available_principal)
                     }
-                    print(f"DEBUG: BaseCalculator.calculate - OK저축은행 특별 계산: ltv={ltv}%, existing_ltv={existing_ltv:.2f}%, max_amount={max_amount_principal}, existing_limit={existing_ltv_limit}, available={available_principal}")
+                    bank_display_name = "OK저축은행" if is_ok_bank else ("애큐온저축은행" if is_acuon else "MG캐피탈")
+                    print(f"DEBUG: BaseCalculator.calculate - {bank_display_name} 특별 계산: ltv={ltv}%, existing_ltv={existing_ltv:.2f}%, max_amount={max_amount_principal}, existing_limit={existing_ltv_limit}, available={available_principal}")
                 else:
                     # 일반 계산 방식
                     amount_info = self.calculate_available_amount(

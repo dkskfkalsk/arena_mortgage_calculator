@@ -92,6 +92,14 @@ class MessageParser:
                     i += 1
                     continue
             
+            # "고객명 홍길동" 형식 처리 (콜론 없이)
+            if data["name"] is None:
+                name_match = re.match(r'^고객명\s+(.+)$', line)
+                if name_match:
+                    data["name"] = name_match.group(1).strip()
+                    i += 1
+                    continue
+            
             # 섹션 구분 (키:값 파싱보다 먼저 체크)
             if "설정내역" in line or "=========" in line or ("선순위" in line and "LTV" in line):
                 current_section = "mortgages"
@@ -139,6 +147,30 @@ class MessageParser:
                         self._set_field(data, key, value)
                     else:
                         self._set_field(data, key, value)
+            elif current_section != "mortgages":
+                # 콜론 없는 간단 패턴 처리 (면적/세대수/층수/주소)
+                if data["area"] is None and "면적" in line:
+                    area_match = re.search(r'면적\s*([\d.]+)\s*㎡', line)
+                    if area_match:
+                        data["area"] = float(area_match.group(1))
+                if data["household_count"] is None and "세대" in line:
+                    household_match = re.search(r'총?\s*(\d+)\s*세대', line)
+                    if household_match:
+                        data["household_count"] = int(household_match.group(1))
+                if data.get("total_floors") is None and "층" in line:
+                    floors_match = re.search(r'총\s*(\d+)\s*층', line)
+                    if floors_match:
+                        data["total_floors"] = int(floors_match.group(1))
+                        print(f"DEBUG: Parsed total_floors from free text - {floors_match.group(1)}층")
+                # 주소로 추정되는 단일 라인 처리
+                if data["address"] is None:
+                    looks_like_address = (
+                        ("시" in line and "구" in line and re.search(r'\d', line)) and
+                        (("동" in line) or ("읍" in line) or ("면" in line))
+                    )
+                    if looks_like_address:
+                        data["address"] = line
+                        print(f"DEBUG: Address inferred from line: '{line}'")
             elif "kb시세" in line.replace(" ", "").lower() and current_section != "mortgages":
                 # "KB시세"가 포함된 줄에서 직접 추출 (콜론이 없어도 처리)
                 # 예: "KB시세 일반 125,000만원" 또는 "KB시세: 일반 125,000만원"
@@ -180,6 +212,15 @@ class MessageParser:
                     if mortgage:
                         data["mortgages"].append(mortgage)
                         print(f"DEBUG: Parsed mortgage - combined_lines: '{combined_lines}', result: {mortgage}")
+            else:
+                # 섹션 없이 들어오는 근저당권 라인 처리
+                is_priority_line = re.search(r'^\s*\d+\s*순위', line) is not None
+                is_numeric_prefix_line = re.match(r'^\d+\s*[\.\)]', line) is not None
+                if is_priority_line or is_numeric_prefix_line:
+                    mortgage = self._parse_mortgage_line(line)
+                    if mortgage:
+                        data["mortgages"].append(mortgage)
+                        print(f"DEBUG: Parsed mortgage (no section) - line: '{line}', result: {mortgage}")
             
             # 특이사항 파싱
             elif current_section == "special_notes":
@@ -664,6 +705,22 @@ class MessageParser:
                 if kb_value:
                     print(f"DEBUG: KB price extracted - line: {line}, value: {kb_value}")
                     return kb_value
+        
+        # KB일반/KB하한/KB상한 패턴 (시세 키워드 없이도 처리)
+        general_match = re.search(r'KB\s*일반\s*[:\s]*([\d,]+)', text, re.IGNORECASE)
+        lower_match = re.search(r'KB\s*(?:하한|하)\s*[:\s]*([\d,]+)', text, re.IGNORECASE)
+        upper_match = re.search(r'KB\s*상한\s*[:\s]*([\d,]+)', text, re.IGNORECASE)
+        if general_match or lower_match or upper_match:
+            parts = []
+            if general_match:
+                parts.append(f"KB일반 {general_match.group(1).strip()}")
+            if lower_match:
+                parts.append(f"KB하한 {lower_match.group(1).strip()}")
+            # 상한은 기본 산출에는 사용하지 않음 (일반/하한 우선)
+            if parts:
+                kb_value = " ".join(parts)
+                print(f"DEBUG: KB price extracted from KB일반/하한 패턴: {kb_value}")
+                return kb_value
         
         # 패턴 매칭으로 재시도 (더 강력한 패턴)
         kb_patterns = [
