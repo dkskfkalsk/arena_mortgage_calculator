@@ -212,15 +212,15 @@ class MessageParser:
                     if mortgage:
                         data["mortgages"].append(mortgage)
                         print(f"DEBUG: Parsed mortgage - combined_lines: '{combined_lines}', result: {mortgage}")
-            else:
-                # 섹션 없이 들어오는 근저당권 라인 처리
-                is_priority_line = re.search(r'^\s*\d+\s*순위', line) is not None
-                is_numeric_prefix_line = re.match(r'^\d+\s*[\.\)]', line) is not None
-                if is_priority_line or is_numeric_prefix_line:
-                    mortgage = self._parse_mortgage_line(line)
-                    if mortgage:
-                        data["mortgages"].append(mortgage)
-                        print(f"DEBUG: Parsed mortgage (no section) - line: '{line}', result: {mortgage}")
+                else:
+                    # 섹션 없이 들어오는 근저당권 라인 처리
+                    is_priority_line = re.search(r'^\s*\d+\s*순위', line) is not None
+                    is_numeric_prefix_line = re.match(r'^\d+\s*[\.\)]', line) is not None
+                    if is_priority_line or is_numeric_prefix_line:
+                        mortgage = self._parse_mortgage_line(line)
+                        if mortgage:
+                            data["mortgages"].append(mortgage)
+                            print(f"DEBUG: Parsed mortgage (no section) - line: '{line}', result: {mortgage}")
             
             # 특이사항 파싱
             elif current_section == "special_notes":
