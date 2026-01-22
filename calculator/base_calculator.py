@@ -1290,7 +1290,14 @@ class BaseCalculator:
                         "available_amount": max(0, available_principal)
                     }
                     bank_display_name = "OK저축은행" if is_ok_bank else ("애큐온저축은행" if is_acuon else "MG캐피탈")
-                    print(f"DEBUG: BaseCalculator.calculate - {bank_display_name} 특별 계산: ltv={ltv}%, existing_ltv={existing_ltv:.2f}%, max_amount={max_amount_principal}, existing_limit={existing_ltv_limit}, available={available_principal}")
+                    print(f"DEBUG: BaseCalculator.calculate - {bank_display_name} 후순위 특별 계산: ltv={ltv}%, existing_ltv={existing_ltv:.2f}%, max_amount={max_amount_principal}, existing_limit={existing_ltv_limit}, available={available_principal}")
+                elif (is_ok_bank or is_acuon or is_mg_capital) and is_refinance:
+                    # 저축은행/캐피탈 대환: 일반 대환 계산 방식 사용 (calculate_available_amount)
+                    amount_info = self.calculate_available_amount(
+                        kb_price, ltv, total_mortgage, is_refinance, refinance_principal
+                    )
+                    bank_display_name = "OK저축은행" if is_ok_bank else ("애큐온저축은행" if is_acuon else "MG캐피탈")
+                    print(f"DEBUG: BaseCalculator.calculate - {bank_display_name} 대환 계산: ltv={ltv}%, amount_info={amount_info}")
                 else:
                     # 일반 계산 방식
                     amount_info = self.calculate_available_amount(
