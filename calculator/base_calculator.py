@@ -1288,7 +1288,8 @@ class BaseCalculator:
                     available_principal = max_amount_principal - existing_ltv_limit
                     amount_info = {
                         "total_amount": max(0, available_principal),
-                        "available_amount": max(0, available_principal)
+                        "available_amount": max(0, available_principal),
+                        "available_limit": max(0, available_principal)  # 후순위는 가한도와 가용금액이 동일
                     }
                     bank_display_name = "OK저축은행" if is_ok_bank else ("애큐온저축은행" if is_acuon else "MG캐피탈")
                     print(f"DEBUG: BaseCalculator.calculate - {bank_display_name} 후순위 특별 계산: ltv={ltv}%, existing_ltv={existing_ltv:.2f}%, max_amount={max_amount_principal}, existing_limit={existing_ltv_limit}, available={available_principal}")
@@ -1334,10 +1335,12 @@ class BaseCalculator:
                 final_amount = self.round_down_to_hundred_thousand(final_amount)
                 final_total_amount = self.round_down_to_hundred_thousand(amount_info["total_amount"])
                 
-                # 최소진행금액 체크: min_amount보다 작으면 결과에서 제외
+                # 최소진행금액 체크: 가한도(available_limit) 기준으로 체크
                 min_amount = self.config.get("min_amount")
-                if min_amount is not None and final_amount < min_amount:
-                    print(f"DEBUG: LTV {ltv} - final_amount {final_amount}만원이 min_amount {min_amount}만원보다 작아서 제외")
+                available_limit = amount_info.get("available_limit", amount_info.get("available_amount", 0))
+                available_limit_rounded = self.round_down_to_hundred_thousand(available_limit)
+                if min_amount is not None and available_limit_rounded < min_amount:
+                    print(f"DEBUG: LTV {ltv} - 가한도 {available_limit_rounded}만원이 min_amount {min_amount}만원보다 작아서 제외 (가용금액: {final_amount}만원)")
                     continue
                 
                 result = {
@@ -2209,9 +2212,10 @@ class BaseCalculator:
             
             result = {
                 "total_amount": total_refinance_amount,
-                "available_amount": available_principal
+                "available_amount": available_principal,  # 최종 가용한도 (2단계)
+                "available_limit": available_amount  # 가한도 (1단계) - 최소진행금액 체크용
             }
-            print(f"DEBUG: calculate_available_amount - 대환: available_amount(1단계)={available_amount}, available_principal(최종)={available_principal}, total_refinance_amount={total_refinance_amount}, result={result}")  # 추가
+            print(f"DEBUG: calculate_available_amount - 대환: available_amount(1단계, 가한도)={available_amount}, available_principal(최종)={available_principal}, total_refinance_amount={total_refinance_amount}, result={result}")  # 추가
             return result
         else:
             # 후순위인 경우: 채권최고액 기준으로 차감
@@ -2219,7 +2223,8 @@ class BaseCalculator:
             available_principal = max_amount_principal - total_mortgage
             result = {
                 "total_amount": max(0, available_principal),
-                "available_amount": max(0, available_principal)
+                "available_amount": max(0, available_principal),
+                "available_limit": max(0, available_principal)  # 후순위는 가한도와 가용금액이 동일
             }
             print(f"DEBUG: calculate_available_amount - 후순위: available_principal={available_principal}, result={result}")  # 추가
             return result
