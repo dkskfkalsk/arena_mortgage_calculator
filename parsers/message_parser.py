@@ -202,21 +202,21 @@ class MessageParser:
                     is_priority_line = ("순위" in line)
                     is_numeric_prefix_line = re.match(r'^\d+\s*[\.\)]', line) is not None
                     if is_priority_line or is_numeric_prefix_line:
-                    # 현재 줄부터 다음 3줄까지 합쳐서 파싱 시도
-                    combined_lines = line
-                    for j in range(1, 4):
-                        if i + j < len(lines):
-                            next_line = lines[i + j].strip()
-                            is_next_mortgage = re.match(r'^\d+\s*[\.\)]', next_line) is not None
-                            if next_line and not any(kw in next_line for kw in ["순위", "특이사항", "요청사항", "==="]) and not is_next_mortgage and not next_line.startswith("총 합계"):
-                                combined_lines += " " + next_line
-                            else:
-                                break
-                    
-                    mortgage = self._parse_mortgage_line(combined_lines)
-                    if mortgage:
-                        data["mortgages"].append(mortgage)
-                        print(f"DEBUG: Parsed mortgage - combined_lines: '{combined_lines}', result: {mortgage}")
+                        # 현재 줄부터 다음 3줄까지 합쳐서 파싱 시도
+                        combined_lines = line
+                        for j in range(1, 4):
+                            if i + j < len(lines):
+                                next_line = lines[i + j].strip()
+                                is_next_mortgage = re.match(r'^\d+\s*[\.\)]', next_line) is not None
+                                if next_line and not any(kw in next_line for kw in ["순위", "특이사항", "요청사항", "==="]) and not is_next_mortgage and not next_line.startswith("총 합계"):
+                                    combined_lines += " " + next_line
+                                else:
+                                    break
+                        
+                        mortgage = self._parse_mortgage_line(combined_lines)
+                        if mortgage:
+                            data["mortgages"].append(mortgage)
+                            print(f"DEBUG: Parsed mortgage - combined_lines: '{combined_lines}', result: {mortgage}")
                 else:
                     # 섹션 없이 들어오는 근저당권 라인 처리
                     # LTV 비율 라인 필터링 (예: "81.23% / 72.95%")
