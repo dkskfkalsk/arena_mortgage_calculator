@@ -271,8 +271,37 @@ class RegistryParser:
         return ""
     
     def _extract_floor_info(self) -> str:
-        """층수 정보 추출"""
-        # 건물 전체 층수 패턴 (다양한 형태)
+        """층수 정보 추출 (표제부 섹션에서 마지막 층수 추출)"""
+        # JavaScript 로직 참고: 【 표 제 부 】 섹션에서 층수+면적 패턴 찾기
+        # 패턴: (\d+)층\s+\d+(\.\d+)?㎡ 형태에서 마지막 층수 추출
+        
+        # 표제부 섹션 찾기
+        table_section_pattern = r'【\s*표\s*제\s*부\s*】.*?(?=【|$)'
+        table_match = re.search(table_section_pattern, self.text, re.DOTALL | re.IGNORECASE)
+        
+        if table_match:
+            table_text = table_match.group(0)
+            # 층수와 면적이 함께 나오는 패턴 찾기: "15층 83.89㎡"
+            floor_area_pattern = r'(\d+)층\s+\d+(?:\.\d+)?\s*㎡'
+            matches = list(re.finditer(floor_area_pattern, table_text))
+            
+            if matches:
+                # 마지막 매치에서 층수 추출
+                last_match = matches[-1]
+                total_floor = last_match.group(1)
+                
+                # 해당 호수의 층 정보 찾기
+                unit_floor_pattern = r'제?(\d+)층.*?제?(\d+)호'
+                unit_match = re.search(unit_floor_pattern, self.text)
+                
+                if unit_match:
+                    floor = unit_match.group(1)
+                    unit = unit_match.group(2)
+                    return f"{total_floor}층 중 {floor}층 {unit}호"
+                else:
+                    return f"{total_floor}층"
+        
+        # 표제부에서 못 찾은 경우 기존 로직 사용
         total_floor_patterns = [
             r'지상\s*(\d+)층',  # 지상 18층
             r'(\d+)층\s*(?:아파트|연립|다세대|오피스텔|빌라|공동주택)',  # 18층 아파트
