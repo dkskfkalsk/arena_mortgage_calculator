@@ -41,6 +41,7 @@ def log_print(*args, **kwargs):
 logging.basicConfig(
     level=logging.DEBUG,
     format='[%(asctime)s] %(levelname)s - %(name)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
     handlers=[
         logging.StreamHandler(sys.stderr),
         logging.StreamHandler(sys.stdout)

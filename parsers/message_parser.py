@@ -193,10 +193,15 @@ class MessageParser:
             
             # 설정 내역 파싱 (근저당권) - 여러 줄을 합쳐서 파싱
             if current_section == "mortgages":
+                # LTV 비율 라인 필터링 (예: "81.23% / 72.95%")
+                is_ltv_percentage_line = re.match(r'^\s*\d+\.\d+%\s*/\s*\d+\.\d+%', line.strip()) is not None
+                if is_ltv_percentage_line:
+                    print(f"DEBUG: Skipping LTV percentage line: '{line}'")
                 # "1순위 : 전세입자" 또는 "1.기관명 금액(금액)" 형태의 줄 찾기
-                is_priority_line = ("순위" in line)
-                is_numeric_prefix_line = re.match(r'^\d+\s*[\.\)]', line) is not None
-                if is_priority_line or is_numeric_prefix_line:
+                elif "순위" in line or re.match(r'^\d+\s*[\.\)]', line) is not None:
+                    is_priority_line = ("순위" in line)
+                    is_numeric_prefix_line = re.match(r'^\d+\s*[\.\)]', line) is not None
+                    if is_priority_line or is_numeric_prefix_line:
                     # 현재 줄부터 다음 3줄까지 합쳐서 파싱 시도
                     combined_lines = line
                     for j in range(1, 4):
@@ -214,13 +219,18 @@ class MessageParser:
                         print(f"DEBUG: Parsed mortgage - combined_lines: '{combined_lines}', result: {mortgage}")
                 else:
                     # 섹션 없이 들어오는 근저당권 라인 처리
-                    is_priority_line = re.search(r'^\s*\d+\s*순위', line) is not None
-                    is_numeric_prefix_line = re.match(r'^\d+\s*[\.\)]', line) is not None
-                    if is_priority_line or is_numeric_prefix_line:
-                        mortgage = self._parse_mortgage_line(line)
-                        if mortgage:
-                            data["mortgages"].append(mortgage)
-                            print(f"DEBUG: Parsed mortgage (no section) - line: '{line}', result: {mortgage}")
+                    # LTV 비율 라인 필터링 (예: "81.23% / 72.95%")
+                    is_ltv_percentage_line = re.match(r'^\s*\d+\.\d+%\s*/\s*\d+\.\d+%', line.strip()) is not None
+                    if is_ltv_percentage_line:
+                        print(f"DEBUG: Skipping LTV percentage line (no section): '{line}'")
+                    else:
+                        is_priority_line = re.search(r'^\s*\d+\s*순위', line) is not None
+                        is_numeric_prefix_line = re.match(r'^\d+\s*[\.\)]', line) is not None
+                        if is_priority_line or is_numeric_prefix_line:
+                            mortgage = self._parse_mortgage_line(line)
+                            if mortgage:
+                                data["mortgages"].append(mortgage)
+                                print(f"DEBUG: Parsed mortgage (no section) - line: '{line}', result: {mortgage}")
             
             # 특이사항 파싱
             elif current_section == "special_notes":
