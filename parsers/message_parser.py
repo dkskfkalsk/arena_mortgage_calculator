@@ -69,8 +69,31 @@ class MessageParser:
                 i += 1
                 continue
             
+            # 라인 정규화 (불릿 제거, 전각 콜론 처리)
+            if line[0] in ["▣", "■", "●", "◆", "▶", "▷"]:
+                line = line[1:].strip()
+            line = line.replace("：", ":")
+            
+            # "이름 / 생년월일(YYMMDD)" 형식 처리
+            if data["name"] is None:
+                name_birth_match = re.match(r'^([가-힣A-Za-z]+)\s*/\s*(\d{6})$', line)
+                if name_birth_match:
+                    data["name"] = name_birth_match.group(1).strip()
+                    yymmdd = name_birth_match.group(2)
+                    # 가능한 경우 나이 계산
+                    try:
+                        from datetime import datetime
+                        current_year = datetime.now().year
+                        yy = int(yymmdd[:2])
+                        birth_year = 2000 + yy if yy <= (current_year % 100) else 1900 + yy
+                        data["age"] = current_year - birth_year
+                    except Exception:
+                        pass
+                    i += 1
+                    continue
+            
             # 섹션 구분 (키:값 파싱보다 먼저 체크)
-            if "설정내역" in line or "=========" in line:
+            if "설정내역" in line or "=========" in line or ("선순위" in line and "LTV" in line):
                 current_section = "mortgages"
                 i += 1
                 continue
@@ -97,7 +120,8 @@ class MessageParser:
                 key, value = self._parse_key_value(line)
                 if key and value:
                     # KB시세인 경우 특별 처리
-                    if "kb시세" in key.lower() or ("시세" in key and "kb" in line.lower()):
+                    line_compact = line.replace(" ", "").lower()
+                    if "kb시세" in key.lower() or ("시세" in key and "kb" in line_compact):
                         # 다음 줄이 있으면 추가 (하한, 상한 등) - 최대 2줄까지 확인
                         for j in range(1, 3):  # 다음 1-2줄 확인
                             if i + j < len(lines):
@@ -115,7 +139,7 @@ class MessageParser:
                         self._set_field(data, key, value)
                     else:
                         self._set_field(data, key, value)
-            elif "kb시세" in line.lower() and current_section != "mortgages":
+            elif "kb시세" in line.replace(" ", "").lower() and current_section != "mortgages":
                 # "KB시세"가 포함된 줄에서 직접 추출 (콜론이 없어도 처리)
                 # 예: "KB시세 일반 125,000만원" 또는 "KB시세: 일반 125,000만원"
                 kb_match = re.search(r'kb시세\s*:?\s*(.+)', line, re.IGNORECASE)
@@ -137,14 +161,17 @@ class MessageParser:
             
             # 설정 내역 파싱 (근저당권) - 여러 줄을 합쳐서 파싱
             if current_section == "mortgages":
-                # "1순위 : 전세입자" 형태의 줄 찾기
-                if "순위" in line and ":" in line:
+                # "1순위 : 전세입자" 또는 "1.기관명 금액(금액)" 형태의 줄 찾기
+                is_priority_line = ("순위" in line)
+                is_numeric_prefix_line = re.match(r'^\d+\s*[\.\)]', line) is not None
+                if is_priority_line or is_numeric_prefix_line:
                     # 현재 줄부터 다음 3줄까지 합쳐서 파싱 시도
                     combined_lines = line
                     for j in range(1, 4):
                         if i + j < len(lines):
                             next_line = lines[i + j].strip()
-                            if next_line and not any(kw in next_line for kw in ["순위", "특이사항", "요청사항", "==="]):
+                            is_next_mortgage = re.match(r'^\d+\s*[\.\)]', next_line) is not None
+                            if next_line and not any(kw in next_line for kw in ["순위", "특이사항", "요청사항", "==="]) and not is_next_mortgage and not next_line.startswith("총 합계"):
                                 combined_lines += " " + next_line
                             else:
                                 break
@@ -466,7 +493,7 @@ class MessageParser:
         elif "거주여부" in key_clean:
             data["residence"] = value
         
-        elif "소유현황" in key_clean:
+        elif "소유현황" in key_clean or "소유권" in key_clean:
             data["ownership"] = value
         
         elif "주소" in key_clean:  # 공백 제거된 키로 비교
@@ -490,14 +517,19 @@ class MessageParser:
             if match:
                 data["household_count"] = int(match.group(1))
         
-        elif "총층수" in key_clean:
+        elif "총층수" in key_clean or "층수" in key_clean:
             # 총층수에서 숫자 추출 (예: "10층")
-            match = re.search(r"(\d+)", value)
+            match = re.search(r"(\d+)\s*층\s*중\s*(\d+)\s*층", value)
             if match:
                 data["total_floors"] = int(match.group(1))
-                print(f"DEBUG: Parsed total_floors from key - {match.group(1)}층")
+                print(f"DEBUG: Parsed total_floors from key (중): {match.group(1)}층")
+            else:
+                match = re.search(r"(\d+)", value)
+                if match:
+                    data["total_floors"] = int(match.group(1))
+                    print(f"DEBUG: Parsed total_floors from key - {match.group(1)}층")
         
-        elif "구분" in key_clean:
+        elif "구분" in key_clean or "유형" in key_clean:
             data["property_type"] = value
         
         elif "kb시세" in key_clean or "시세" in key_clean:
@@ -508,8 +540,10 @@ class MessageParser:
     
     def _parse_mortgage_line(self, line: str) -> Optional[Dict[str, Any]]:
         """근저당권 설정 내역 라인 파싱"""
-        # 순위 추출
+        # 순위 추출 ("1순위" 또는 "1.기관명" 형식)
         priority_match = re.search(r"(\d+)순위", line)
+        if not priority_match:
+            priority_match = re.search(r'^\s*(\d+)\s*[\.\)]', line)
         if not priority_match:
             return None
         
@@ -523,7 +557,7 @@ class MessageParser:
         amount = None  # 원금
         
         # 괄호 안의 금액 (원금) 추출
-        amount_match = re.search(r"\(([\d,]+)\)", line)
+        amount_match = re.search(r"\(([\d,]+)\s*만?\)", line)
         if amount_match:
             amount_str = amount_match.group(1)
             amount = parse_amount(amount_str)
@@ -532,7 +566,7 @@ class MessageParser:
         # 괄호 밖의 금액 (채권최고액) 추출
         # "44,200 (34,000)만원" 형식에서 괄호 앞의 숫자 추출
         # 패턴: 1~3자리 숫자로 시작하고, 쉼표와 3자리 숫자가 반복되는 형식 (예: "2,900", "31,700", "6,000")
-        max_amount_match = re.search(r"(\d{1,3}(?:,\d{3})*)\s*\([\d,]+\)", line)
+        max_amount_match = re.search(r"(\d{1,3}(?:,\d{3})*)\s*만?\s*\([\d,]+\s*만?\)", line)
         if max_amount_match:
             max_amount_str = max_amount_match.group(1)
             max_amount = parse_amount(max_amount_str)
@@ -562,7 +596,13 @@ class MessageParser:
         if institution_match:
             institution = institution_match.group(1).strip()
         else:
-            institution = None
+            # 숫자 앞 부분을 기관명으로 추정 (예: "1.주식회사하나은행 22,000만(20,000만)")
+            trimmed_line = re.sub(r'^\s*\d+\s*(?:순위|[\.\)])\s*', '', line)
+            first_amount_match = re.search(r'\d{1,3}(?:,\d{3})*\s*만?', trimmed_line)
+            if first_amount_match:
+                institution = trimmed_line[:first_amount_match.start()].strip()
+            else:
+                institution = None
         
         print(f"DEBUG: _parse_mortgage_line - institution: {institution}, amount(원금): {amount}, max_amount(채권최고액): {max_amount}")
         
@@ -587,7 +627,8 @@ class MessageParser:
         # KB시세가 포함된 줄 찾기
         for i, line in enumerate(lines):
             line_lower = line.lower()
-            if 'kb시세' in line_lower or ('kb' in line_lower and '시세' in line_lower):
+            line_compact = line_lower.replace(" ", "")
+            if 'kb시세' in line_compact or ('kb' in line_compact and '시세' in line_compact):
                 print(f"DEBUG: Found KB시세 line: {line}")
                 # KB시세 줄에서 값 추출
                 # "KB시세 : 일반 125,000만원" 형식

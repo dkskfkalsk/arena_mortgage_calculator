@@ -674,38 +674,50 @@ def get_application():
                 logger.info("handle_message - No text in message")
                 return
             
-            # 특정 양식이 있는 메시지만 처리
-            # '성   명' 또는 '성명', '직   업' 또는 '직업', '거주여부' 모두 포함되어야 함
-            required_keywords = [
-                ['성   명', '성명'],  # 둘 중 하나만 있으면 됨
-                ['직   업', '직업'],  # 둘 중 하나만 있으면 됨
-                ['거주여부']  # 정확히 일치해야 함
-            ]
-            
-            # 각 키워드 그룹에서 최소 하나는 포함되어야 함
-            has_all_keywords = True
-            for keyword_group in required_keywords:
-                found = False
-                for keyword in keyword_group:
-                    if keyword in message_text:
-                        found = True
-                        break
-                if not found:
-                    has_all_keywords = False
-                    break
-            
-            if not has_all_keywords:
-                print(f"[WEBHOOK] Message does not contain required format, ignoring", file=sys.stderr, flush=True)
-                logger.info("handle_message - Message does not contain required format (성명, 직업, 거주여부)")
-                # 양식이 없는 메시지는 무시 (회신하지 않음)
-                return
-            
             try:
                 print(f"[WEBHOOK] Parsing message text...", file=sys.stderr, flush=True)
                 parser = MessageParser()
                 property_data = parser.parse(message_text)
                 print(f"[WEBHOOK] Parsed - kb_price: {property_data.get('kb_price')}", file=sys.stderr, flush=True)
                 logger.info(f"handle_message - property_data parsed: kb_price={property_data.get('kb_price')}")
+                
+                # 파싱된 데이터가 의미 없는 경우 무시
+                has_meaningful_data = any([
+                    property_data.get("kb_price") is not None,
+                    property_data.get("address"),
+                    property_data.get("property_type"),
+                    bool(property_data.get("mortgages"))
+                ])
+                if not has_meaningful_data:
+                    print(f"[WEBHOOK] Parsed data not meaningful, ignoring", file=sys.stderr, flush=True)
+                    logger.info("handle_message - Parsed data not meaningful")
+                    return
+                
+                # 필수/추가 정보 누락 체크
+                missing_required = []
+                missing_optional = []
+                
+                if not property_data.get("kb_price"):
+                    missing_required.append("KB시세")
+                if not property_data.get("address") or not property_data.get("region"):
+                    missing_required.append("주소(시/구 포함)")
+                
+                if not property_data.get("mortgages"):
+                    missing_optional.append("선순위 근저당권 설정내역(기관명, 채권최고액/원금)")
+                if not property_data.get("property_type"):
+                    missing_optional.append("물건 유형(아파트/빌라/오피스텔 등)")
+                
+                if missing_required:
+                    lines = ["한도 산출을 위해 아래 정보가 필요합니다."]
+                    for item in missing_required:
+                        lines.append(f"- {item}")
+                    if missing_optional:
+                        lines.append("")
+                        lines.append("추가로 있으면 함께 보내주세요:")
+                        lines.append("- " + ", ".join(missing_optional))
+                    await message.reply_text("\n".join(lines))
+                    logger.info("handle_message - Missing required data, reply sent")
+                    return
                 
                 print(f"[WEBHOOK] Calculating results for chat_type: {chat_type}...", file=sys.stderr, flush=True)
                 # 채팅방 타입에 따라 다른 계산 함수 호출
@@ -717,6 +729,12 @@ def get_application():
                 logger.info(f"handle_message - results count: {len(results) if results else 0}")
                 
                 formatted_result = format_all_results(results, property_data)
+                
+                if missing_optional:
+                    formatted_result += (
+                        "\n\n추가 정보가 있으면 반영해 드릴게요:\n- "
+                        + ", ".join(missing_optional)
+                    )
                 print("[WEBHOOK] Sending reply message...", file=sys.stderr, flush=True)
                 await message.reply_text(formatted_result)
                 print("[WEBHOOK] Message sent successfully!", file=sys.stderr, flush=True)

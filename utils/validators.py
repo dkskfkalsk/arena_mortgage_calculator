@@ -30,10 +30,16 @@ def validate_kb_price(kb_price):
         numbers = re.findall(r'[\d,]+', price_str_clean)
         if numbers:
             # 가장 큰 숫자 사용 (일반 가격이 보통 더 큼)
-            # 또는 첫 번째 숫자 사용
-            price_str_num = numbers[0].replace(",", "").strip()
-            if price_str_num and len(price_str_num) >= 3:  # 최소 3자리 숫자
-                price = float(price_str_num)
+            number_values = []
+            for num in numbers:
+                num_clean = num.replace(",", "").strip()
+                if num_clean and len(num_clean) >= 3:
+                    try:
+                        number_values.append(float(num_clean))
+                    except ValueError:
+                        continue
+            if number_values:
+                price = max(number_values)
                 print(f"DEBUG: validate_kb_price - extracted price (method 1): {price}")
                 return price
         
@@ -112,7 +118,7 @@ def extract_lower_bound_price(kb_price):
         price_str = str(kb_price).strip()
         
         # "하한" 키워드가 포함된 부분 찾기
-        lower_match = re.search(r'하한\s*[:\s]*([\d,]+)', price_str, re.IGNORECASE)
+        lower_match = re.search(r'(?:하한|하)\s*[:\s]*([\d,]+)', price_str, re.IGNORECASE)
         if lower_match:
             price_str_num = lower_match.group(1).replace(",", "").strip()
             if price_str_num and len(price_str_num) >= 3:
