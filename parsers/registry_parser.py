@@ -431,18 +431,30 @@ class RegistryParser:
         active_mortgages = []
         for m in mortgages:
             # 해당 순위번호의 근저당권말소 여부 확인
-            # PDF 텍스트 예시: "1번근저당권설정등 2011년9월19일 2011년9월19일\n기말소 제60200호 해지"
-            # "1번근저당권설정등" 뒤에 날짜가 오고 다음 줄에 "기말소"가 옴
+            # PDF 텍스트 예시: 
+            # - "1번근저당권설정등 2011년9월19일 2011년9월19일\n기말소 제60200호 해지"
+            # - "1번근저당권설정, 2번근저당권설정등기말소"
+            # - "1번근저당권설정등기말소"
+            # - "1번근저당권설정\n등기말소"
+            rank_num = m.순위번호
             cancel_patterns = [
-                rf'{m.순위번호}번근저당권설정등기말소',  # 한 줄로 된 경우
-                rf'{m.순위번호}번근저당권설정등.*?\n기말소',  # 줄바꿈으로 분리된 경우
-                rf'{m.순위번호}번\s*근저당권\s*말소',
-                rf'{m.순위번호}번\s*근저당권설정등\s*기말소',
+                # 기본 패턴들
+                rf'{rank_num}번\s*근저당권\s*설정\s*등\s*기\s*말\s*소',  # 한 줄로 된 경우
+                rf'{rank_num}번\s*근저당권\s*설정\s*등.*?\n\s*기\s*말\s*소',  # 줄바꿈으로 분리된 경우
+                rf'{rank_num}번\s*근저당권\s*말\s*소',  # 간단한 형태
+                rf'{rank_num}번\s*근저당권\s*설정.*?말\s*소',  # 설정 뒤 말소
+                rf'{rank_num}번\s*근저당권\s*설정\s*등\s*기.*?말\s*소',  # 설정등기 뒤 말소
+                # 여러 순위가 함께 말소되는 경우: "1번근저당권설정, 2번근저당권설정등기말소"
+                rf'{rank_num}번\s*근저당권\s*설정[,\s]*.*?등\s*기\s*말\s*소',
+                # 순위번호가 나열된 후 말소: "1번, 2번근저당권설정등기말소"
+                rf'{rank_num}번[,\s]*.*?근저당권\s*설정\s*등\s*기\s*말\s*소',
+                # 더 포괄적인 패턴
+                rf'{rank_num}번.*?근저당권.*?말\s*소',
             ]
             
             is_cancelled = False
             for pattern in cancel_patterns:
-                if re.search(pattern, self.text, re.DOTALL):
+                if re.search(pattern, self.text, re.DOTALL | re.IGNORECASE):
                     is_cancelled = True
                     break
             
@@ -571,8 +583,16 @@ class RegistryParser:
             special_conditions.append("전매제한")
         
         # 금지사항 (소유권 제한) - 줄바꿈 허용
+        # 단, 신탁등기가 말소된 경우는 제외 (소유권 이전으로 해소된 경우)
         if re.search(r'금지\s*사항.*?소유권.*?제한', self.text, re.DOTALL):
-            special_conditions.append("소유권제한")
+            # 신탁등기 말소 여부 확인
+            trust_cancelled = re.search(r'신탁\s*등\s*기\s*말\s*소', self.text, re.DOTALL | re.IGNORECASE)
+            # 소유권 이전으로 해소된 경우 확인
+            ownership_transfer_after = re.search(r'소유권\s*이전.*?신탁\s*등\s*기\s*말\s*소|신탁\s*등\s*기\s*말\s*소.*?소유권\s*이전', self.text, re.DOTALL | re.IGNORECASE)
+            
+            # 신탁등기가 말소되고 소유권 이전이 있으면 소유권 제한으로 표시하지 않음
+            if not (trust_cancelled and ownership_transfer_after):
+                special_conditions.append("소유권제한")
         
         return ", ".join(special_conditions) if special_conditions else ""
     
