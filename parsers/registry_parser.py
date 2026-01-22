@@ -272,10 +272,20 @@ class RegistryParser:
     
     def _extract_floor_info(self) -> str:
         """층수 정보 추출"""
-        # 패턴: 15층 아파트, 제2층 제203호 등
-        # 건물 전체 층수
-        total_floor_pattern = r'(\d+)층\s*(?:아파트|연립|다세대|오피스텔|빌라)'
-        total_match = re.search(total_floor_pattern, self.text)
+        # 건물 전체 층수 패턴 (다양한 형태)
+        total_floor_patterns = [
+            r'지상\s*(\d+)층',  # 지상 18층
+            r'(\d+)층\s*(?:아파트|연립|다세대|오피스텔|빌라|공동주택)',  # 18층 아파트
+            r'총\s*(\d+)층',  # 총 18층
+            r'(\d+)층\s*건물',  # 18층 건물
+            r'지하\s*\d+층\s*지상\s*(\d+)층',  # 지하 3층 지상 18층
+        ]
+        
+        total_match = None
+        for pattern in total_floor_patterns:
+            total_match = re.search(pattern, self.text, re.IGNORECASE)
+            if total_match:
+                break
         
         # 해당 호수의 층
         unit_floor_pattern = r'제?(\d+)층.*?제?(\d+)호'
@@ -290,6 +300,10 @@ class RegistryParser:
             floor = unit_match.group(1)
             unit = unit_match.group(2)
             return f"{floor}층 {unit}호"
+        elif total_match:
+            # 총층수만 있는 경우
+            total = total_match.group(1)
+            return f"{total}층"
         
         return ""
     

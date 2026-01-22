@@ -526,13 +526,13 @@ def get_application():
             total_floor = ""
             unit_info = ""
             if floor_info:
-                # "15층 중 2층 203호" 또는 "17층 1802호" 형태에서 파싱
+                # "15층 중 2층 203호" 또는 "17층 1802호" 또는 "18층" 형태에서 파싱
                 # 총층수: 첫번째 숫자+층
                 floor_match = re.search(r'(\d+)층\s*중', floor_info)
                 if floor_match:
                     total_floor = f"{floor_match.group(1)}층"
                 else:
-                    # "17층 1802호" 형태에서 17층 추출
+                    # "17층 1802호" 또는 "18층" 형태에서 첫 번째 숫자+층 추출
                     floor_match = re.search(r'^(\d+)층', floor_info)
                     if floor_match:
                         total_floor = f"{floor_match.group(1)}층"
