@@ -25,6 +25,15 @@ def validate_kb_price(kb_price):
         # 여러 공백을 하나로
         price_str_clean = re.sub(r'\s+', ' ', price_str_clean)
         
+        # "억" 단위 처리 (먼저 처리)
+        # "20억" -> 200,000만원으로 변환
+        eok_match = re.search(r'([\d,]+)\s*억', price_str_clean, re.IGNORECASE)
+        if eok_match:
+            eok_value = float(eok_match.group(1).replace(',', ''))
+            price = eok_value * 10000  # 1억 = 10,000만원
+            print(f"DEBUG: validate_kb_price - extracted price from 억: {price}만원")
+            return price
+        
         # 숫자만 추출 (만원 단위)
         # 방법 1: 정규식으로 숫자 추출 (쉼표 포함) - 첫 번째 큰 숫자 사용
         numbers = re.findall(r'[\d,]+', price_str_clean)

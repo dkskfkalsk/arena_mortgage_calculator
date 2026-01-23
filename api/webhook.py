@@ -382,27 +382,43 @@ def get_application():
                     info['property_type'] = prop_type
                     break
             
-            # KB시세 추출 (일반가 7000만, kb시세 7000, 시세 7000만원 등)
+            # KB시세 추출 (일반가 7000만, kb시세 7000, 시세 7000만원, 20억 등)
             kb_patterns = [
-                r'(?:kb\s*)?(?:시세|일반\s*가?)\s*[:：]?\s*(\d+(?:,\d+)?)\s*만?\s*(?:원)?',
-                r'(\d+(?:,\d+)?)\s*만\s*원?\s*(?:시세|일반)',
+                r'(?:kb\s*)?(?:시세|일반\s*가?)\s*[:：]?\s*(\d+(?:,\d+)?)\s*억',  # KB시세 20억
+                r'(?:kb\s*)?(?:시세|일반\s*가?)\s*[:：]?\s*(\d+(?:,\d+)?)\s*만?\s*(?:원)?',  # KB시세 7000만
+                r'(\d+(?:,\d+)?)\s*만\s*원?\s*(?:시세|일반)',  # 7000만 시세
             ]
             for pattern in kb_patterns:
                 match = re.search(pattern, caption, re.IGNORECASE)
                 if match:
                     price = match.group(1).replace(',', '')
-                    info['kb_price'] = f"{int(price):,}"
+                    # "억" 단위인지 확인
+                    pattern_text = caption[match.start():match.end()]
+                    if "억" in pattern_text:
+                        # 억 단위를 만원으로 변환 (1억 = 10,000만원)
+                        price_man = int(float(price) * 10000)
+                        info['kb_price'] = f"{price_man:,}"
+                    else:
+                        info['kb_price'] = f"{int(price):,}"
                     break
             
-            # KB시세 하한 추출 (하한 6500, 하한가 6500만, KB하한가 240,000만 등)
+            # KB시세 하한 추출 (하한 6500, 하한가 6500만, KB하한가 240,000만, 하한 20억 등)
             kb_low_patterns = [
-                r'(?:kb\s*)?하한\s*[가]?\s*[:：]?\s*(\d+(?:,\d+)?)\s*만?\s*(?:원)?',
+                r'(?:kb\s*)?하한\s*[가]?\s*[:：]?\s*(\d+(?:,\d+)?)\s*억',  # KB하한 20억
+                r'(?:kb\s*)?하한\s*[가]?\s*[:：]?\s*(\d+(?:,\d+)?)\s*만?\s*(?:원)?',  # KB하한 6500만
             ]
             for pattern in kb_low_patterns:
                 match = re.search(pattern, caption, re.IGNORECASE)
                 if match:
                     price = match.group(1).replace(',', '')
-                    info['kb_price_low'] = f"{int(price):,}"
+                    # "억" 단위인지 확인
+                    pattern_text = caption[match.start():match.end()]
+                    if "억" in pattern_text:
+                        # 억 단위를 만원으로 변환 (1억 = 10,000만원)
+                        price_man = int(float(price) * 10000)
+                        info['kb_price_low'] = f"{price_man:,}"
+                    else:
+                        info['kb_price_low'] = f"{int(price):,}"
                     break
             
             # 면적 추출 (전용 83.89, 83.89㎡ 등)
@@ -589,6 +605,8 @@ def get_application():
             
             if result.근저당권목록:
                 total_amount = 0
+                mortgage_amounts = []  # 각 근저당권의 만원 단위 금액 저장
+                
                 for i, m in enumerate(result.근저당권목록, 1):
                     # 금액을 만원 단위로 변환
                     amount_match = re.search(r'([\d,]+)\s*원', m.채권최고액)
@@ -596,9 +614,14 @@ def get_application():
                         amount_won = int(amount_match.group(1).replace(',', ''))
                         amount_man = amount_won // 10000  # 만원 단위
                         total_amount += amount_won
+                        mortgage_amounts.append(amount_man)
                         amount_str = f"{amount_man:,}만원"
                     else:
                         amount_str = m.채권최고액
+                        # 만원 단위 추출 시도
+                        man_match = re.search(r'([\d,]+)\s*만', amount_str)
+                        if man_match:
+                            mortgage_amounts.append(int(man_match.group(1).replace(',', '')))
                     
                     # 근저당권자 이름 간소화 (주식회사, 유한회사 등 제거)
                     creditor = m.근저당권자
@@ -614,6 +637,20 @@ def get_application():
                     else:
                         lines.append(f"{i}순위 : {creditor}")
                     lines.append(f"           {amount_str}")
+                
+                # KB시세 대비 채권최고액 비율 계산
+                if kb_price and mortgage_amounts:
+                    try:
+                        # KB시세 일반가를 만원 단위로 변환
+                        kb_price_man = int(kb_price.replace(',', ''))
+                        # 채권최고액 합계 계산 (만원 단위)
+                        total_mortgage_man = sum(mortgage_amounts)
+                        # 비율 계산
+                        if kb_price_man > 0:
+                            ratio = (total_mortgage_man / kb_price_man) * 100
+                            lines.append(f"{ratio:.2f}%")
+                    except (ValueError, ZeroDivisionError):
+                        pass
             else:
                 lines.append("설정된 근저당권 없음")
             

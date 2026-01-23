@@ -732,6 +732,8 @@ class MessageParser:
         
         # 패턴 매칭으로 재시도 (더 강력한 패턴)
         kb_patterns = [
+            r'kb시세\s*:?\s*일반\s*([\d,]+)\s*억',  # KB시세 : 일반 20억
+            r'kb시세\s*:?\s*([\d,]+)\s*억',  # KB시세 : 20억
             r'kb시세\s*:?\s*일반\s*([\d,]+)\s*만원',  # KB시세 : 일반 125,000만원
             r'kb시세\s*:?\s*([\d,]+)\s*만원',  # KB시세 : 125,000만원
             r'kb시세\s*:?\s*일반\s*([\d,]+)',  # KB시세 : 일반 125,000
@@ -745,6 +747,20 @@ class MessageParser:
             if match:
                 price_str = match.group(1).replace(",", "").strip()
                 if price_str:
+                    # "억" 단위인지 확인
+                    pattern_text = text[match.start():match.end()]
+                    if "억" in pattern_text:
+                        # "억" 단위를 만원으로 변환하여 반환
+                        try:
+                            eok_value = float(price_str)
+                            man_value = int(eok_value * 10000)
+                            # 원래 형식 유지하면서 만원 단위로 변환
+                            kb_value = f"일반 {man_value:,}만원"
+                            print(f"DEBUG: KB price from pattern matching (억->만원): {kb_value}")
+                            return kb_value
+                        except ValueError:
+                            pass
+                    
                     # 전체 컨텍스트를 찾아서 반환
                     kb_context = re.search(r'kb시세[^:]*:?\s*(.+?)(?=\n|$)', text, re.IGNORECASE | re.MULTILINE | re.DOTALL)
                     if kb_context:
