@@ -527,6 +527,14 @@ class KBPriceAPI:
         # 3. 단지 선택 (단지명이 있으면 우선 매칭)
         logger.debug("3단계: 단지 선택")
         selected_complex = None
+        
+        # 주소에서 번지수 추출 (예: "1180-1", "1180")
+        lot_number = None
+        lot_match = re.search(r'(\d+(?:-\d+)?)', address)
+        if lot_match:
+            lot_number = lot_match.group(1)
+            logger.debug(f"   주소에서 번지수 추출: {lot_number}")
+        
         if complex_name:
             logger.debug(f"   단지명으로 매칭 시도: {complex_name}")
             # 단지명 매칭 우선순위: 정확 매칭 > 부분 매칭 (앞부분) > 부분 매칭 (뒷부분)
@@ -535,7 +543,8 @@ class KBPriceAPI:
             
             for i, complex in enumerate(complexes):
                 complex_name_from_api = complex.get("단지명") or complex.get("name", "")
-                logger.debug(f"   [{i+1}] {complex_name_from_api}")
+                complex_address_from_api = complex.get("주소", "")
+                logger.debug(f"   [{i+1}] {complex_name_from_api} (주소: {complex_address_from_api})")
                 
                 # 정확 매칭
                 if complex_name == complex_name_from_api:
@@ -545,16 +554,28 @@ class KBPriceAPI:
                     break
                 
                 # 부분 매칭 점수 계산 (더 긴 매칭이 우선)
+                # 예: "미리내마을" in "미리내마을(롯데2)" -> True
+                score = 0
                 if complex_name in complex_name_from_api:
-                    score = len(complex_name) / len(complex_name_from_api)
-                    if score > best_score:
-                        best_score = score
-                        best_match = complex
+                    # 매칭 비율 계산 (추출한 단지명이 API 단지명에 포함된 비율)
+                    score = len(complex_name) / len(complex_name_from_api.replace('(', '').replace(')', ''))
+                    # 괄호 안 내용이 있어도 매칭되면 점수 보정
+                    if '(' in complex_name_from_api:
+                        base_name = complex_name_from_api.split('(')[0]
+                        if complex_name == base_name or complex_name in base_name:
+                            score = 0.9  # 높은 점수 부여
                 elif complex_name_from_api in complex_name:
                     score = len(complex_name_from_api) / len(complex_name)
-                    if score > best_score:
-                        best_score = score
-                        best_match = complex
+                
+                # 번지수 매칭 보너스 (번지수가 일치하면 점수 증가)
+                if lot_number and lot_number in complex_address_from_api:
+                    score += 0.2  # 번지수 일치 시 보너스
+                    logger.debug(f"      번지수 일치 보너스: {lot_number}")
+                
+                if score > best_score:
+                    best_score = score
+                    best_match = complex
+                    logger.debug(f"      매칭 발견: {complex_name_from_api} (점수: {score:.2f})")
             
             # 부분 매칭 결과 사용
             if not selected_complex and best_match:
@@ -698,6 +719,7 @@ def get_kb_price_from_registry(address: str, area: str) -> Optional[Dict[str, An
         r'([가-힣]+단지)',  # "수원하늘채더퍼스트2단지"
         r'([가-힣]+아파트)',  # "대치아이파크아파트"
         r'([가-힣]+힐스|힐스테이트)',  # "힐스테이트중동"
+        r'([가-힣]+(?:아이파크|래미안|자이|힐스테이트|푸르지오|센트럴|팰리스|월드|뉴|더|디|엘|리|그린|보람|연화|은하|중흥|한라|포도|무지개|꿈|덕유|설악|복사골|금강|동원|대신|범양|영안|현대|형진|풍남))',  # 주요 단지명 키워드
     ]
     
     for pattern in complex_patterns:
@@ -706,6 +728,19 @@ def get_kb_price_from_registry(address: str, area: str) -> Optional[Dict[str, An
             complex_name = match.group(1)
             logger.info(f"✅ 주소에서 단지명 추출: {complex_name}")
             break
+    
+    # 단지명이 없으면 주소에서 번지수 앞의 단어를 단지명으로 추출 시도
+    # 예: "중동 1180-1 미리내마을" -> "미리내마을"
+    if not complex_name:
+        # 번지수 패턴: 숫자-숫자 또는 숫자만
+        lot_pattern = r'(\d+(?:-\d+)?)\s+([가-힣]+(?:마을|단지|아파트)?)'
+        match = re.search(lot_pattern, address)
+        if match:
+            potential_name = match.group(2)
+            # 너무 짧거나 일반적인 단어는 제외
+            if len(potential_name) >= 2 and potential_name not in ['동', '구', '시', '군', '읍', '면']:
+                complex_name = potential_name
+                logger.info(f"✅ 주소에서 단지명 추출 (번지수 기준): {complex_name}")
     
     # KB 시세 조회
     api = KBPriceAPI()
