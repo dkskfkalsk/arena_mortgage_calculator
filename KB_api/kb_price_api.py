@@ -529,14 +529,39 @@ class KBPriceAPI:
         selected_complex = None
         if complex_name:
             logger.debug(f"   단지명으로 매칭 시도: {complex_name}")
+            # 단지명 매칭 우선순위: 정확 매칭 > 부분 매칭 (앞부분) > 부분 매칭 (뒷부분)
+            best_match = None
+            best_score = 0
+            
             for i, complex in enumerate(complexes):
                 complex_name_from_api = complex.get("단지명") or complex.get("name", "")
                 logger.debug(f"   [{i+1}] {complex_name_from_api}")
-                if complex_name in complex_name_from_api or complex_name_from_api in complex_name:
+                
+                # 정확 매칭
+                if complex_name == complex_name_from_api:
                     selected_complex = complex
-                    logger.info(f"✅ 단지명으로 매칭: {complex_name_from_api}")
-                    print(f"✅ 단지명으로 매칭: {complex_name_from_api}")
+                    logger.info(f"✅ 단지명 정확 매칭: {complex_name_from_api}")
+                    print(f"✅ 단지명 정확 매칭: {complex_name_from_api}")
                     break
+                
+                # 부분 매칭 점수 계산 (더 긴 매칭이 우선)
+                if complex_name in complex_name_from_api:
+                    score = len(complex_name) / len(complex_name_from_api)
+                    if score > best_score:
+                        best_score = score
+                        best_match = complex
+                elif complex_name_from_api in complex_name:
+                    score = len(complex_name_from_api) / len(complex_name)
+                    if score > best_score:
+                        best_score = score
+                        best_match = complex
+            
+            # 부분 매칭 결과 사용
+            if not selected_complex and best_match:
+                selected_complex = best_match
+                complex_name_from_api = selected_complex.get('단지명', '알 수 없음')
+                logger.info(f"✅ 단지명 부분 매칭: {complex_name_from_api} (점수: {best_score:.2f})")
+                print(f"✅ 단지명 부분 매칭: {complex_name_from_api}")
         
         # 단지명 매칭 실패 시 첫 번째 단지 사용
         if not selected_complex:
@@ -561,6 +586,7 @@ class KBPriceAPI:
         
         # 5. 면적에 맞는 시세 찾기
         logger.debug(f"5단계: 면적 매칭 (목표 면적: {area}m²)")
+        logger.info(f"   사용 가능한 시세 면적: {[p.get('공급면적', 'N/A') for p in prices[:10]]}")
         matched_price = self.find_matching_price(prices, area)
         # find_matching_price에서 이미 가장 가까운 면적을 찾아서 반환하므로
         # 여기서는 None인 경우만 처리
@@ -568,7 +594,8 @@ class KBPriceAPI:
             logger.error(f"❌ 면적 {area}m²에 맞는 시세를 찾을 수 없음")
             print(f"❌ 면적 {area}m²에 맞는 시세를 찾을 수 없음")
             if prices:
-                logger.warning(f"⚠️ 사용 가능한 면적: {[p.get('공급면적', 'N/A') for p in prices[:5]]}")
+                logger.warning(f"⚠️ 사용 가능한 면적: {[p.get('공급면적', 'N/A') for p in prices[:10]]}")
+                print(f"⚠️ 사용 가능한 면적: {[p.get('공급면적', 'N/A') for p in prices[:10]]}")
         
         # 6. 결과 구성
         logger.debug("6단계: 결과 구성")
@@ -662,6 +689,24 @@ def get_kb_price_from_registry(address: str, area: str) -> Optional[Dict[str, An
         print(f"⚠️ 면적 변환 실패: {area}")
         return None
     
+    # 주소에서 단지명 추출 (예: "미리내마을", "수원하늘채더퍼스트2단지")
+    # 패턴: 주소 중간에 있는 단지명 패턴 찾기
+    complex_name = None
+    # "미리내마을", "수원하늘채더퍼스트2단지" 같은 패턴 찾기
+    complex_patterns = [
+        r'([가-힣]+마을)',  # "미리내마을", "꿈마을"
+        r'([가-힣]+단지)',  # "수원하늘채더퍼스트2단지"
+        r'([가-힣]+아파트)',  # "대치아이파크아파트"
+        r'([가-힣]+힐스|힐스테이트)',  # "힐스테이트중동"
+    ]
+    
+    for pattern in complex_patterns:
+        match = re.search(pattern, address)
+        if match:
+            complex_name = match.group(1)
+            logger.info(f"✅ 주소에서 단지명 추출: {complex_name}")
+            break
+    
     # KB 시세 조회
     api = KBPriceAPI()
-    return api.get_kb_price(address, area_float)
+    return api.get_kb_price(address, area_float, complex_name=complex_name)
