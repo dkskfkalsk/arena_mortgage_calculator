@@ -263,6 +263,112 @@ def get_application():
                 
                 await message.reply_text(f"❌ PDF 분석 중 오류가 발생했습니다.\n\n오류: {str(e)}")
 
+        def parse_complex_amount(text):
+            """복합 금액 파싱 (억+천만/만원 조합, 원 단위 등)
+            
+            예시:
+            - "1억5천만원" → 15000 (만원 단위)
+            - "1억2620만" → 12620 (만원 단위)
+            - "10억300만원" → 100300 (만원 단위)
+            - "510,000,000원" → 51000 (만원 단위, 원을 만원으로 변환)
+            - "60750" → 60750 (만원 단위로 가정)
+            """
+            import re
+            
+            if not text:
+                return None
+            
+            # 쉼표 제거
+            text_clean = text.replace(',', '').replace('，', '')
+            
+            total_man = 0  # 만원 단위 합계
+            
+            # 공백 제거한 버전도 함께 확인
+            text_no_space = text_clean.replace(' ', '').replace('　', '')
+            
+            # 패턴 1: "1억5천만원" 또는 "1억 5천만" (억 + 천만)
+            pattern1 = r'(\d+)\s*억\s*(\d+)\s*천\s*만\s*원?'
+            match1 = re.search(pattern1, text_clean)
+            if not match1:
+                # 공백 없는 버전 시도
+                pattern1_no_space = r'(\d+)억(\d+)천만원?'
+                match1 = re.search(pattern1_no_space, text_no_space)
+            if match1:
+                eok = int(match1.group(1))  # 억 단위
+                cheon_man = int(match1.group(2))  # 천만 단위
+                total_man = eok * 10000 + cheon_man * 1000
+                return total_man
+            
+            # 패턴 2: "1억2620만" 또는 "1억 2620만원" (억 + 만)
+            pattern2 = r'(\d+)\s*억\s*(\d+)\s*만\s*원?'
+            match2 = re.search(pattern2, text_clean)
+            if not match2:
+                # 공백 없는 버전 시도
+                pattern2_no_space = r'(\d+)억(\d+)만원?'
+                match2 = re.search(pattern2_no_space, text_no_space)
+            if match2:
+                eok = int(match2.group(1))  # 억 단위
+                man = int(match2.group(2))  # 만 단위
+                total_man = eok * 10000 + man
+                return total_man
+            
+            # 패턴 3: "1억5000원" (억 + 원, 원을 만원으로 변환)
+            pattern3 = r'(\d+)\s*억\s*(\d+)\s*원'
+            match3 = re.search(pattern3, text_clean)
+            if match3:
+                eok = int(match3.group(1))  # 억 단위
+                won = int(match3.group(2))  # 원 단위
+                total_man = eok * 10000 + won // 10000
+                return total_man
+            
+            # 패턴 4: "20억" (억만)
+            pattern4 = r'(\d+)\s*억\s*원?'
+            match4 = re.search(pattern4, text_clean)
+            if match4:
+                eok = int(match4.group(1))
+                total_man = eok * 10000
+                return total_man
+            
+            # 패턴 5: "5천만원" 또는 "5천만" (천만만)
+            pattern5 = r'(\d+)\s*천\s*만\s*원?'
+            match5 = re.search(pattern5, text_clean)
+            if match5:
+                cheon_man = int(match5.group(1))
+                total_man = cheon_man * 1000
+                return total_man
+            
+            # 패턴 6: "7000만원" 또는 "7000만" (만만)
+            pattern6 = r'(\d+)\s*만\s*원?'
+            match6 = re.search(pattern6, text_clean)
+            if match6:
+                man = int(match6.group(1))
+                total_man = man
+                return total_man
+            
+            # 패턴 7: "510,000,000원" 또는 "510000000원" (원 단위를 만원으로 변환)
+            pattern7 = r'(\d+)\s*원'
+            match7 = re.search(pattern7, text_clean)
+            if match7:
+                won = int(match7.group(1))
+                total_man = won // 10000
+                return total_man
+            
+            # 패턴 8: 숫자만 있는 경우 (만원 단위로 가정, 예: "60750")
+            pattern8 = r'^(\d+)$'
+            match8 = re.search(pattern8, text_clean)
+            if match8:
+                num = int(match8.group(1))
+                # 10000 이상이면 만원 단위로 가정, 아니면 그대로
+                if num >= 10000:
+                    total_man = num
+                    return total_man
+                else:
+                    # 작은 숫자는 만원 단위로 해석 (예: 60750 → 60750만원)
+                    total_man = num
+                    return total_man
+            
+            return None
+        
         def parse_caption_info(caption):
             """캡션에서 고객 정보 추출"""
             import re
@@ -383,44 +489,75 @@ def get_application():
                     info['property_type'] = prop_type
                     break
             
-            # KB시세 추출 (일반가 7000만, kb시세 7000, 시세 7000만원, 20억 등)
+            # KB시세 추출 (우선순위: KB시세 > 부동산테크시세 > 하우스머치 중위시세)
+            # 1. KB시세 추출
+            kb_price_found = False
+            
+            # 패턴 1: "KB시세 일반가 1억5천만원" 또는 "kb시세 1억5천만원"
             kb_patterns = [
-                r'(?:kb\s*)?(?:시세|일반\s*가?)\s*[:：]?\s*(\d+(?:,\d+)?)\s*억',  # KB시세 20억
-                r'(?:kb\s*)?(?:시세|일반\s*가?)\s*[:：]?\s*(\d+(?:,\d+)?)\s*만?\s*(?:원)?',  # KB시세 7000만
-                r'(\d+(?:,\d+)?)\s*만\s*원?\s*(?:시세|일반)',  # 7000만 시세
+                r'(?:kb\s*)?(?:시세|일반\s*가?)\s*[:：]?\s*([\d,\s억천만원]+)',  # 복합 단위 포함
+                r'kb시세\s*[:：]?\s*([\d,]+)',  # "kb시세 60750" 또는 "KB시세 510,000,000"
             ]
             for pattern in kb_patterns:
                 match = re.search(pattern, caption, re.IGNORECASE)
                 if match:
-                    price = match.group(1).replace(',', '')
-                    # "억" 단위인지 확인
-                    pattern_text = caption[match.start():match.end()]
-                    if "억" in pattern_text:
-                        # 억 단위를 만원으로 변환 (1억 = 10,000만원)
-                        price_man = int(float(price) * 10000)
+                    price_text = match.group(1).strip()
+                    price_man = parse_complex_amount(price_text)
+                    if price_man:
                         info['kb_price'] = f"{price_man:,}"
-                    else:
-                        info['kb_price'] = f"{int(price):,}"
-                    break
+                        kb_price_found = True
+                        break
             
-            # KB시세 하한 추출 (하한 6500, 하한가 6500만, KB하한가 240,000만, 하한 20억 등)
+            # 2. 부동산테크시세 추출 (KB시세가 없을 경우)
+            # "KBx 8400" 또는 "KB x 8400" 또는 "부동산테크 8400" 형식
+            if not kb_price_found:
+                tech_patterns = [
+                    r'(?:부동산\s*테크|kb\s*x|kbx)\s*[:：/]?\s*([\d,\s억천만원]+)',
+                    r'(?:부동산\s*테크|kb\s*x|kbx)\s*[:：/]?\s*([\d,]+)',
+                ]
+                for pattern in tech_patterns:
+                    match = re.search(pattern, caption, re.IGNORECASE)
+                    if match:
+                        price_text = match.group(1).strip()
+                        price_man = parse_complex_amount(price_text)
+                        if price_man:
+                            info['kb_price'] = f"{price_man:,}"
+                            kb_price_found = True
+                            break
+            
+            # 3. 하우스머치 중위시세 추출 (KB시세, 부동산테크시세가 없을 경우)
+            # "하머중위 8400" 또는 "하우스머치 중위 8400" 또는 "KBx / 하머중위 8400" 형식
+            if not kb_price_found:
+                hammer_patterns = [
+                    r'(?:하우스\s*머치\s*중위|하머\s*중위|하머중위)\s*[:：/]?\s*([\d,\s억천만원]+)',
+                    r'(?:하우스\s*머치\s*중위|하머\s*중위|하머중위)\s*[:：/]?\s*([\d,]+)',
+                    # "KBx / 하머중위 8400" 형식에서 하머중위 뒤의 숫자 추출
+                    r'(?:kb\s*x|kbx)\s*/\s*(?:하우스\s*머치\s*중위|하머\s*중위|하머중위)\s*([\d,\s억천만원]+)',
+                    r'(?:kb\s*x|kbx)\s*/\s*(?:하우스\s*머치\s*중위|하머\s*중위|하머중위)\s*([\d,]+)',
+                ]
+                for pattern in hammer_patterns:
+                    match = re.search(pattern, caption, re.IGNORECASE)
+                    if match:
+                        price_text = match.group(1).strip()
+                        price_man = parse_complex_amount(price_text)
+                        if price_man:
+                            info['kb_price'] = f"{price_man:,}"
+                            kb_price_found = True
+                            break
+            
+            # KB시세 하한 추출 (복합 단위 지원)
             kb_low_patterns = [
-                r'(?:kb\s*)?하한\s*[가]?\s*[:：]?\s*(\d+(?:,\d+)?)\s*억',  # KB하한 20억
-                r'(?:kb\s*)?하한\s*[가]?\s*[:：]?\s*(\d+(?:,\d+)?)\s*만?\s*(?:원)?',  # KB하한 6500만
+                r'(?:kb\s*)?하한\s*[가]?\s*[:：]?\s*([\d,\s억천만원]+)',  # KB하한 1억5천만원
+                r'(?:kb\s*)?하한\s*[가]?\s*[:：]?\s*([\d,]+)',  # KB하한 6500
             ]
             for pattern in kb_low_patterns:
                 match = re.search(pattern, caption, re.IGNORECASE)
                 if match:
-                    price = match.group(1).replace(',', '')
-                    # "억" 단위인지 확인
-                    pattern_text = caption[match.start():match.end()]
-                    if "억" in pattern_text:
-                        # 억 단위를 만원으로 변환 (1억 = 10,000만원)
-                        price_man = int(float(price) * 10000)
+                    price_text = match.group(1).strip()
+                    price_man = parse_complex_amount(price_text)
+                    if price_man:
                         info['kb_price_low'] = f"{price_man:,}"
-                    else:
-                        info['kb_price_low'] = f"{int(price):,}"
-                    break
+                        break
             
             # 면적 추출 (전용 83.89, 83.89㎡ 등)
             area_patterns = [
@@ -471,28 +608,20 @@ def get_application():
             
             info['request'] = ' / '.join(requests) if requests else ''
             
-            # 신탁 금액 추출 (신탁 금액, 신탁원금, 신탁대환)
+            # 신탁 금액 추출 (신탁 금액, 신탁원금, 신탁대환) - 복합 단위 지원
             trust_patterns = [
-                r'신탁\s*금액\s*[:：]?\s*(\d+(?:,\d+)?)\s*억',  # 신탁 금액 20억
-                r'신탁\s*금액\s*[:：]?\s*(\d+(?:,\d+)?)\s*만?\s*(?:원)?',  # 신탁 금액 7000만
-                r'신탁\s*원금\s*[:：]?\s*(\d+(?:,\d+)?)\s*억',  # 신탁원금 20억
-                r'신탁\s*원금\s*[:：]?\s*(\d+(?:,\d+)?)\s*만?\s*(?:원)?',  # 신탁원금 7000만
-                r'신탁\s*대환\s*[:：]?\s*(\d+(?:,\d+)?)\s*억',  # 신탁대환 20억
-                r'신탁\s*대환\s*[:：]?\s*(\d+(?:,\d+)?)\s*만?\s*(?:원)?',  # 신탁대환 7000만
+                r'신탁\s*금액\s*[:：]?\s*([\d,\s억천만원]+)',  # 신탁 금액 1억5천만원
+                r'신탁\s*원금\s*[:：]?\s*([\d,\s억천만원]+)',  # 신탁원금 1억5천만원
+                r'신탁\s*대환\s*[:：]?\s*([\d,\s억천만원]+)',  # 신탁대환 1억5천만원
             ]
             for pattern in trust_patterns:
                 match = re.search(pattern, caption, re.IGNORECASE)
                 if match:
-                    price = match.group(1).replace(',', '')
-                    # "억" 단위인지 확인
-                    pattern_text = caption[match.start():match.end()]
-                    if "억" in pattern_text:
-                        # 억 단위를 만원으로 변환 (1억 = 10,000만원)
-                        price_man = int(float(price) * 10000)
+                    price_text = match.group(1).strip()
+                    price_man = parse_complex_amount(price_text)
+                    if price_man:
                         info['trust_amount'] = f"{price_man:,}"
-                    else:
-                        info['trust_amount'] = f"{int(price):,}"
-                    break
+                        break
             
             return info
 
