@@ -309,8 +309,10 @@ class KBPriceAPI:
         
         Returns:
             {
-                "kb_price": 125000,  # 만원 단위
+                "kb_price": 125000,  # 일반 매매가 (만원 단위)
+                "kb_price_min": 120000,  # 하한 매매가 (만원 단위, 없으면 None)
                 "kb_price_raw": "125,000만원",
+                "kb_price_min_raw": "120,000만원",  # 하한 매매가 문자열 (없으면 None)
                 "complex_name": "대치아이파크",
                 "area": 84.93,
                 "pyeong": 25.7,
@@ -348,16 +350,14 @@ class KBPriceAPI:
             selected_complex = complexes[0]
             print(f"⚠️ 단지명 매칭 실패, 첫 번째 단지 사용: {selected_complex.get('단지명', '알 수 없음')}")
         
-        complex_id = selected_complex.get("단지기본일련번호") or selected_complex.get("id")
-        if not complex_id:
-            print("❌ 단지 ID를 찾을 수 없음")
+        # 4. 단지 데이터에서 매매 시세 정보 추출 (별도 API 호출 불필요)
+        # fastPriceInfo API 응답에 이미 매매 배열이 포함되어 있음
+        prices = selected_complex.get("매매", [])
+        if not prices:
+            print("❌ 해당 단지에 매매 시세 정보가 없음")
             return None
         
-        # 4. 단지 시세 조회
-        prices = self.get_complex_price(str(complex_id))
-        if not prices:
-            print("❌ 시세 정보를 찾을 수 없음")
-            return None
+        print(f"✅ 단지에서 시세 정보 추출: {len(prices)}개 타입")
         
         # 5. 면적에 맞는 시세 찾기
         matched_price = self.find_matching_price(prices, area)
@@ -369,30 +369,55 @@ class KBPriceAPI:
                 print(f"⚠️ 첫 번째 시세 사용: {matched_price.get('공급면적', 'N/A')}m²")
         
         # 6. 결과 구성
-        price_value = matched_price.get("매매일반거래가") or matched_price.get("매매가") or matched_price.get("매매평균가")
+        # 실제 API 응답에서는 "일반평균" 필드에 일반 매매가, "하위평균"에 하한 매매가가 있음
+        price_value = matched_price.get("일반평균") or matched_price.get("매매일반거래가") or matched_price.get("매매가") or matched_price.get("매매평균가")
+        price_min_value = matched_price.get("하위평균") or matched_price.get("매매하한가")
+        
         if not price_value:
             print("❌ 시세 가격 정보가 없음")
             return None
         
         # 가격을 숫자로 변환 (만원 단위)
-        try:
-            if isinstance(price_value, str):
-                price_value = price_value.replace(",", "").replace("만원", "").strip()
-            price_num = float(price_value)
-        except (ValueError, TypeError):
+        def parse_price(value):
+            if not value:
+                return None
+            try:
+                if isinstance(value, str):
+                    value = value.replace(",", "").replace("만원", "").strip()
+                return float(value)
+            except (ValueError, TypeError):
+                return None
+        
+        price_num = parse_price(price_value)
+        price_min_num = parse_price(price_min_value)
+        
+        if price_num is None:
             print(f"❌ 시세 가격 파싱 실패: {price_value}")
             return None
         
+        # 평수 계산 (전용면적을 평수로 변환: 1평 = 3.3058m²)
+        pyeong_value = matched_price.get("전용면적") or matched_price.get("공급면적") or area
+        try:
+            pyeong_float = float(pyeong_value) / 3.3058
+            pyeong_str = f"{pyeong_float:.1f}"
+        except:
+            pyeong_str = matched_price.get("공급면적평N") or matched_price.get("평수", "")
+        
         result = {
-            "kb_price": price_num,  # 만원 단위
+            "kb_price": price_num,  # 일반 매매가 (만원 단위)
+            "kb_price_min": price_min_num,  # 하한 매매가 (만원 단위, 없으면 None)
             "kb_price_raw": f"{price_num:,.0f}만원",
+            "kb_price_min_raw": f"{price_min_num:,.0f}만원" if price_min_num else None,
             "complex_name": selected_complex.get("단지명") or selected_complex.get("name", "알 수 없음"),
-            "area": float(matched_price.get("공급면적") or area),
-            "pyeong": matched_price.get("공급면적평N") or matched_price.get("평수", ""),
+            "area": float(matched_price.get("공급면적") or matched_price.get("전용면적") or area),
+            "pyeong": pyeong_str,
             "type": matched_price.get("주택형타입내용") or matched_price.get("타입", ""),
         }
         
-        print(f"✅ KB 시세 조회 완료: {result['kb_price']:,.0f}만원 ({result['complex_name']})")
+        price_info = f"{result['kb_price']:,.0f}만원"
+        if price_min_num:
+            price_info += f" (하한: {price_min_num:,.0f}만원)"
+        print(f"✅ KB 시세 조회 완료: {price_info} ({result['complex_name']})")
         return result
 
 

@@ -125,6 +125,21 @@ python KB_api/test.py --test lookup   # 시세 조회 테스트
 python KB_api/test.py --test registry  # 등기부 연동 테스트
 ```
 
+## API 상태 확인
+
+KB 시세가 가져와지지 않을 때 API가 정상 작동하는지 확인:
+
+```bash
+# API 상태 확인 (네트워크, 응답, 오류 등 상세 확인)
+python KB_api/check_api_status.py
+```
+
+이 스크립트는 다음을 확인합니다:
+- 네트워크 연결 상태
+- KB API 엔드포인트 응답
+- API 응답 데이터 구조
+- 오류 메시지 및 원인
+
 ## 예제 코드
 
 더 자세한 예제는 `KB_api/usage_example.py`를 참고하세요.
