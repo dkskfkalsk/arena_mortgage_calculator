@@ -280,6 +280,7 @@ def get_application():
                 'collateral_provider': '', # 담보제공자 이름
                 'name_display': '',  # 최종 표시할 이름 형식
                 'area': '',          # 면적 (캡션에서 입력한 경우)
+                'trust_amount': '',  # 신탁 금액 (만원 단위 문자열)
             }
             
             if not caption:
@@ -470,8 +471,44 @@ def get_application():
             
             info['request'] = ' / '.join(requests) if requests else ''
             
+            # 신탁 금액 추출 (신탁 금액, 신탁원금, 신탁대환)
+            trust_patterns = [
+                r'신탁\s*금액\s*[:：]?\s*(\d+(?:,\d+)?)\s*억',  # 신탁 금액 20억
+                r'신탁\s*금액\s*[:：]?\s*(\d+(?:,\d+)?)\s*만?\s*(?:원)?',  # 신탁 금액 7000만
+                r'신탁\s*원금\s*[:：]?\s*(\d+(?:,\d+)?)\s*억',  # 신탁원금 20억
+                r'신탁\s*원금\s*[:：]?\s*(\d+(?:,\d+)?)\s*만?\s*(?:원)?',  # 신탁원금 7000만
+                r'신탁\s*대환\s*[:：]?\s*(\d+(?:,\d+)?)\s*억',  # 신탁대환 20억
+                r'신탁\s*대환\s*[:：]?\s*(\d+(?:,\d+)?)\s*만?\s*(?:원)?',  # 신탁대환 7000만
+            ]
+            for pattern in trust_patterns:
+                match = re.search(pattern, caption, re.IGNORECASE)
+                if match:
+                    price = match.group(1).replace(',', '')
+                    # "억" 단위인지 확인
+                    pattern_text = caption[match.start():match.end()]
+                    if "억" in pattern_text:
+                        # 억 단위를 만원으로 변환 (1억 = 10,000만원)
+                        price_man = int(float(price) * 10000)
+                        info['trust_amount'] = f"{price_man:,}"
+                    else:
+                        info['trust_amount'] = f"{int(price):,}"
+                    break
+            
             return info
 
+        def extract_name_from_filename(file_name):
+            """파일명에서 고객 이름 추출 (예: "최성운 260122.pdf" -> "최성운")"""
+            import re
+            if not file_name:
+                return ""
+            # 파일 확장자 제거
+            name_without_ext = file_name.replace('.pdf', '').replace('.PDF', '')
+            # 공백이나 숫자로 분리 (예: "최성운 260122" -> "최성운")
+            match = re.match(r'^([가-힣A-Za-z]+)', name_without_ext)
+            if match:
+                return match.group(1).strip()
+            return ""
+        
         def format_registry_result(result, caption, file_name):
             """등기부등본 분석 결과를 텔레그램 메시지 형식으로 포맷"""
             import re
@@ -486,7 +523,30 @@ def get_application():
             borrower = caption_info.get('borrower_name', '')
             collateral_provider = caption_info.get('collateral_provider', '')
             
-            if result.소유자목록:
+            # 수탁자 여부 확인 (신탁인 경우)
+            is_trustee = result.수탁자여부 if hasattr(result, '수탁자여부') else False
+            
+            # 수탁자인 경우 파일명에서 고객 이름 추출
+            if is_trustee:
+                customer_name = extract_name_from_filename(file_name)
+                if customer_name:
+                    # 수탁자인 경우 고객 이름을 성명으로 사용
+                    lines.append(f"성   명 : {customer_name}")
+                    lines.append(f"직   업 : {caption_info['job']}")
+                    lines.append(f"신용점수 : {caption_info['credit_score']}")
+                    lines.append(f"거주여부 : {caption_info['residence']}")
+                    lines.append(f"소유현황 : 신탁")
+                else:
+                    # 파일명에서 이름을 못 찾은 경우
+                    if borrower:
+                        lines.append(f"성   명 : {borrower}")
+                    else:
+                        lines.append(f"성   명 : 확인불가")
+                    lines.append(f"직   업 : {caption_info['job']}")
+                    lines.append(f"신용점수 : {caption_info['credit_score']}")
+                    lines.append(f"거주여부 : {caption_info['residence']}")
+                    lines.append(f"소유현황 : 신탁")
+            elif result.소유자목록:
                 # 공동명의인 경우 2명 모두 표시
                 owners = result.소유자목록[:2]  # 최대 2명까지
                 
@@ -619,11 +679,27 @@ def get_application():
             # 근저당권 설정 내역
             lines.append(f"=========설정내역=========")
             
+            # 신탁 금액 처리 (수탁자인 경우)
+            trust_amount = caption_info.get('trust_amount', '')
+            trust_amount_man = None
+            if is_trustee and trust_amount:
+                try:
+                    trust_amount_man = int(trust_amount.replace(',', ''))
+                    # 신탁 금액을 1순위로 추가
+                    lines.append(f"1순위 : 신탁")
+                    lines.append(f"           {trust_amount_man:,}만원")
+                except (ValueError, TypeError):
+                    pass
+            
+            # 기존 근저당권 목록 처리
             if result.근저당권목록:
                 total_amount = 0
                 mortgage_amounts = []  # 각 근저당권의 만원 단위 금액 저장
                 
-                for i, m in enumerate(result.근저당권목록, 1):
+                # 신탁 금액이 있으면 기존 근저당권 순위를 1씩 증가
+                start_rank = 2 if (is_trustee and trust_amount_man) else 1
+                
+                for i, m in enumerate(result.근저당권목록, start=start_rank):
                     # 금액을 만원 단위로 변환
                     amount_match = re.search(r'([\d,]+)\s*원', m.채권최고액)
                     if amount_match:
@@ -654,7 +730,11 @@ def get_application():
                         lines.append(f"{i}순위 : {creditor}")
                     lines.append(f"           {amount_str}")
                 
-                # KB시세 대비 채권최고액 비율 계산
+                # 신탁 금액이 있으면 mortgage_amounts에 추가
+                if is_trustee and trust_amount_man:
+                    mortgage_amounts.insert(0, trust_amount_man)
+                
+                # KB시세 대비 채권최고액 비율 계산 (LTV)
                 if kb_price and mortgage_amounts:
                     try:
                         # KB시세 일반가를 만원 단위로 변환
@@ -664,6 +744,18 @@ def get_application():
                         # 비율 계산
                         if kb_price_man > 0:
                             ratio = (total_mortgage_man / kb_price_man) * 100
+                            lines.append(f"{ratio:.2f}%")
+                    except (ValueError, ZeroDivisionError):
+                        pass
+            elif is_trustee and trust_amount_man:
+                # 신탁만 있고 다른 근저당권이 없는 경우
+                mortgage_amounts = [trust_amount_man]
+                # KB시세 대비 신탁 금액 비율 계산 (LTV)
+                if kb_price:
+                    try:
+                        kb_price_man = int(kb_price.replace(',', ''))
+                        if kb_price_man > 0:
+                            ratio = (trust_amount_man / kb_price_man) * 100
                             lines.append(f"{ratio:.2f}%")
                     except (ValueError, ZeroDivisionError):
                         pass

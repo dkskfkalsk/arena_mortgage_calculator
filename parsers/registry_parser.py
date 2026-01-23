@@ -80,6 +80,9 @@ class RegistryDocument:
     # 별도등기 정보
     별도등기: bool = False  # True면 별도등기 있음, False면 없거나 말소됨
     
+    # 수탁자 여부 (신탁인 경우)
+    수탁자여부: bool = False  # True면 수탁자가 있음 (신탁)
+    
     # 원본 텍스트
     원본텍스트: str = ""
     
@@ -198,6 +201,9 @@ class RegistryParser:
         doc.경매목록 = self._extract_auctions()
         doc.환매특약 = self._extract_special_conditions()
         doc.별도등기 = self._extract_separate_registry()
+        
+        # 수탁자 여부 확인 (갑구에 수탁자 키워드가 있는지 확인)
+        doc.수탁자여부 = self._check_trustee()
         
         return doc
     
@@ -365,6 +371,11 @@ class RegistryParser:
             if gapgu_match:
                 gapgu_text = gapgu_match.group(0)
                 
+                # 수탁자 여부 확인 (신탁인 경우)
+                if '수탁자' in gapgu_text:
+                    # 수탁자가 있으면 빈 리스트 반환 (신탁인 경우 실제 소유자는 파일명에서 추출)
+                    return []
+                
                 # 요약본의 갑구에서 소유자 패턴 찾기
                 # 패턴: "이름 (공유자)" 다음 줄에 "주민번호-*******" (공동명의인 경우)
                 # 예: "김연정 (공유자)\n791106-*******"
@@ -428,6 +439,28 @@ class RegistryParser:
                 unique_owners.append(owner)
         
         return unique_owners
+    
+    def _check_trustee(self) -> bool:
+        """수탁자 여부 확인 (갑구에 수탁자 키워드가 있는지 확인)"""
+        # 마지막 페이지 또는 마지막에서 2번째 페이지의 요약본 확인
+        pages_to_check = []
+        if len(self.pages_text) >= 1:
+            pages_to_check.append(self.pages_text[-1])  # 마지막 페이지
+        if len(self.pages_text) >= 2:
+            pages_to_check.append(self.pages_text[-2])  # 마지막에서 2번째 페이지
+        
+        for page_text in pages_to_check:
+            # 갑구 섹션 찾기
+            gapgu_pattern = r'갑\s*구[\s\S]*?(?=을\s*구|출력일시|$)'
+            gapgu_match = re.search(gapgu_pattern, page_text, re.DOTALL | re.IGNORECASE)
+            
+            if gapgu_match:
+                gapgu_text = gapgu_match.group(0)
+                # 수탁자 키워드 확인
+                if '수탁자' in gapgu_text:
+                    return True
+        
+        return False
     
     def _convert_birth_date(self, yymmdd: str) -> str:
         """주민번호 앞자리를 생년월일로 변환"""
