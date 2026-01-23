@@ -8,8 +8,20 @@ import json
 import os
 import re
 import requests
+import logging
 from typing import Dict, List, Optional, Tuple, Any
 from pathlib import Path
+
+# 로깅 설정
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('kb_price_api_debug.log', encoding='utf-8')
+    ]
+)
+logger = logging.getLogger(__name__)
 
 
 class KBPriceAPI:
@@ -39,6 +51,7 @@ class KBPriceAPI:
             current_dir = Path(__file__).parent
             project_root = current_dir.parent
             possible_paths = [
+                project_root / "kbland_price-main" / "static" / "전국_dongcode_data.json",  # 최신 전국 데이터 (우선)
                 project_root / "kbland_price-main" / "static" / "combined_dongcode_data.json",
                 project_root / "kbland_price-main" / "static" / "서울_dongcode_data.json",
                 project_root / "kbland_price-main" / "static" / "경기도_dongcode_data.json",
@@ -55,11 +68,18 @@ class KBPriceAPI:
                 with open(data_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     self.dongcode_data = data.get('regions', {})
-                    print(f"✅ 법정동코드 데이터 로드 완료: {data_path}")
+                    file_name = os.path.basename(data_path)
+                    total_regions = len(self.dongcode_data)
+                    logger.info(f"✅ 법정동코드 데이터 로드 완료: {file_name} (시/도: {total_regions}개)")
+                    print(f"✅ 법정동코드 데이터 로드 완료: {file_name}")
+                    if "전국" in file_name:
+                        print(f"   📍 전국 법정동코드 데이터 사용 중 (최신)")
             except Exception as e:
+                logger.error(f"⚠️ 법정동코드 데이터 로드 실패: {e}")
                 print(f"⚠️ 법정동코드 데이터 로드 실패: {e}")
                 self.dongcode_data = {}
         else:
+            logger.warning("⚠️ 법정동코드 데이터 파일을 찾을 수 없습니다.")
             print("⚠️ 법정동코드 데이터 파일을 찾을 수 없습니다.")
             self.dongcode_data = {}
     
@@ -78,11 +98,29 @@ class KBPriceAPI:
                 "detail": "123"
             }
         """
+        logger.debug(f"🔍 주소 파싱 시작: {address}")
+        
         if not address:
+            logger.warning("⚠️ 주소가 비어있음")
             return {}
+        
+        # 원본 주소 저장
+        original_address = address
         
         # 주소 정규화 (공백 정리)
         address = re.sub(r'\s+', ' ', address.strip())
+        logger.debug(f"   정규화된 주소: {address}")
+        
+        # '제217동', '제1105호' 같은 상세 주소 제거 (법정동명 찾기 전에 제거)
+        # 법정동명은 "곡반정동" 같은 형태이므로, "제숫자동", "제숫자호" 같은 패턴 제거
+        address_cleaned = re.sub(r'\s+제\d+동', '', address)  # " 제217동" 제거
+        address_cleaned = re.sub(r'\s+제\d+호', '', address_cleaned)  # " 제1105호" 제거
+        address_cleaned = re.sub(r'\s+제\d+층', '', address_cleaned)  # " 제11층" 제거
+        address_cleaned = re.sub(r'\s+제\d+번지', '', address_cleaned)  # " 제123번지" 제거
+        
+        if address_cleaned != address:
+            logger.debug(f"   상세 주소 제거: '{address}' -> '{address_cleaned}'")
+            address = address_cleaned
         
         result = {}
         
@@ -120,22 +158,48 @@ class KBPriceAPI:
                 break
         
         # 구/시/군 추출
+        # "경기도 수원시 권선구" -> district="수원시"
         district_pattern = r'(?:시|도)\s+([가-힣]+(?:시|구|군))'
         match = re.search(district_pattern, address)
         if match:
             result["district"] = match.group(1)
         
-        # 동/읍/면 추출
-        dong_pattern = r'(?:구|군|시)\s+([가-힣]+(?:동|읍|면))'
-        match = re.search(dong_pattern, address)
-        if match:
-            result["dong"] = match.group(1)
+        # 동/읍/면 추출 (제217동, 제1105호 같은 '제' 제거)
+        # 전국 데이터 구조: "권선구 곡반정동" 형식으로 저장됨
+        # "경기도 수원시 권선구 곡반정동" -> dong="권선구 곡반정동"으로 추출
+        # "서울특별시 종로구 청운동" -> dong="청운동"으로 추출
+        
+        # 패턴 1: "경기도 수원시 권선구 곡반정동" -> "권선구 곡반정동" 추출
+        # 패턴 2: "서울특별시 종로구 청운동" -> "청운동" 추출
+        dong_patterns = [
+            r'(?:시|도)\s+[가-힣]+(?:시|구|군)\s+([가-힣]+(?:구|군|시)\s+[가-힣]+(?:동|읍|면))',  # "권선구 곡반정동" 형식
+            r'(?:구|군|시)\s+([가-힣]+(?:구|군|시)?\s*[가-힣]+(?:동|읍|면))',  # "권선구 곡반정동" 같은 경우
+            r'(?:구|군|시)\s+([가-힣]+(?:동|읍|면))',  # 일반 동명 (예: 곡반정동, 청운동)
+            r'(?:구|군|시)\s+제?(\d+동)',  # 제가 붙은 동 (예: 제217동)
+        ]
+        
+        dong_found = False
+        for pattern in dong_patterns:
+            match = re.search(pattern, address)
+            if match:
+                dong_raw = match.group(1)
+                # '제' 제거 및 정리
+                dong_cleaned = re.sub(r'^제', '', dong_raw).strip()
+                result["dong"] = dong_cleaned
+                logger.debug(f"   동 추출: {dong_raw} -> {dong_cleaned}")
+                dong_found = True
+                break
+        
+        if not dong_found:
+            logger.warning(f"⚠️ 동/읍/면을 찾을 수 없음: {address}")
         
         # 상세 주소 (나머지)
         if result.get("dong"):
             detail_start = address.find(result["dong"]) + len(result["dong"])
             result["detail"] = address[detail_start:].strip()
+            logger.debug(f"   상세 주소: {result.get('detail', '')}")
         
+        logger.debug(f"✅ 주소 파싱 결과: {result}")
         return result
     
     def find_dongcode(self, address: str) -> Optional[str]:
@@ -148,7 +212,10 @@ class KBPriceAPI:
         Returns:
             법정동코드 (10자리 문자열) 또는 None
         """
+        logger.debug(f"🔍 법정동코드 찾기 시작: {address}")
+        
         if not self.dongcode_data:
+            logger.error("❌ 법정동코드 데이터가 로드되지 않았습니다.")
             print("⚠️ 법정동코드 데이터가 로드되지 않았습니다.")
             return None
         
@@ -157,23 +224,100 @@ class KBPriceAPI:
         district = parsed.get("district")
         dong = parsed.get("dong")
         
+        logger.debug(f"   파싱된 주소 정보: region={region}, district={district}, dong={dong}")
+        
         if not all([region, district, dong]):
+            logger.warning(f"⚠️ 주소 파싱 실패: {address} -> {parsed}")
             print(f"⚠️ 주소 파싱 실패: {address}")
             return None
         
         # 데이터에서 찾기
         region_data = self.dongcode_data.get(region, {})
+        logger.debug(f"   지역 데이터 존재: {bool(region_data)}")
+        
+        if not region_data:
+            logger.warning(f"⚠️ 지역 데이터 없음: {region}")
+            # 유사 지역명 찾기 시도
+            for key in self.dongcode_data.keys():
+                if region in key or key in region:
+                    logger.debug(f"   유사 지역 발견: {key}")
+                    region_data = self.dongcode_data.get(key, {})
+                    region = key
+                    break
+        
         districts = region_data.get("districts", {})
+        logger.debug(f"   구/시/군 목록: {list(districts.keys())[:5]}...")
+        
         district_data = districts.get(district, {})
+        logger.debug(f"   구/시/군 데이터 존재: {bool(district_data)}")
+        
+        if not district_data:
+            logger.warning(f"⚠️ 구/시/군 데이터 없음: {district}")
+            # 유사 구/시/군명 찾기 시도
+            for key in districts.keys():
+                if district in key or key in district:
+                    logger.debug(f"   유사 구/시/군 발견: {key}")
+                    district_data = districts.get(key, {})
+                    district = key
+                    break
+        
         dongs = district_data.get("dongs", {})
+        logger.debug(f"   동 목록: {list(dongs.keys())[:5]}...")
+        
+        # 동 단위 데이터 찾기
         dong_data = dongs.get(dong, {})
+        logger.debug(f"   동 데이터 존재: {bool(dong_data)}")
+        
+        if not dong_data:
+            logger.warning(f"⚠️ 동 데이터 없음: {dong}")
+            # 유사 동명 찾기 시도 (전국 데이터 구조에 맞게)
+            for key in dongs.keys():
+                # 정확한 매칭
+                if dong == key:
+                    logger.debug(f"   정확한 동명 매칭: {key}")
+                    dong_data = dongs.get(key, {})
+                    dong = key
+                    break
+                
+                # "권선구 곡반정동" 같은 경우도 매칭
+                # 예: dong="권선구 곡반정동", key="권선구 곡반정동" -> 매칭
+                if dong in key or key in dong or key.endswith(dong):
+                    logger.debug(f"   유사 동명 발견: {key}")
+                    dong_data = dongs.get(key, {})
+                    dong = key
+                    break
+                
+                # "권선구 곡반정동"에서 "곡반정동"만 추출해서 매칭
+                # 예: dong="곡반정동", key="권선구 곡반정동" -> 매칭
+                if ' ' in key:
+                    key_dong_only = key.split()[-1]  # 마지막 부분이 동명
+                    if dong == key_dong_only:
+                        logger.debug(f"   동명만으로 매칭: {key} (추출된 동명: {key_dong_only})")
+                        dong_data = dongs.get(key, {})
+                        dong = key
+                        break
         
         dongcode = dong_data.get("code")
         
+        # 동 단위 코드를 찾지 못한 경우, 구 단위 코드 사용 시도
+        # (수원시처럼 구 단위만 있는 경우)
+        if not dongcode and dongs:
+            logger.info(f"💡 동 단위 코드 없음. 구 단위 코드 사용 시도...")
+            # 구 단위 코드가 있는지 확인 (dongs의 키가 구 이름인 경우)
+            # 예: "권선구"가 dongs의 키로 있고, 그 안에 code가 있음
+            for key, value in dongs.items():
+                if isinstance(value, dict) and "code" in value:
+                    dongcode = value.get("code")
+                    logger.info(f"✅ 구 단위 법정동코드 사용: {dongcode} ({region} {district} - {key})")
+                    print(f"✅ 법정동코드 찾음 (구 단위): {dongcode} ({region} {district})")
+                    return dongcode
+        
         if dongcode:
+            logger.info(f"✅ 법정동코드 찾음: {dongcode} ({region} {district} {dong})")
             print(f"✅ 법정동코드 찾음: {dongcode} ({region} {district} {dong})")
             return dongcode
         else:
+            logger.warning(f"⚠️ 법정동코드를 찾을 수 없음: {region} {district} {dong}")
             print(f"⚠️ 법정동코드를 찾을 수 없음: {region} {district} {dong}")
             return None
     
@@ -270,30 +414,50 @@ class KBPriceAPI:
         Returns:
             가장 가까운 시세 정보 또는 None
         """
+        logger.debug(f"   면적 매칭 시작: 목표 면적={area}m², 허용 오차={tolerance}m², 후보 수={len(prices)}")
+        
         if not prices or area <= 0:
+            logger.warning(f"⚠️ 면적 매칭 불가: prices={len(prices) if prices else 0}, area={area}")
             return None
         
         best_match = None
         min_diff = float('inf')
+        candidates = []
         
-        for price_info in prices:
+        for i, price_info in enumerate(prices):
             # 공급면적 추출
             supply_area_str = price_info.get("공급면적") or price_info.get("면적", "")
             if not supply_area_str:
+                logger.debug(f"   [{i+1}] 면적 정보 없음, 스킵")
                 continue
             
             try:
                 supply_area = float(str(supply_area_str).strip())
             except (ValueError, TypeError):
+                logger.debug(f"   [{i+1}] 면적 파싱 실패: {supply_area_str}")
                 continue
             
             # 면적 차이 계산
             diff = abs(supply_area - area)
+            candidates.append((supply_area, diff, price_info))
+            logger.debug(f"   [{i+1}] 공급면적={supply_area}m², 차이={diff:.2f}m²")
             
             # 허용 오차 내이고 가장 가까운 것 선택
             if diff <= tolerance and diff < min_diff:
                 min_diff = diff
                 best_match = price_info
+                logger.debug(f"   ✅ 현재 최적 매칭: {supply_area}m² (차이: {diff:.2f}m²)")
+        
+        if best_match:
+            matched_area = best_match.get("공급면적") or best_match.get("면적", "N/A")
+            logger.info(f"✅ 면적 매칭 성공: {matched_area}m² (차이: {min_diff:.2f}m²)")
+        else:
+            logger.warning(f"⚠️ 허용 오차({tolerance}m²) 내 매칭 실패")
+            if candidates:
+                # 가장 가까운 것 찾기
+                candidates.sort(key=lambda x: x[1])
+                closest = candidates[0]
+                logger.debug(f"   가장 가까운 후보: {closest[0]}m² (차이: {closest[1]:.2f}m²)")
         
         return best_match
     
@@ -319,61 +483,92 @@ class KBPriceAPI:
                 "type": "84A형"
             } 또는 None
         """
+        logger.info(f"\n🔍 KB 시세 조회 시작")
+        logger.info(f"   주소: {address}")
+        logger.info(f"   면적: {area}m²")
         print(f"\n🔍 KB 시세 조회 시작")
         print(f"   주소: {address}")
         print(f"   면적: {area}m²")
         
         # 1. 법정동코드 찾기
+        logger.debug("1단계: 법정동코드 찾기")
         dongcode = self.find_dongcode(address)
         if not dongcode:
+            logger.error("❌ 법정동코드를 찾을 수 없어 시세 조회 불가")
             print("❌ 법정동코드를 찾을 수 없어 시세 조회 불가")
             return None
         
+        logger.info(f"✅ 법정동코드: {dongcode}")
+        
         # 2. 단지 목록 조회
+        logger.debug("2단계: 단지 목록 조회")
         complexes = self.get_complex_list(dongcode)
         if not complexes:
+            logger.error("❌ 단지 목록을 찾을 수 없음")
             print("❌ 단지 목록을 찾을 수 없음")
             return None
         
+        logger.info(f"✅ 단지 목록 조회 성공: {len(complexes)}개 단지")
+        
         # 3. 단지 선택 (단지명이 있으면 우선 매칭)
+        logger.debug("3단계: 단지 선택")
         selected_complex = None
         if complex_name:
-            for complex in complexes:
+            logger.debug(f"   단지명으로 매칭 시도: {complex_name}")
+            for i, complex in enumerate(complexes):
                 complex_name_from_api = complex.get("단지명") or complex.get("name", "")
+                logger.debug(f"   [{i+1}] {complex_name_from_api}")
                 if complex_name in complex_name_from_api or complex_name_from_api in complex_name:
                     selected_complex = complex
+                    logger.info(f"✅ 단지명으로 매칭: {complex_name_from_api}")
                     print(f"✅ 단지명으로 매칭: {complex_name_from_api}")
                     break
         
         # 단지명 매칭 실패 시 첫 번째 단지 사용
         if not selected_complex:
             selected_complex = complexes[0]
-            print(f"⚠️ 단지명 매칭 실패, 첫 번째 단지 사용: {selected_complex.get('단지명', '알 수 없음')}")
+            complex_name_from_api = selected_complex.get('단지명', '알 수 없음')
+            logger.warning(f"⚠️ 단지명 매칭 실패, 첫 번째 단지 사용: {complex_name_from_api}")
+            logger.debug(f"   사용 가능한 단지 목록: {[c.get('단지명', 'N/A') for c in complexes[:5]]}")
+            print(f"⚠️ 단지명 매칭 실패, 첫 번째 단지 사용: {complex_name_from_api}")
         
         # 4. 단지 데이터에서 매매 시세 정보 추출 (별도 API 호출 불필요)
         # fastPriceInfo API 응답에 이미 매매 배열이 포함되어 있음
+        logger.debug("4단계: 매매 시세 정보 추출")
         prices = selected_complex.get("매매", [])
         if not prices:
+            logger.error(f"❌ 해당 단지에 매매 시세 정보가 없음: {selected_complex.get('단지명')}")
             print("❌ 해당 단지에 매매 시세 정보가 없음")
             return None
         
+        logger.info(f"✅ 단지에서 시세 정보 추출: {len(prices)}개 타입")
+        logger.debug(f"   시세 타입별 면적: {[p.get('공급면적', 'N/A') for p in prices[:5]]}")
         print(f"✅ 단지에서 시세 정보 추출: {len(prices)}개 타입")
         
         # 5. 면적에 맞는 시세 찾기
+        logger.debug(f"5단계: 면적 매칭 (목표 면적: {area}m²)")
         matched_price = self.find_matching_price(prices, area)
         if not matched_price:
+            logger.warning(f"⚠️ 면적 {area}m²에 맞는 시세를 찾을 수 없음 (허용 오차: 5m²)")
             print(f"⚠️ 면적 {area}m²에 맞는 시세를 찾을 수 없음 (허용 오차: 5m²)")
             # 가장 가까운 것이라도 반환
             if prices:
                 matched_price = prices[0]
+                logger.warning(f"⚠️ 첫 번째 시세 사용: {matched_price.get('공급면적', 'N/A')}m²")
                 print(f"⚠️ 첫 번째 시세 사용: {matched_price.get('공급면적', 'N/A')}m²")
         
         # 6. 결과 구성
+        logger.debug("6단계: 결과 구성")
         # 실제 API 응답에서는 "일반평균" 필드에 일반 매매가, "하위평균"에 하한 매매가가 있음
         price_value = matched_price.get("일반평균") or matched_price.get("매매일반거래가") or matched_price.get("매매가") or matched_price.get("매매평균가")
         price_min_value = matched_price.get("하위평균") or matched_price.get("매매하한가")
         
+        logger.debug(f"   일반 매매가 필드: {price_value}")
+        logger.debug(f"   하한 매매가 필드: {price_min_value}")
+        logger.debug(f"   매칭된 시세 데이터 키: {list(matched_price.keys())}")
+        
         if not price_value:
+            logger.error(f"❌ 시세 가격 정보가 없음. 매칭된 데이터: {matched_price}")
             print("❌ 시세 가격 정보가 없음")
             return None
         
@@ -417,6 +612,9 @@ class KBPriceAPI:
         price_info = f"{result['kb_price']:,.0f}만원"
         if price_min_num:
             price_info += f" (하한: {price_min_num:,.0f}만원)"
+        
+        logger.info(f"✅ KB 시세 조회 완료: {price_info} ({result['complex_name']})")
+        logger.debug(f"   최종 결과: {result}")
         print(f"✅ KB 시세 조회 완료: {price_info} ({result['complex_name']})")
         return result
 
@@ -432,15 +630,22 @@ def get_kb_price_from_registry(address: str, area: str) -> Optional[Dict[str, An
     Returns:
         KB 시세 정보 딕셔너리 또는 None
     """
+    logger.info(f"📄 등기부 정보로 KB 시세 조회 시작")
+    logger.info(f"   등기부 주소: {address}")
+    logger.info(f"   등기부 면적: {area}")
+    
     # 면적에서 숫자만 추출
     area_match = re.search(r'([\d.]+)', str(area))
     if not area_match:
+        logger.error(f"⚠️ 면적 파싱 실패: {area}")
         print(f"⚠️ 면적 파싱 실패: {area}")
         return None
     
     try:
         area_float = float(area_match.group(1))
+        logger.debug(f"   추출된 면적: {area_float}m²")
     except ValueError:
+        logger.error(f"⚠️ 면적 변환 실패: {area}")
         print(f"⚠️ 면적 변환 실패: {area}")
         return None
     
