@@ -800,8 +800,39 @@ def get_application():
             lines.append(f"세대수 : {caption_info['households']}")
             lines.append(f"구   분 : {caption_info['property_type']}")
             
+            # KB시세: 캡션에서 추출한 것이 없으면 등기부 주소/면적로 자동 조회
             kb_price = caption_info['kb_price']
             kb_price_low = caption_info['kb_price_low']
+            
+            # 캡션에 KB시세가 없고, 등기부에서 주소와 면적을 추출한 경우 KB API 호출
+            if not kb_price and address and address != "확인불가" and area:
+                try:
+                    print(f"[WEBHOOK] KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area}", file=sys.stderr, flush=True)
+                    logger.info(f"KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area}")
+                    
+                    from KB_api.kb_price_api import get_kb_price_from_registry
+                    kb_result = get_kb_price_from_registry(address, area)
+                    
+                    if kb_result:
+                        kb_price_num = kb_result.get('kb_price')
+                        kb_price_min_num = kb_result.get('kb_price_min')
+                        
+                        if kb_price_num:
+                            kb_price = f"{int(kb_price_num):,}"
+                            print(f"[WEBHOOK] ✅ KB 시세 조회 성공: 일반 {kb_price}만원", file=sys.stderr, flush=True)
+                            logger.info(f"KB 시세 조회 성공: 일반 {kb_price}만원")
+                        
+                        if kb_price_min_num:
+                            kb_price_low = f"{int(kb_price_min_num):,}"
+                            print(f"[WEBHOOK] ✅ KB 시세 하한 조회 성공: {kb_price_low}만원", file=sys.stderr, flush=True)
+                            logger.info(f"KB 시세 하한 조회 성공: {kb_price_low}만원")
+                    else:
+                        print(f"[WEBHOOK] ⚠️ KB 시세 조회 실패 (결과 없음)", file=sys.stderr, flush=True)
+                        logger.warning("KB 시세 조회 실패 (결과 없음)")
+                except Exception as e:
+                    print(f"[WEBHOOK] ❌ KB 시세 조회 중 오류: {str(e)}", file=sys.stderr, flush=True)
+                    logger.error(f"KB 시세 조회 중 오류: {str(e)}", exc_info=True)
+            
             lines.append(f"KB시세 : 일반 {kb_price}만원" if kb_price else f"KB시세 : 일반      만원")
             lines.append(f"KB시세 : 하한 {kb_price_low}만원" if kb_price_low else f"KB시세 : 하한      만원")
             
