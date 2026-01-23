@@ -13,15 +13,34 @@ from typing import Dict, List, Optional, Tuple, Any
 from pathlib import Path
 
 # 로깅 설정
+# Vercel 환경에서는 파일 로깅이 제한적이므로 stdout/stderr 사용
+# 로컬에서는 파일 로깅도 함께 사용
+import sys
+import os
+
+# Vercel 환경 확인 (Vercel은 VERCEL 환경변수를 설정함)
+is_vercel = os.getenv('VERCEL') == '1' or os.getenv('VERCEL_ENV') is not None
+
+handlers = [logging.StreamHandler(sys.stderr)]  # Vercel에서 확인 가능한 stderr 사용
+
+# 로컬 환경에서만 파일 로깅 추가
+if not is_vercel:
+    try:
+        handlers.append(logging.FileHandler('kb_price_api_debug.log', encoding='utf-8'))
+    except Exception:
+        # 파일 로깅 실패해도 계속 진행
+        pass
+
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('kb_price_api_debug.log', encoding='utf-8')
-    ]
+    handlers=handlers
 )
 logger = logging.getLogger(__name__)
+
+# Vercel 환경 로그
+if is_vercel:
+    logger.info("🔵 Vercel 환경 감지 - 로그는 Vercel 대시보드에서 확인하세요")
 
 
 class KBPriceAPI:
