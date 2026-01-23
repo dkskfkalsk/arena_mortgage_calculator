@@ -282,14 +282,21 @@ class RegistryParser:
         
         if table_match:
             table_text = table_match.group(0)
-            # 표제부 안에서 층수+면적 패턴 찾기: "15층 83.89㎡" 또는 "15층 83.89 ㎡"
-            # JavaScript 패턴: (\d+)층\s+\d+(\.\d+)?㎡
+            # 표제부 안에서 층수+면적 패턴: "15층 3518.21㎡"
+            # 지하1층, 지하2층은 마지막에 있어 마지막 매치가 지하가 됨 → 지하 제외
             floor_area_pattern = r'(\d+)층\s+\d+(?:\.\d+)?\s*㎡'
             matches = list(re.finditer(floor_area_pattern, table_text))
+            non_basement = []
+            for m in matches:
+                # "지하N층" 앞의 "지하" 제외: 매치 직전 2~3자 확인
+                start = max(0, m.start() - 3)
+                prefix = table_text[start:m.start()]
+                if '지하' not in prefix:
+                    non_basement.append(m)
+            use_matches = non_basement if non_basement else matches
             
-            if matches:
-                # 마지막 매치에서 층수 추출 (JavaScript와 동일)
-                last_match = matches[-1]
+            if use_matches:
+                last_match = use_matches[-1]
                 total_floor = last_match.group(1)
                 
                 # 해당 호수의 층 정보 찾기
@@ -422,37 +429,108 @@ class RegistryParser:
         
         # 방법 1: 주요 등기사항 요약에서 추출 (가장 정확)
         # "3. (근)저당권 및 전세권 등 ( 을구 )" 섹션 찾기
-        summary_section_pattern = r'\(근\)저당권\s*및\s*전세권\s*등.*?(?=\[|$)'
+        # [ 참 고 사 항 ] 또는 출력일시 전까지 포함 (2순위 등 모두 포함)
+        summary_section_pattern = r'\(근\)저당권\s*및\s*전세권\s*등[\s\S]*?(?=\[\s*참\s*고|출력일시|$)'
         summary_match = re.search(summary_section_pattern, self.text, re.DOTALL | re.IGNORECASE)
         
         if summary_match:
             summary_text = summary_match.group(0)
-            # 각 순위별로 추출: "1 근저당권설정 2025년12월11일 채권최고액 금70,000,000원"
-            summary_pattern = r'(\d+)\s+근저당권설정\s+(\d{4})년(\d{1,2})월(\d{1,2})일[\s\S]*?채권최고액\s*금?\s*([\d,]+)\s*원'
+            # 방법: 모든 "N 근저당권설정" 패턴을 먼저 찾고, 각 순위별로 블록 추출
+            # 순위 패턴: "14 근저당권설정" 또는 "14\n근저당권설정" (줄바꿈 허용)
+            rank_pattern = r'(\d+)\s+근저당권설정'
+            rank_matches = list(re.finditer(rank_pattern, summary_text))
             
-            matches = re.finditer(summary_pattern, summary_text)
-            for match in matches:
-                rank = match.group(1)
-                year = match.group(2)
-                month = match.group(3).zfill(2)
-                day = match.group(4).zfill(2)
-                amount = match.group(5)
+            # 디버깅: 찾은 순위 개수 확인
+            # print(f"DEBUG: Found {len(rank_matches)} rank matches")
+            
+            for i, rank_match in enumerate(rank_matches):
+                rank = rank_match.group(1)
+                start_pos = rank_match.start()
                 
-                # 근저당권자 찾기 (순위번호 기준, 요약 섹션 내에서)
-                creditor = self._find_creditor_in_section(summary_text, rank)
+                # 다음 순위 또는 [ 참 고 전까지의 블록 추출
+                # 다음 rank_match가 있으면 그 전까지, 없으면 [ 참 고 또는 끝까지
+                if i + 1 < len(rank_matches):
+                    # 다음 순위까지
+                    end_pos = rank_matches[i + 1].start()
+                else:
+                    # 마지막 순위: [ 참 고 또는 끝까지
+                    remaining_text = summary_text[start_pos:]
+                    next_ref_match = re.search(r'\[\s*참\s*고', remaining_text)
+                    if next_ref_match:
+                        end_pos = start_pos + next_ref_match.start()
+                    else:
+                        end_pos = len(summary_text)
                 
-                # 채무자 찾기 (순위번호 기준, 요약 섹션 내에서)
-                debtor = self._find_debtor_in_section(summary_text, rank)
+                rank_block = summary_text[start_pos:end_pos]
                 
-                if creditor:  # 근저당권자가 있으면 추가
-                    mortgage = MortgageInfo(
-                        순위번호=rank,
-                        근저당권자=creditor,
-                        채무자=debtor,
-                        채권최고액=f"금 {amount}원",
-                        설정일=f"{year}.{month}.{day}"
-                    )
-                    mortgages.append(mortgage)
+                # 해당 블록에서 채권최고액 추출
+                amount_pattern = r'채권최고액[\s\S]*?금?\s*([\d,]+)\s*원'
+                amount_match = re.search(amount_pattern, rank_block)
+                if not amount_match:
+                    continue  # 채권최고액 못 찾으면 건너뛰기
+                amount = amount_match.group(1)
+                
+                # 날짜 추출
+                date_pattern = r'(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일'
+                date_match = re.search(date_pattern, rank_block)
+                if date_match:
+                    year = date_match.group(1)
+                    month = date_match.group(2).zfill(2)
+                    day = date_match.group(3).zfill(2)
+                else:
+                    year = ""
+                    month = ""
+                    day = ""
+                
+                # 근저당권자 찾기 (순위 블록에서 직접 추출)
+                # rank_block은 이미 다음 순위 전까지만 포함하므로, "근저당권자" 뒤의 텍스트 추출
+                # 가장 단순한 패턴: "근저당권자" 뒤의 모든 텍스트 (줄바꿈 포함, 다음 근저당권자나 [ 참 전까지)
+                creditor_pos = rank_block.find('근저당권자')
+                if creditor_pos >= 0:
+                    # "근저당권자" 뒤의 텍스트 추출
+                    creditor_text = rank_block[creditor_pos + len('근저당권자'):]
+                    # 줄바꿈이나 다음 키워드 전까지만
+                    creditor_text = re.split(r'\n\s*\d+\s+근저당권설정|\[\s*참|근저당권자\s+', creditor_text)[0]
+                    # 공백 제거
+                    creditor = re.sub(r'\s+', '', creditor_text.strip())
+                    # 너무 짧거나 숫자만 있으면 제외
+                    if len(creditor) < 2 or creditor.isdigit():
+                        creditor = ""
+                else:
+                    creditor = ""
+                
+                if not creditor:
+                    # Fallback: 전체 텍스트에서 찾기
+                    creditor = self._find_creditor_for_mortgage(rank)
+                
+                if not creditor or len(creditor) < 2:
+                    continue  # 근저당권자 못 찾으면 해당 순위 제외
+                
+                # 채무자: 요약의 대상소유자 우선 (주수현 등, 김지은 등)
+                debtor = self._find_target_owner_in_section(summary_text, rank)
+                if not debtor:
+                    # 순위 블록에서 채무자 찾기
+                    debtor_pattern = r'채무자\s+([가-힣a-zA-Z0-9]+)'
+                    debtor_match = re.search(debtor_pattern, rank_block, re.DOTALL)
+                    if debtor_match:
+                        debtor = debtor_match.group(1).strip()
+                    else:
+                        debtor = self._find_debtor_for_mortgage(rank)
+                
+                # 설정일 처리
+                if year and month and day:
+                    설정일 = f"{year}.{month}.{day}"
+                else:
+                    설정일 = ""
+                
+                mortgage = MortgageInfo(
+                    순위번호=rank,
+                    근저당권자=creditor,
+                    채무자=debtor,
+                    채권최고액=f"금 {amount}원",
+                    설정일=설정일
+                )
+                mortgages.append(mortgage)
         
         # 방법 1-2: 전체 텍스트에서도 추출 시도 (요약 섹션이 없는 경우)
         if not mortgages:
@@ -466,21 +544,19 @@ class RegistryParser:
                 day = match.group(4).zfill(2)
                 amount = match.group(5)
                 
-                # 근저당권자 찾기 (순위번호 기준)
                 creditor = self._find_creditor_for_mortgage(rank)
-                
-                # 채무자 찾기 (순위번호 기준)
+                if not creditor:
+                    continue  # 근저당권자 못 찾으면 해당 순위 제외
                 debtor = self._find_debtor_for_mortgage(rank)
                 
-                if creditor:  # 근저당권자가 있으면 추가
-                    mortgage = MortgageInfo(
-                        순위번호=rank,
-                        근저당권자=creditor,
-                        채무자=debtor,
-                        채권최고액=f"금 {amount}원",
-                        설정일=f"{year}.{month}.{day}"
-                    )
-                    mortgages.append(mortgage)
+                mortgage = MortgageInfo(
+                    순위번호=rank,
+                    근저당권자=creditor,
+                    채무자=debtor,
+                    채권최고액=f"금 {amount}원",
+                    설정일=f"{year}.{month}.{day}"
+                )
+                mortgages.append(mortgage)
         
         # 방법 2: 을구 본문에서 추출 (주요 등기사항 요약이 없는 경우)
         if not mortgages:
@@ -518,18 +594,16 @@ class RegistryParser:
             # - "1번근저당권설정\n등기말소"
             rank_num = m.순위번호
             cancel_patterns = [
-                # 기본 패턴들
-                rf'{rank_num}번\s*근저당권\s*설정\s*등\s*기\s*말\s*소',  # 한 줄로 된 경우
+                # 기본 패턴들 (정확한 매칭)
+                rf'{rank_num}번\s*근저당권\s*설정\s*등\s*기\s*말\s*소',  # "16번근저당권설정등기말소"
                 rf'{rank_num}번\s*근저당권\s*설정\s*등.*?\n\s*기\s*말\s*소',  # 줄바꿈으로 분리된 경우
-                rf'{rank_num}번\s*근저당권\s*말\s*소',  # 간단한 형태
-                rf'{rank_num}번\s*근저당권\s*설정.*?말\s*소',  # 설정 뒤 말소
                 rf'{rank_num}번\s*근저당권\s*설정\s*등\s*기.*?말\s*소',  # 설정등기 뒤 말소
                 # 여러 순위가 함께 말소되는 경우: "1번근저당권설정, 2번근저당권설정등기말소"
                 rf'{rank_num}번\s*근저당권\s*설정[,\s]*.*?등\s*기\s*말\s*소',
                 # 순위번호가 나열된 후 말소: "1번, 2번근저당권설정등기말소"
                 rf'{rank_num}번[,\s]*.*?근저당권\s*설정\s*등\s*기\s*말\s*소',
-                # 더 포괄적인 패턴
-                rf'{rank_num}번.*?근저당권.*?말\s*소',
+                # "16번근저당권말소" (설정 없이 직접 말소)
+                rf'{rank_num}번\s*근저당권\s*말\s*소(?!\s*[가-힣a-zA-Z])',  # 말소 뒤에 다른 텍스트가 오지 않는 경우
             ]
             
             is_cancelled = False
@@ -552,16 +626,28 @@ class RegistryParser:
         
         return unique
     
+    def _find_target_owner_in_section(self, section_text: str, rank: str) -> str:
+        """요약 섹션에서 해당 순위의 대상소유자(채무자 표시용) 찾기"""
+        # "N 근저당권설정 ... 채권최고액 금 X원" 뒤 "주수현 등" / "김지은" (줄바꿈 가능)
+        pattern = rf'{rank}\s+근저당권설정[\s\S]*?채권최고액\s*금?\s*[\d,]+\s*원[\s\n]*([가-힣]{{2,4}}(?:\s*등)?)(?=\s*\n|제\d+호|근저당권자|$)'
+        match = re.search(pattern, section_text, re.DOTALL)
+        if match:
+            name = match.group(1).strip()
+            name = re.sub(r'\s+', ' ', name)
+            if name and len(name) >= 2:
+                return name
+        return ""
+    
     def _find_creditor_in_section(self, section_text: str, rank: str) -> str:
         """특정 섹션 내에서 순위번호의 근저당권자 찾기"""
-        # 패턴: "1 근저당권설정 ... 근저당권자 오에스비저축은행"
-        pattern = rf'{rank}\s+근저당권설정[\s\S]*?근저당권자\s+([가-힣a-zA-Z0-9\s]+?)(?=\n|$|채무자|다음|\d+\s+근저당권)'
+        # 패턴: "N 근저당권설정 ... 근저당권자 XXX" (다음 순위 또는 [ 참 고 전까지)
+        # 더 포괄적인 패턴: rank부터 근저당권자까지, 다음 rank나 [ 참 전까지
+        pattern = rf'{rank}\s+근저당권설정[\s\S]*?근저당권자\s+([가-힣a-zA-Z0-9]+(?:\s*[가-힣a-zA-Z0-9]+)*?)(?=\s*\d+\s+근저당권설정|\[\s*참|$)'
         match = re.search(pattern, section_text, re.DOTALL)
         if match:
             creditor = match.group(1).strip()
-            # 줄바꿈이나 불필요한 공백 제거
             creditor = re.sub(r'\s+', '', creditor)
-            if creditor:
+            if creditor and len(creditor) >= 2:
                 return creditor
         return ""
     
@@ -578,27 +664,15 @@ class RegistryParser:
         return ""
     
     def _find_creditor_for_mortgage(self, rank: str) -> str:
-        """특정 순위번호의 근저당권자 찾기"""
-        # 주요 등기사항 요약에서 찾기 (순위번호 기준)
-        # 패턴: "1 근저당권설정 ... 근저당권자 오에스비저축은행"
-        pattern = rf'{rank}\s+근저당권설정[\s\S]*?근저당권자\s+([가-힣a-zA-Z0-9\s]+?)(?=\n|$|채무자|다음)'
+        """특정 순위번호의 근저당권자 찾기 (전체 텍스트)"""
+        # 을구 본문에서 찾기: "2 근저당권설정 ... 근저당권자 에이피엘대부"
+        pattern = rf'{rank}\s+근저당권설정[\s\S]*?근저당권자\s+([가-힣a-zA-Z0-9\s]+?)(?=\n\s*\n|\s*\d+\s+근저당권|채무자|대상소유자|\[|$)'
         match = re.search(pattern, self.text, re.DOTALL)
         if match:
             creditor = match.group(1).strip()
-            # 줄바꿈이나 불필요한 공백 제거
             creditor = re.sub(r'\s+', '', creditor)
-            if creditor:
+            if creditor and len(creditor) >= 2:
                 return creditor
-        
-        # 을구 본문에서 찾기 (순위번호 기준)
-        pattern2 = rf'{rank}\s+근저당권설정[\s\S]*?근저당권자\s+([가-힣a-zA-Z0-9\s]+?)(?=\n|$|채무자|다음)'
-        match2 = re.search(pattern2, self.text, re.DOTALL)
-        if match2:
-            creditor = match2.group(1).strip()
-            creditor = re.sub(r'\s+', '', creditor)
-            if creditor:
-                return creditor
-        
         return ""
     
     def _find_debtor_for_mortgage(self, rank: str) -> str:
