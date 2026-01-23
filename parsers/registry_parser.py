@@ -427,6 +427,11 @@ class RegistryParser:
         """근저당권 설정 내역 추출"""
         mortgages = []
         
+        # 을구 섹션 찾기 (근저당권 변경 확인용)
+        eulgu_pattern = r'을\s*구[\s\S]*?(?=출력일시|$)'
+        eulgu_match = re.search(eulgu_pattern, self.text, re.DOTALL | re.IGNORECASE)
+        eulgu_text = eulgu_match.group(0) if eulgu_match else ""
+        
         # 방법 1: 주요 등기사항 요약에서 추출 (가장 정확)
         # "3. (근)저당권 및 전세권 등 ( 을구 )" 섹션 찾기
         # [ 참 고 사 항 ] 또는 출력일시 전까지 포함 (2순위 등 모두 포함)
@@ -463,12 +468,32 @@ class RegistryParser:
                 
                 rank_block = summary_text[start_pos:end_pos]
                 
-                # 해당 블록에서 채권최고액 추출
+                # 해당 블록에서 채권최고액 추출 (초기 설정 금액)
                 amount_pattern = r'채권최고액[\s\S]*?금?\s*([\d,]+)\s*원'
                 amount_match = re.search(amount_pattern, rank_block)
                 if not amount_match:
                     continue  # 채권최고액 못 찾으면 건너뛰기
-                amount = amount_match.group(1)
+                initial_amount = amount_match.group(1)
+                
+                # 같은 순위의 근저당권 변경 사항 확인 (을구에서)
+                # 패턴: "N-M 근저당권 변경" 또는 "N-M 근저당권증액" 또는 "N-M 근저당권감액"
+                # 같은 순위의 모든 변경 사항을 찾아서 가장 마지막 금액 사용
+                change_pattern = rf'{rank}\s*-\s*\d+\s*근저당권\s*(?:변경|증액|감액)'
+                change_matches = list(re.finditer(change_pattern, eulgu_text, re.IGNORECASE))
+                
+                # 같은 순위의 모든 변경 사항에서 채권최고액 추출
+                change_amounts = []
+                for change_match in change_matches:
+                    # 변경 항목의 블록 추출 (다음 순위번호나 변경 항목 전까지)
+                    change_start = change_match.start()
+                    change_block = eulgu_text[change_start:change_start + 500]  # 충분한 범위
+                    
+                    change_amount_match = re.search(r'채권최고액[\s\S]*?금?\s*([\d,]+)\s*원', change_block)
+                    if change_amount_match:
+                        change_amounts.append(change_amount_match.group(1))
+                
+                # 가장 마지막 변경 금액이 있으면 그것을 사용, 없으면 초기 설정 금액 사용
+                amount = change_amounts[-1] if change_amounts else initial_amount
                 
                 # 날짜 추출
                 date_pattern = r'(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일'
@@ -484,15 +509,15 @@ class RegistryParser:
                 
                 # 근저당권자 찾기 (순위 블록에서 직접 추출)
                 # rank_block은 이미 다음 순위 전까지만 포함하므로, "근저당권자" 뒤의 텍스트 추출
-                # 가장 단순한 패턴: "근저당권자" 뒤의 모든 텍스트 (줄바꿈 포함, 다음 근저당권자나 [ 참 전까지)
-                creditor_pos = rank_block.find('근저당권자')
-                if creditor_pos >= 0:
-                    # "근저당권자" 뒤의 텍스트 추출
-                    creditor_text = rank_block[creditor_pos + len('근저당권자'):]
-                    # 줄바꿈이나 다음 키워드 전까지만
-                    creditor_text = re.split(r'\n\s*\d+\s+근저당권설정|\[\s*참|근저당권자\s+', creditor_text)[0]
+                # 패턴: "근저당권자 주식회사XXX" (줄바꿈이나 숫자로 시작하는 줄 전까지)
+                creditor_match = re.search(r'근저당권자\s+([가-힣a-zA-Z0-9]+(?:\s+[가-힣a-zA-Z0-9]+)*)', rank_block)
+                if creditor_match:
+                    creditor = creditor_match.group(1).strip()
+                    # 줄바꿈이나 숫자로 시작하는 부분 제거
+                    creditor = re.split(r'\n\s*\d+|\n\s*[가-힣]+\s*근저당권', creditor)[0]
+                    creditor = creditor.strip()
                     # 공백 제거
-                    creditor = re.sub(r'\s+', '', creditor_text.strip())
+                    creditor = re.sub(r'\s+', '', creditor)
                     # 너무 짧거나 숫자만 있으면 제외
                     if len(creditor) < 2 or creditor.isdigit():
                         creditor = ""
@@ -506,10 +531,41 @@ class RegistryParser:
                 if not creditor or len(creditor) < 2:
                     continue  # 근저당권자 못 찾으면 해당 순위 제외
                 
-                # 채무자: 요약의 대상소유자 우선 (주수현 등, 김지은 등)
-                debtor = self._find_target_owner_in_section(summary_text, rank)
+                # 채무자: 을구에서 해당 순위의 채무자 찾기 (우선)
+                # 을구에서는 "채무자" 뒤에 이름만 나오고, 그 다음 줄에 주소가 나옴
+                debtor = ""
+                if eulgu_text:
+                    # 을구에서 해당 순위의 블록 찾기
+                    eulgu_rank_match = re.search(rf'^{rank}\s+근저당권설정', eulgu_text, re.MULTILINE)
+                    if eulgu_rank_match:
+                        eulgu_start = eulgu_rank_match.start()
+                        # 다음 순위번호나 변경 항목 전까지
+                        next_rank_match = re.search(rf'^{int(rank)+1}\s+근저당권설정|^{rank}\s*-\s*\d+\s*근저당권', eulgu_text[eulgu_start+1:], re.MULTILINE)
+                        if next_rank_match:
+                            eulgu_end = eulgu_start + 1 + next_rank_match.start()
+                        else:
+                            eulgu_end = min(eulgu_start + 1000, len(eulgu_text))
+                        
+                        eulgu_rank_block = eulgu_text[eulgu_start:eulgu_end]
+                        # 을구 블록에서 채무자 찾기 (이름만, 주소 제외)
+                        # 패턴: "채무자 이름" (줄바꿈 전까지, 또는 주소 패턴 전까지)
+                        debtor_pattern = r'채무자\s+([가-힣]{2,4}(?:\s+[가-힣]{2,4})*?)(?=\s*\n\s*[가-힣]{2,4}\s*(?:시|도|구|동|로|길)|$|\n\s*\d+|\n\s*[가-힣]+\s*근저당권|\n\s*제\d+호)'
+                        debtor_match = re.search(debtor_pattern, eulgu_rank_block, re.DOTALL)
+                        if debtor_match:
+                            debtor = debtor_match.group(1).strip()
+                            # 공백 정리
+                            debtor = re.sub(r'\s+', ' ', debtor)
+                            # 이름이 너무 길면 (주소 포함 가능성) 첫 줄만
+                            if len(debtor) > 10:
+                                debtor = debtor.split('\n')[0].strip()
+                                debtor = re.sub(r'\s+', ' ', debtor)
+                
+                # 을구에서 못 찾으면 요약의 대상소유자 사용
                 if not debtor:
-                    # 순위 블록에서 채무자 찾기
+                    debtor = self._find_target_owner_in_section(summary_text, rank)
+                
+                # 그래도 못 찾으면 순위 블록에서 찾기
+                if not debtor:
                     debtor_pattern = r'채무자\s+([가-힣a-zA-Z0-9]+)'
                     debtor_match = re.search(debtor_pattern, rank_block, re.DOTALL)
                     if debtor_match:
