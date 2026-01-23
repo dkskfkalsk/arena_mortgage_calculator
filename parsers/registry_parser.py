@@ -346,38 +346,78 @@ class RegistryParser:
         return ""
     
     def _extract_owners(self) -> List[OwnerInfo]:
-        """소유자 정보 추출"""
+        """소유자 정보 추출 - 마지막 페이지(또는 마지막에서 2번째) 요약본의 갑구에서 추출"""
         owners = []
         
-        # 갑구에서 최신 소유권이전 찾기
-        # 패턴: 소유자 이름 주민번호-******* 주소
-        # 주요 등기사항 요약에서 찾기 (더 정확함)
-        summary_pattern = r'소유현황.*?(\w+)\s*\(?\s*(?:소유자)?\s*\)?\s*(\d{6})-\*+\s*(단독소유|공동소유|[\d/]+)?\s*([^\n]+)'
+        # 마지막 페이지 또는 마지막에서 2번째 페이지의 요약본 확인
+        pages_to_check = []
+        if len(self.pages_text) >= 1:
+            pages_to_check.append(self.pages_text[-1])  # 마지막 페이지
+        if len(self.pages_text) >= 2:
+            pages_to_check.append(self.pages_text[-2])  # 마지막에서 2번째 페이지
         
-        # 갑구에서 소유권이전 패턴
-        owner_pattern = r'소유권이전\s+\d+년\d+월\d+일\s+\d+년\d+월\d+일\s+매매\s+소유자\s+(\S+)\s+(\d{6})-[\d\*]+\s*\n?\s*([^\n]+)'
-        
-        # 주요 등기사항 요약 페이지에서 추출 시도
-        summary_owner_pattern = r'(\S{2,4})\s*\(?\s*소유자\s*\)?\s*(\d{6})-\*+\s*(단독소유|[\d/]+지분)?\s*([가-힣\s\d\-\(\),]+?)(?=\d+\s|$|\n\n)'
-        
-        matches = re.finditer(summary_owner_pattern, self.text)
-        for match in matches:
-            name = match.group(1).strip()
-            resident_num = match.group(2)
-            share = match.group(3) or "단독소유"
-            address = match.group(4).strip() if match.group(4) else ""
+        # 요약본에서 갑구 찾기
+        for page_text in pages_to_check:
+            # 갑구 섹션 찾기
+            gapgu_pattern = r'갑\s*구[\s\S]*?(?=을\s*구|출력일시|$)'
+            gapgu_match = re.search(gapgu_pattern, page_text, re.DOTALL | re.IGNORECASE)
             
-            # 생년월일 변환 (YYMMDD -> YYYY.MM.DD)
-            birth = self._convert_birth_date(resident_num)
-            
-            owner = OwnerInfo(
-                성명=name,
-                주민번호=f"{resident_num}-*******",
-                생년월일=birth,
-                주소=address,
-                지분=share
-            )
-            owners.append(owner)
+            if gapgu_match:
+                gapgu_text = gapgu_match.group(0)
+                
+                # 요약본의 갑구에서 소유자 패턴 찾기
+                # 패턴: "이름 (공유자)" 다음 줄에 "주민번호-*******" (공동명의인 경우)
+                # 예: "김연정 (공유자)\n791106-*******"
+                
+                # 줄 단위로 파싱
+                lines = gapgu_text.split('\n')
+                owner_matches = []
+                
+                for i, line in enumerate(lines):
+                    # "공유자" 키워드가 있는 줄 찾기 (공동명의인 경우)
+                    if '공유자' in line:
+                        # 이름 추출: "이름 (공유자)" 패턴
+                        name_match = re.search(r'([가-힣]{2,4})\s*\(\s*공유자\s*\)', line)
+                        if name_match:
+                            name = name_match.group(1).strip()
+                            # 다음 몇 줄에서 주민번호 찾기 (최대 3줄까지)
+                            for j in range(1, min(4, len(lines) - i)):
+                                if i + j < len(lines):
+                                    next_line = lines[i + j]
+                                    resident_match = re.search(r'(\d{6})-[\d\*]+', next_line)
+                                    if resident_match:
+                                        resident_num = resident_match.group(1)
+                                        # 주민번호 유효성 검사
+                                        if len(resident_num) == 6 and resident_num.isdigit():
+                                            try:
+                                                mm = int(resident_num[2:4])
+                                                dd = int(resident_num[4:6])
+                                                if 1 <= mm <= 12 and 1 <= dd <= 31:
+                                                    owner_matches.append((name, resident_num))
+                                                    break  # 찾았으면 다음 소유자로
+                                            except:
+                                                pass
+                
+                # 유효한 소유자들을 OwnerInfo로 변환
+                if owner_matches:
+                    for name, resident_num in owner_matches:
+                        # 생년월일 변환 (YYMMDD -> YYYY.MM.DD)
+                        birth = self._convert_birth_date(resident_num)
+                        
+                        # 지분 정보 (공동소유인 경우)
+                        share = "공동소유" if len(owner_matches) > 1 else "단독소유"
+                        
+                        owner = OwnerInfo(
+                            성명=name,
+                            주민번호=f"{resident_num}-*******",
+                            생년월일=birth,
+                            주소="",  # 요약본에는 주소가 없을 수 있음
+                            지분=share
+                        )
+                        owners.append(owner)
+                    
+                    # 소유자를 찾았으면 중단
+                    break
         
         # 중복 제거 (이름 기준)
         seen_names = set()

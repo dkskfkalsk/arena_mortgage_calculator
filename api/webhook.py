@@ -487,10 +487,12 @@ def get_application():
             collateral_provider = caption_info.get('collateral_provider', '')
             
             if result.소유자목록:
-                owner = result.소유자목록[0]
-                # 생년월일에서 나이 계산 (만나이, 한국 시간 기준)
+                # 공동명의인 경우 2명 모두 표시
+                owners = result.소유자목록[:2]  # 최대 2명까지
+                
+                # 첫 번째 소유자의 나이 계산 (만나이, 한국 시간 기준)
                 age = ""
-                if owner.생년월일:
+                if owners[0].생년월일:
                     try:
                         from datetime import datetime
                         try:
@@ -501,7 +503,7 @@ def get_application():
                             ZoneInfo = lambda tz: timezone(tz)
                         
                         # 생년월일 형식: "YYYY.MM.DD"
-                        birth_parts = owner.생년월일.split('.')
+                        birth_parts = owners[0].생년월일.split('.')
                         birth_year = int(birth_parts[0])
                         birth_month = int(birth_parts[1]) if len(birth_parts) > 1 else 1
                         birth_day = int(birth_parts[2]) if len(birth_parts) > 2 else 1
@@ -526,10 +528,20 @@ def get_application():
                     name_display = f"{borrower}(차), {collateral_provider}(담) {age}"
                 elif borrower:
                     # 차주만 있는 경우 (담보제공자는 등기부 소유자)
-                    name_display = f"{borrower}(차), {owner.성명}(담) {age}"
+                    if len(owners) == 1:
+                        name_display = f"{borrower}(차), {owners[0].성명}(담) {age}"
+                    else:
+                        # 공동명의인 경우 2명 모두 표시
+                        owner_names = ", ".join([o.성명 for o in owners])
+                        name_display = f"{borrower}(차), {owner_names}(담) {age}"
                 else:
                     # 일반적인 경우 (등기부 소유자가 차주)
-                    name_display = f"{owner.성명} {age}"
+                    if len(owners) == 1:
+                        name_display = f"{owners[0].성명} {age}"
+                    else:
+                        # 공동명의인 경우 2명 모두 표시
+                        owner_names = ", ".join([o.성명 for o in owners])
+                        name_display = f"{owner_names} {age}"
                 
                 lines.append(f"성   명 : {name_display}")
                 lines.append(f"직   업 : {caption_info['job']}")
@@ -537,7 +549,11 @@ def get_application():
                 lines.append(f"거주여부 : {caption_info['residence']}")
                 
                 # 소유현황
-                share = owner.지분 if owner.지분 else "단독소유"
+                if len(owners) == 1:
+                    share = owners[0].지분 if owners[0].지분 else "단독소유"
+                else:
+                    # 공동명의인 경우
+                    share = "공동소유"
                 lines.append(f"소유현황 : {share}")
             else:
                 # 등기부에서 소유자를 못 찾은 경우
