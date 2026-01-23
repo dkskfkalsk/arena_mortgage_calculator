@@ -421,31 +421,66 @@ class RegistryParser:
         mortgages = []
         
         # 방법 1: 주요 등기사항 요약에서 추출 (가장 정확)
-        # 패턴: "1 근저당권설정 2025년12월11일 채권최고액 금70,000,000원 김인아"
-        #       "제6520871호 근저당권자 황순나"
-        summary_pattern = r'(\d+)\s+근저당권설정\s+(\d{4})년(\d{1,2})월(\d{1,2})일\s*\n?\s*제?\d*호?\s*채권최고액\s*금?([\d,]+)원\s+(\S+)'
+        # "3. (근)저당권 및 전세권 등 ( 을구 )" 섹션 찾기
+        summary_section_pattern = r'\(근\)저당권\s*및\s*전세권\s*등.*?(?=\[|$)'
+        summary_match = re.search(summary_section_pattern, self.text, re.DOTALL | re.IGNORECASE)
         
-        matches = re.finditer(summary_pattern, self.text)
-        for match in matches:
-            rank = match.group(1)
-            year = match.group(2)
-            month = match.group(3).zfill(2)
-            day = match.group(4).zfill(2)
-            amount = match.group(5)
-            # 이 위치의 이름은 대상소유자(채무자)
-            debtor = match.group(6)
+        if summary_match:
+            summary_text = summary_match.group(0)
+            # 각 순위별로 추출: "1 근저당권설정 2025년12월11일 채권최고액 금70,000,000원"
+            summary_pattern = r'(\d+)\s+근저당권설정\s+(\d{4})년(\d{1,2})월(\d{1,2})일[\s\S]*?채권최고액\s*금?\s*([\d,]+)\s*원'
             
-            # 근저당권자 찾기
-            creditor = self._find_creditor_for_mortgage(rank)
+            matches = re.finditer(summary_pattern, summary_text)
+            for match in matches:
+                rank = match.group(1)
+                year = match.group(2)
+                month = match.group(3).zfill(2)
+                day = match.group(4).zfill(2)
+                amount = match.group(5)
+                
+                # 근저당권자 찾기 (순위번호 기준, 요약 섹션 내에서)
+                creditor = self._find_creditor_in_section(summary_text, rank)
+                
+                # 채무자 찾기 (순위번호 기준, 요약 섹션 내에서)
+                debtor = self._find_debtor_in_section(summary_text, rank)
+                
+                if creditor:  # 근저당권자가 있으면 추가
+                    mortgage = MortgageInfo(
+                        순위번호=rank,
+                        근저당권자=creditor,
+                        채무자=debtor,
+                        채권최고액=f"금 {amount}원",
+                        설정일=f"{year}.{month}.{day}"
+                    )
+                    mortgages.append(mortgage)
+        
+        # 방법 1-2: 전체 텍스트에서도 추출 시도 (요약 섹션이 없는 경우)
+        if not mortgages:
+            summary_pattern = r'(\d+)\s+근저당권설정\s+(\d{4})년(\d{1,2})월(\d{1,2})일[\s\S]*?채권최고액\s*금?\s*([\d,]+)\s*원'
             
-            mortgage = MortgageInfo(
-                순위번호=rank,
-                근저당권자=creditor,
-                채무자=debtor,
-                채권최고액=f"금 {amount}원",
-                설정일=f"{year}.{month}.{day}"
-            )
-            mortgages.append(mortgage)
+            matches = re.finditer(summary_pattern, self.text)
+            for match in matches:
+                rank = match.group(1)
+                year = match.group(2)
+                month = match.group(3).zfill(2)
+                day = match.group(4).zfill(2)
+                amount = match.group(5)
+                
+                # 근저당권자 찾기 (순위번호 기준)
+                creditor = self._find_creditor_for_mortgage(rank)
+                
+                # 채무자 찾기 (순위번호 기준)
+                debtor = self._find_debtor_for_mortgage(rank)
+                
+                if creditor:  # 근저당권자가 있으면 추가
+                    mortgage = MortgageInfo(
+                        순위번호=rank,
+                        근저당권자=creditor,
+                        채무자=debtor,
+                        채권최고액=f"금 {amount}원",
+                        설정일=f"{year}.{month}.{day}"
+                    )
+                    mortgages.append(mortgage)
         
         # 방법 2: 을구 본문에서 추출 (주요 등기사항 요약이 없는 경우)
         if not mortgages:
@@ -517,28 +552,75 @@ class RegistryParser:
         
         return unique
     
+    def _find_creditor_in_section(self, section_text: str, rank: str) -> str:
+        """특정 섹션 내에서 순위번호의 근저당권자 찾기"""
+        # 패턴: "1 근저당권설정 ... 근저당권자 오에스비저축은행"
+        pattern = rf'{rank}\s+근저당권설정[\s\S]*?근저당권자\s+([가-힣a-zA-Z0-9\s]+?)(?=\n|$|채무자|다음|\d+\s+근저당권)'
+        match = re.search(pattern, section_text, re.DOTALL)
+        if match:
+            creditor = match.group(1).strip()
+            # 줄바꿈이나 불필요한 공백 제거
+            creditor = re.sub(r'\s+', '', creditor)
+            if creditor:
+                return creditor
+        return ""
+    
+    def _find_debtor_in_section(self, section_text: str, rank: str) -> str:
+        """특정 섹션 내에서 순위번호의 채무자 찾기"""
+        # 패턴: "1 근저당권설정 ... 채무자 주수현"
+        pattern = rf'{rank}\s+근저당권설정[\s\S]*?채무자\s+([가-힣a-zA-Z0-9\s]+?)(?=\n|$|근저당권자|다음|\d+\s+근저당권)'
+        match = re.search(pattern, section_text, re.DOTALL)
+        if match:
+            debtor = match.group(1).strip()
+            debtor = re.sub(r'\s+', '', debtor)
+            if debtor:
+                return debtor
+        return ""
+    
     def _find_creditor_for_mortgage(self, rank: str) -> str:
         """특정 순위번호의 근저당권자 찾기"""
-        # 주요 등기사항 요약에서 찾기
-        pattern = rf'{rank}\s+근저당권설정.*?근저당권자\s+(\S+)'
+        # 주요 등기사항 요약에서 찾기 (순위번호 기준)
+        # 패턴: "1 근저당권설정 ... 근저당권자 오에스비저축은행"
+        pattern = rf'{rank}\s+근저당권설정[\s\S]*?근저당권자\s+([가-힣a-zA-Z0-9\s]+?)(?=\n|$|채무자|다음)'
         match = re.search(pattern, self.text, re.DOTALL)
         if match:
-            return match.group(1)
+            creditor = match.group(1).strip()
+            # 줄바꿈이나 불필요한 공백 제거
+            creditor = re.sub(r'\s+', '', creditor)
+            if creditor:
+                return creditor
         
-        # 을구 본문에서 찾기
-        pattern2 = rf'근저당권설정.*?제\d+호.*?근저당권자\s+(\S+)'
+        # 을구 본문에서 찾기 (순위번호 기준)
+        pattern2 = rf'{rank}\s+근저당권설정[\s\S]*?근저당권자\s+([가-힣a-zA-Z0-9\s]+?)(?=\n|$|채무자|다음)'
         match2 = re.search(pattern2, self.text, re.DOTALL)
         if match2:
-            return match2.group(1)
+            creditor = match2.group(1).strip()
+            creditor = re.sub(r'\s+', '', creditor)
+            if creditor:
+                return creditor
         
         return ""
     
     def _find_debtor_for_mortgage(self, rank: str) -> str:
         """특정 순위번호의 근저당권 채무자 찾기"""
-        pattern = rf'{rank}\s+근저당권설정.*?채무자\s+(\S+)'
+        # 주요 등기사항 요약에서 찾기
+        pattern = rf'{rank}\s+근저당권설정[\s\S]*?채무자\s+([가-힣a-zA-Z0-9\s]+?)(?=\n|$|근저당권자|다음)'
         match = re.search(pattern, self.text, re.DOTALL)
         if match:
-            return match.group(1)
+            debtor = match.group(1).strip()
+            debtor = re.sub(r'\s+', '', debtor)
+            if debtor:
+                return debtor
+        
+        # 을구 본문에서 찾기
+        pattern2 = rf'{rank}\s+근저당권설정[\s\S]*?채무자\s+([가-힣a-zA-Z0-9\s]+?)(?=\n|$|근저당권자|다음)'
+        match2 = re.search(pattern2, self.text, re.DOTALL)
+        if match2:
+            debtor = match2.group(1).strip()
+            debtor = re.sub(r'\s+', '', debtor)
+            if debtor:
+                return debtor
+        
         return ""
     
     def _extract_seizures(self) -> List[SeizureInfo]:
@@ -628,15 +710,18 @@ class RegistryParser:
             special_conditions.append("전매제한")
         
         # 금지사항 (소유권 제한) - 줄바꿈 허용
-        # 단, 신탁등기가 말소된 경우는 제외 (소유권 이전으로 해소된 경우)
+        # 단, 신탁등기가 말소된 경우는 제외 (소유권 제한이 해소된 경우)
         if re.search(r'금지\s*사항.*?소유권.*?제한', self.text, re.DOTALL):
-            # 신탁등기 말소 여부 확인
+            # 신탁등기 말소 여부 확인 (갑구에서 확인)
+            # 신탁등기 말소가 있으면 소유권 제한이 해소된 것으로 봄
             trust_cancelled = re.search(r'신탁\s*등\s*기\s*말\s*소', self.text, re.DOTALL | re.IGNORECASE)
-            # 소유권 이전으로 해소된 경우 확인
-            ownership_transfer_after = re.search(r'소유권\s*이전.*?신탁\s*등\s*기\s*말\s*소|신탁\s*등\s*기\s*말\s*소.*?소유권\s*이전', self.text, re.DOTALL | re.IGNORECASE)
             
-            # 신탁등기가 말소되고 소유권 이전이 있으면 소유권 제한으로 표시하지 않음
-            if not (trust_cancelled and ownership_transfer_after):
+            # 소유권 이전이 있는지 확인 (신탁등기 말소 후 소유권 이전이 있으면 확실히 해소됨)
+            ownership_transfer_exists = re.search(r'소유권\s*이전', self.text, re.DOTALL)
+            
+            # 신탁등기 말소가 있거나, 소유권 이전이 있으면 소유권 제한으로 표시하지 않음
+            # (신탁등기 말소 = 소유권 제한 해소)
+            if not trust_cancelled:
                 special_conditions.append("소유권제한")
         
         return ", ".join(special_conditions) if special_conditions else ""
