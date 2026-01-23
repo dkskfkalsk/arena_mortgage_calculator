@@ -159,10 +159,20 @@ class KBPriceAPI:
         
         # 구/시/군 추출
         # "경기도 수원시 권선구" -> district="수원시"
-        district_pattern = r'(?:시|도)\s+([가-힣]+(?:시|구|군))'
-        match = re.search(district_pattern, address)
-        if match:
-            result["district"] = match.group(1)
+        # "경기도 부천시 원미구" -> district="부천시"
+        # 시/군을 먼저 찾고, 그 다음 구를 찾아야 함
+        # 패턴: "경기도 부천시 원미구" -> "부천시" 추출
+        district_patterns = [
+            r'(?:시|도)\s+([가-힣]+시)\s+[가-힣]+구',  # "경기도 부천시 원미구" -> "부천시" (우선)
+            r'(?:시|도)\s+([가-힣]+시|[가-힣]+군)',  # "경기도 수원시" -> "수원시"
+        ]
+        
+        for pattern in district_patterns:
+            match = re.search(pattern, address)
+            if match:
+                result["district"] = match.group(1)
+                logger.debug(f"   구/시/군 추출: {match.group(1)}")
+                break
         
         # 동/읍/면 추출 (제217동, 제1105호 같은 '제' 제거)
         # 전국 데이터 구조: "권선구 곡반정동" 형식으로 저장됨
@@ -172,9 +182,9 @@ class KBPriceAPI:
         # 패턴 1: "경기도 수원시 권선구 곡반정동" -> "권선구 곡반정동" 추출
         # 패턴 2: "서울특별시 종로구 청운동" -> "청운동" 추출
         dong_patterns = [
-            r'(?:시|도)\s+[가-힣]+(?:시|구|군)\s+([가-힣]+(?:구|군|시)\s+[가-힣]+(?:동|읍|면))',  # "권선구 곡반정동" 형식
-            r'(?:구|군|시)\s+([가-힣]+(?:구|군|시)?\s*[가-힣]+(?:동|읍|면))',  # "권선구 곡반정동" 같은 경우
-            r'(?:구|군|시)\s+([가-힣]+(?:동|읍|면))',  # 일반 동명 (예: 곡반정동, 청운동)
+            r'(?:시|도)\s+[가-힣]+(?:시|구|군)\s+([가-힣]+(?:구|군|시)\s+[가-힣]+(?:동|읍|면))',  # "원미구 중동", "권선구 곡반정동" 형식
+            r'(?:구|군|시)\s+([가-힣]+(?:구|군|시)?\s*[가-힣]+(?:동|읍|면))',  # "원미구 중동", "권선구 곡반정동" 같은 경우
+            r'(?:구|군|시)\s+([가-힣]+(?:동|읍|면))',  # 일반 동명 (예: 곡반정동, 청운동, 중동)
             r'(?:구|군|시)\s+제?(\d+동)',  # 제가 붙은 동 (예: 제217동)
         ]
         
@@ -402,14 +412,15 @@ class KBPriceAPI:
             return []
     
     def find_matching_price(self, prices: List[Dict[str, Any]], area: float, 
-                           tolerance: float = 5.0) -> Optional[Dict[str, Any]]:
+                           tolerance: float = 20.0) -> Optional[Dict[str, Any]]:
         """
         면적에 맞는 시세 찾기
         
         Args:
             prices: 평형별 시세 리스트
             area: 전용면적 (m²)
-            tolerance: 허용 오차 (m², 기본 5.0)
+            tolerance: 허용 오차 (m², 기본 20.0)
+                      등기부 전용면적과 KB 공급면적 차이를 고려하여 넓게 설정
         
         Returns:
             가장 가까운 시세 정보 또는 None
@@ -425,7 +436,7 @@ class KBPriceAPI:
         candidates = []
         
         for i, price_info in enumerate(prices):
-            # 공급면적 추출
+            # 공급면적 추출 (KB 시세는 공급면적 기준)
             supply_area_str = price_info.get("공급면적") or price_info.get("면적", "")
             if not supply_area_str:
                 logger.debug(f"   [{i+1}] 면적 정보 없음, 스킵")
@@ -448,16 +459,19 @@ class KBPriceAPI:
                 best_match = price_info
                 logger.debug(f"   ✅ 현재 최적 매칭: {supply_area}m² (차이: {diff:.2f}m²)")
         
+        # 허용 오차 내 매칭 실패 시, 가장 가까운 것 사용
+        if not best_match and candidates:
+            candidates.sort(key=lambda x: x[1])
+            closest = candidates[0]
+            logger.info(f"💡 허용 오차 내 매칭 실패, 가장 가까운 면적 사용: {closest[0]}m² (차이: {closest[1]:.2f}m²)")
+            best_match = closest[2]
+            min_diff = closest[1]
+        
         if best_match:
             matched_area = best_match.get("공급면적") or best_match.get("면적", "N/A")
             logger.info(f"✅ 면적 매칭 성공: {matched_area}m² (차이: {min_diff:.2f}m²)")
         else:
-            logger.warning(f"⚠️ 허용 오차({tolerance}m²) 내 매칭 실패")
-            if candidates:
-                # 가장 가까운 것 찾기
-                candidates.sort(key=lambda x: x[1])
-                closest = candidates[0]
-                logger.debug(f"   가장 가까운 후보: {closest[0]}m² (차이: {closest[1]:.2f}m²)")
+            logger.warning(f"⚠️ 면적 매칭 실패: 후보가 없음")
         
         return best_match
     
@@ -548,14 +562,13 @@ class KBPriceAPI:
         # 5. 면적에 맞는 시세 찾기
         logger.debug(f"5단계: 면적 매칭 (목표 면적: {area}m²)")
         matched_price = self.find_matching_price(prices, area)
+        # find_matching_price에서 이미 가장 가까운 면적을 찾아서 반환하므로
+        # 여기서는 None인 경우만 처리
         if not matched_price:
-            logger.warning(f"⚠️ 면적 {area}m²에 맞는 시세를 찾을 수 없음 (허용 오차: 5m²)")
-            print(f"⚠️ 면적 {area}m²에 맞는 시세를 찾을 수 없음 (허용 오차: 5m²)")
-            # 가장 가까운 것이라도 반환
+            logger.error(f"❌ 면적 {area}m²에 맞는 시세를 찾을 수 없음")
+            print(f"❌ 면적 {area}m²에 맞는 시세를 찾을 수 없음")
             if prices:
-                matched_price = prices[0]
-                logger.warning(f"⚠️ 첫 번째 시세 사용: {matched_price.get('공급면적', 'N/A')}m²")
-                print(f"⚠️ 첫 번째 시세 사용: {matched_price.get('공급면적', 'N/A')}m²")
+                logger.warning(f"⚠️ 사용 가능한 면적: {[p.get('공급면적', 'N/A') for p in prices[:5]]}")
         
         # 6. 결과 구성
         logger.debug("6단계: 결과 구성")
