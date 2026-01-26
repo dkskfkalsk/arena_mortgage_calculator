@@ -1143,9 +1143,10 @@ def get_application():
                     bank_appraisal_price = extract_bank_appraisal_price_from_special_notes(special_notes)
                     if bank_appraisal_price is not None:
                         # 탁감가가 있으면 필수 정보 체크는 통과 (탁감가를 사용하는 금융사가 있을 수 있음)
-                        # 하지만 kb_price에는 넣지 않음 - base_calculator에서 각 금융사별 설정에 따라 사용
+                        # property_data에 탁감가 정보 저장하여 base_calculator에서 사용할 수 있도록 함
                         print(f"[WEBHOOK] 탁감가 추출됨 (필수 정보 체크용): {bank_appraisal_price}만원", file=sys.stderr, flush=True)
                         logger.info(f"handle_message - 탁감가 추출됨 (필수 정보 체크용): {bank_appraisal_price}만원")
+                        # special_notes에 탁감가 정보가 이미 있으므로 property_data는 그대로 유지
                         # kb_price는 None으로 유지하여 base_calculator에서 각 금융사별 설정에 따라 처리되도록 함
                     else:
                         missing_required.append("KB시세")
