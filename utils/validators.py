@@ -185,7 +185,7 @@ def extract_kb_ai_price_from_special_notes(special_notes):
 def extract_bank_appraisal_price_from_special_notes(special_notes):
     """
     특이사항에서 탁감가(은행감정가) 추출
-    "은행감정가 8억", "감정가 80,000만원", "탁감 80,000" 형식 처리
+    "은행감정가 8억", "감정가 80,000만원", "감정가 60,000만", "탁감 80,000" 형식 처리
     """
     if not special_notes:
         return None
@@ -194,37 +194,48 @@ def extract_bank_appraisal_price_from_special_notes(special_notes):
         import re
         notes_str = str(special_notes).strip()
         
+        print(f"DEBUG: extract_bank_appraisal_price_from_special_notes - input: {notes_str}")
+        
         # "은행감정가", "감정가", "탁감" 패턴 찾기
-        # "8억" -> 80000, "80,000만원" -> 80000 등 처리
+        # "8억" -> 80000, "80,000만원" -> 80000, "60,000만" -> 60000 등 처리
         patterns = [
-            r'(?:은행\s*감정가|감정가|탁감)\s*[:\s]*([\d,]+(?:\s*(?:억|만원|만))?)',
-            r'(?:은행\s*감정가|감정가|탁감)\s*[:\s]*([\d,]+)',
+            r'(?:은행\s*감정가|감정가|탁감)\s*[:\s]*([\d,]+(?:\s*(?:억|만원|만))?)',  # "감정가 60,000만" 형식
+            r'(?:은행\s*감정가|감정가|탁감)\s*[:\s]*([\d,]+)',  # "감정가 60000" 형식
         ]
         
         for pattern in patterns:
             match = re.search(pattern, notes_str, re.IGNORECASE)
             if match:
                 price_str = match.group(1).strip()
+                print(f"DEBUG: extract_bank_appraisal_price_from_special_notes - matched price_str: {price_str}")
+                
                 # "억" 처리 (8억 -> 80000)
                 if "억" in price_str:
                     price_str = price_str.replace("억", "").replace(",", "").strip()
                     if price_str:
                         price = float(price_str) * 10000
-                        print(f"DEBUG: extract_bank_appraisal_price_from_special_notes - extracted bank appraisal price: {price}만원")
+                        print(f"DEBUG: extract_bank_appraisal_price_from_special_notes - extracted bank appraisal price (억): {price}만원")
                         return price
                 else:
-                    # "만원" 제거 후 숫자만 추출
+                    # "만원" 또는 "만" 제거 후 숫자만 추출
                     price_str_clean = price_str.replace("만원", "").replace("만", "").replace(",", "").strip()
-                    if price_str_clean and len(price_str_clean) >= 3:
-                        price = float(price_str_clean)
-                        print(f"DEBUG: extract_bank_appraisal_price_from_special_notes - extracted bank appraisal price: {price}만원")
-                        return price
+                    print(f"DEBUG: extract_bank_appraisal_price_from_special_notes - cleaned price_str: {price_str_clean}")
+                    if price_str_clean and len(price_str_clean) >= 2:  # 최소 2자리 이상 (10만원 이상)
+                        try:
+                            price = float(price_str_clean)
+                            print(f"DEBUG: extract_bank_appraisal_price_from_special_notes - extracted bank appraisal price: {price}만원")
+                            return price
+                        except ValueError:
+                            print(f"DEBUG: extract_bank_appraisal_price_from_special_notes - ValueError converting to float: {price_str_clean}")
+                            continue
         
-        print(f"DEBUG: extract_bank_appraisal_price_from_special_notes - no bank appraisal price found in special_notes")
+        print(f"DEBUG: extract_bank_appraisal_price_from_special_notes - no bank appraisal price found in special_notes: {notes_str}")
         return None
         
     except (ValueError, AttributeError, TypeError) as e:
         print(f"DEBUG: extract_bank_appraisal_price_from_special_notes - error: {e}, input: {special_notes}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
