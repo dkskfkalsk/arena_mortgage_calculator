@@ -1804,7 +1804,7 @@ class BaseCalculator:
             if priority_key in max_ltv_by_priority:
                 grade_config = max_ltv_by_priority[priority_key]
                 
-                # 신용등급에 따라 키 선택
+                # 신용등급에 따라 키 선택 (신용점수 없음(X)일 때 fallback 적용)
                 grade_key = None
                 if credit_grade is not None:
                     if 1 <= credit_grade <= 6:
@@ -1813,6 +1813,9 @@ class BaseCalculator:
                         grade_key = "7"
                     elif credit_grade == 8:
                         grade_key = "8"
+                else:
+                    # 신용점수 없음: credit_grade_none_fallback 사용. LTV·한도만 등급 적용, 금리는 구간(최저~최고)으로 산출
+                    grade_key = self.config.get("credit_grade_none_fallback", "1-6")
                 
                 if grade_key and grade_key in grade_config:
                     region_ltv_map = grade_config[grade_key]

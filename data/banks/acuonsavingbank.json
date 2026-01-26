@@ -300,6 +300,8 @@
     "제주특별자치도제주시": 6,
     "제주특별자치도서귀포시": 6
   },
+  "credit_grade_none_fallback": "1-6",
+  "_comment_credit_grade_none_fallback": "신용점수 없음(X 등)일 때 LTV·한도 산출용 등급 키. 1-6=최대 LTV(한도 넓게), 금리는 구간(최저~최고)으로 별도 산출",
   "max_ltv_by_priority_grade_region": {
     "primary": {
       "1-6": {
