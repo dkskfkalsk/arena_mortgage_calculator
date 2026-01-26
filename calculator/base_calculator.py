@@ -230,6 +230,7 @@ class BaseCalculator:
         if kb_price is None:
             price_sources = self.config.get("price_sources", {})
             special_notes = property_data.get("special_notes", "") or ""
+            original_kb_price_raw = property_data.get("kb_price_raw", "") or ""
             
             # 우선순위에 따라 시세 추출 시도
             # kb_price는 이미 위에서 확인했으므로 제외
@@ -240,14 +241,24 @@ class BaseCalculator:
                     logger.info(f"BaseCalculator.calculate - KB AI시세 추출: {kb_ai_price}만원")
                     kb_price = kb_ai_price
                     kb_price_raw = f"KB AI시세: {kb_ai_price}만원"
+                    property_data["kb_price_raw"] = kb_price_raw  # property_data 업데이트
+                    property_data["kb_price"] = kb_price  # property_data 업데이트
             
             if kb_price is None and price_sources.get("bank_appraisal_price", 0) == 1:
+                # special_notes에서 탁감가 추출 시도
                 bank_appraisal_price = extract_bank_appraisal_price_from_special_notes(special_notes)
+                
+                # kb_price_raw에서도 탁감가 추출 시도 (예: "감정가 60,000만" 형식)
+                if bank_appraisal_price is None and original_kb_price_raw:
+                    bank_appraisal_price = extract_bank_appraisal_price_from_special_notes(str(original_kb_price_raw))
+                
                 if bank_appraisal_price is not None:
                     log_print(f"DEBUG: BaseCalculator.calculate - 탁감가 추출: {bank_appraisal_price}만원")
                     logger.info(f"BaseCalculator.calculate - 탁감가 추출: {bank_appraisal_price}만원")
                     kb_price = bank_appraisal_price
                     kb_price_raw = f"탁감가: {bank_appraisal_price}만원"
+                    property_data["kb_price_raw"] = kb_price_raw  # property_data 업데이트
+                    property_data["kb_price"] = kb_price  # property_data 업데이트
             
             if kb_price is None and price_sources.get("realestatetech_price", 0) == 1:
                 realestatetech_price = extract_realestatetech_price_from_special_notes(special_notes)
@@ -256,6 +267,8 @@ class BaseCalculator:
                     logger.info(f"BaseCalculator.calculate - 부동산테크 시세 추출: {realestatetech_price}만원")
                     kb_price = realestatetech_price
                     kb_price_raw = f"부동산테크 시세: {realestatetech_price}만원"
+                    property_data["kb_price_raw"] = kb_price_raw  # property_data 업데이트
+                    property_data["kb_price"] = kb_price  # property_data 업데이트
             
             if kb_price is None and price_sources.get("korea_realestate_price", 0) == 1:
                 korea_realestate_price = extract_korea_realestate_price_from_special_notes(special_notes)
@@ -264,6 +277,8 @@ class BaseCalculator:
                     logger.info(f"BaseCalculator.calculate - 한국부동산원 시세 추출: {korea_realestate_price}만원")
                     kb_price = korea_realestate_price
                     kb_price_raw = f"한국부동산원 시세: {korea_realestate_price}만원"
+                    property_data["kb_price_raw"] = kb_price_raw  # property_data 업데이트
+                    property_data["kb_price"] = kb_price  # property_data 업데이트
             
             if kb_price is None and price_sources.get("housematch_price", 0) == 1:
                 housematch_price = extract_housematch_price_from_special_notes(special_notes)
@@ -272,6 +287,8 @@ class BaseCalculator:
                     logger.info(f"BaseCalculator.calculate - 하우스머치 시세 추출: {housematch_price}만원")
                     kb_price = housematch_price
                     kb_price_raw = f"하우스머치 시세: {housematch_price}만원"
+                    property_data["kb_price_raw"] = kb_price_raw  # property_data 업데이트
+                    property_data["kb_price"] = kb_price  # property_data 업데이트
         
         if kb_price is None:
             log_print(f"DEBUG: BaseCalculator.calculate - KB price is None, returning None")
