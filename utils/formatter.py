@@ -260,6 +260,27 @@ def format_all_results(
                     # 근저당권이 없는 경우
                     priority_text = "선순위"
     
+    # 탁감가 정보 확인 (property_data에서 kb_price_raw 확인)
+    appraisal_price_info = None
+    if property_data:
+        kb_price_raw = property_data.get("kb_price_raw", "")
+        kb_price = property_data.get("kb_price")
+        
+        # kb_price_raw에 탁감가 또는 감정가 키워드가 있는지 확인
+        if kb_price_raw and ("탁감가" in str(kb_price_raw) or "감정가" in str(kb_price_raw)):
+            # 탁감가 금액 추출 (kb_price 사용 또는 kb_price_raw에서 추출)
+            if kb_price:
+                # 숫자 포맷팅 (쉼표 추가)
+                price_str = f"{int(kb_price):,}"
+                appraisal_price_info = f"탁감가 {price_str}만"
+            else:
+                # kb_price_raw에서 숫자 추출 시도
+                import re
+                price_match = re.search(r'([\d,]+)', str(kb_price_raw))
+                if price_match:
+                    price_str = price_match.group(1)
+                    appraisal_price_info = f"탁감가 {price_str}만"
+    
     # 전체 진행 여부 판단
     header_lines = []
     if all_refinance_results and not all_subordinate_results:
@@ -267,33 +288,48 @@ def format_all_results(
         if all_refinance_institutions_set:
             institutions_str = ", ".join(sorted(all_refinance_institutions_set))
             if priority_text:
-                header_lines.append(f"※ 대환 진행 ({institutions_str}) - {priority_text} 진행")
+                header_text = f"※ 대환 진행 ({institutions_str}) - {priority_text} 진행"
             else:
-                header_lines.append(f"※ 대환 진행 ({institutions_str})")
+                header_text = f"※ 대환 진행 ({institutions_str})"
         else:
             if priority_text:
-                header_lines.append(f"※ 대환 진행 - {priority_text} 진행")
+                header_text = f"※ 대환 진행 - {priority_text} 진행"
             else:
-                header_lines.append("※ 대환 진행")
+                header_text = "※ 대환 진행"
+        
+        # 탁감가 정보가 있으면 추가
+        if appraisal_price_info:
+            header_text += f" / {appraisal_price_info}"
+        header_lines.append(header_text)
     elif all_subordinate_results and not all_refinance_results:
         # 모든 결과가 후순위인 경우
         if priority_text:
-            header_lines.append(f"※ 후순위 진행 - {priority_text} 진행")
+            header_text = f"※ 후순위 진행 - {priority_text} 진행"
         else:
-            header_lines.append("※ 후순위 진행")
+            header_text = "※ 후순위 진행"
+        
+        # 탁감가 정보가 있으면 추가
+        if appraisal_price_info:
+            header_text += f" / {appraisal_price_info}"
+        header_lines.append(header_text)
     elif all_refinance_results and all_subordinate_results:
         # 혼합된 경우
         if all_refinance_institutions_set:
             institutions_str = ", ".join(sorted(all_refinance_institutions_set))
             if priority_text:
-                header_lines.append(f"※ 대환/후순위 혼합 진행 (대환: {institutions_str}) - {priority_text} 진행")
+                header_text = f"※ 대환/후순위 혼합 진행 (대환: {institutions_str}) - {priority_text} 진행"
             else:
-                header_lines.append(f"※ 대환/후순위 혼합 진행 (대환: {institutions_str})")
+                header_text = f"※ 대환/후순위 혼합 진행 (대환: {institutions_str})"
         else:
             if priority_text:
-                header_lines.append(f"※ 대환/후순위 혼합 진행 - {priority_text} 진행")
+                header_text = f"※ 대환/후순위 혼합 진행 - {priority_text} 진행"
             else:
-                header_lines.append("※ 대환/후순위 혼합 진행")
+                header_text = "※ 대환/후순위 혼합 진행"
+        
+        # 탁감가 정보가 있으면 추가
+        if appraisal_price_info:
+            header_text += f" / {appraisal_price_info}"
+        header_lines.append(header_text)
     
     formatted_results = []
     

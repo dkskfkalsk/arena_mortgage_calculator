@@ -249,49 +249,8 @@ def get_application():
                     # 결과 반환
                     await message.reply_text(response)
                     
-                    # 등기부 정보를 파싱해서 계산 수행
-                    try:
-                        print(f"[WEBHOOK] 등기부 정보 파싱 및 계산 시작...", file=sys.stderr, flush=True)
-                        logger.info("등기부 정보 파싱 및 계산 시작")
-                        
-                        # 포맷팅된 텍스트를 MessageParser로 파싱
-                        parser = MessageParser()
-                        property_data = parser.parse(response)
-                        
-                        print(f"[WEBHOOK] 파싱 완료 - kb_price: {property_data.get('kb_price')}", file=sys.stderr, flush=True)
-                        logger.info(f"파싱 완료 - kb_price: {property_data.get('kb_price')}")
-                        
-                        # 파싱된 데이터가 의미 있는 경우에만 계산 수행
-                        has_meaningful_data = any([
-                            property_data.get("kb_price") is not None,
-                            property_data.get("address"),
-                            property_data.get("property_type"),
-                            bool(property_data.get("mortgages"))
-                        ])
-                        
-                        if has_meaningful_data:
-                            # 채팅방 타입에 따라 다른 계산 함수 호출
-                            chat_type = get_chat_type(chat_id)
-                            if chat_type == "loan":
-                                results = BaseCalculator.calculate_all_loans(property_data)
-                            else:  # banks 또는 None (기본값)
-                                results = BaseCalculator.calculate_all_banks(property_data)
-                            
-                            # 결과 포맷팅 및 전송
-                            if results:
-                                formatted_results = format_all_results(results)
-                                if formatted_results:
-                                    await message.reply_text(formatted_results)
-                                    print(f"[WEBHOOK] 계산 결과 전송 완료", file=sys.stderr, flush=True)
-                                    logger.info("계산 결과 전송 완료")
-                        else:
-                            print(f"[WEBHOOK] 파싱된 데이터가 의미 없음, 계산 건너뜀", file=sys.stderr, flush=True)
-                            logger.info("파싱된 데이터가 의미 없음, 계산 건너뜀")
-                            
-                    except Exception as calc_err:
-                        print(f"[WEBHOOK] 계산 중 오류 발생: {str(calc_err)}", file=sys.stderr, flush=True)
-                        logger.error(f"계산 중 오류 발생: {str(calc_err)}", exc_info=True)
-                        # 계산 오류는 무시하고 등기부 정보만 표시
+                    # banks_2 채팅방에서는 등기부 정보만 표시하고 계산 결과는 표시하지 않음
+                    # (계산은 다른 채팅방에서 텍스트 메시지로 처리)
                     
                 finally:
                     # 임시 파일 삭제
@@ -925,6 +884,7 @@ def get_application():
                     logger.error(f"KB 시세 조회 중 오류: {str(e)}", exc_info=True)
             
             # KB 시세가 없으면 캡션에서 대체 시세 추출 시도 (감정가, 탁감가, 테크시세 등)
+            alternative_price_type = None  # 대체 시세 타입 추적 (None이면 KB 시세 사용)
             if not kb_price:
                 from utils.validators import (
                     extract_bank_appraisal_price_from_special_notes,
@@ -940,24 +900,32 @@ def get_application():
                 bank_appraisal_price = extract_bank_appraisal_price_from_special_notes(caption_text)
                 if bank_appraisal_price is not None:
                     kb_price = f"{int(bank_appraisal_price):,}"
-                    print(f"[WEBHOOK] ✅ 캡션에서 탁감가 추출: {kb_price}만원", file=sys.stderr, flush=True)
-                    logger.info(f"캡션에서 탁감가 추출: {kb_price}만원")
+                    # 캡션에서 감정가/탁감가 키워드 확인
+                    if re.search(r'감정가', caption_text, re.IGNORECASE):
+                        alternative_price_type = "감정가"
+                    else:
+                        alternative_price_type = "탁감가"
+                    print(f"[WEBHOOK] ✅ 캡션에서 {alternative_price_type} 추출: {kb_price}만원", file=sys.stderr, flush=True)
+                    logger.info(f"캡션에서 {alternative_price_type} 추출: {kb_price}만원")
                 else:
                     realestatetech_price = extract_realestatetech_price_from_special_notes(caption_text)
                     if realestatetech_price is not None:
                         kb_price = f"{int(realestatetech_price):,}"
+                        alternative_price_type = "부동산테크 시세"
                         print(f"[WEBHOOK] ✅ 캡션에서 부동산테크 시세 추출: {kb_price}만원", file=sys.stderr, flush=True)
                         logger.info(f"캡션에서 부동산테크 시세 추출: {kb_price}만원")
                     else:
                         korea_realestate_price = extract_korea_realestate_price_from_special_notes(caption_text)
                         if korea_realestate_price is not None:
                             kb_price = f"{int(korea_realestate_price):,}"
+                            alternative_price_type = "한국부동산원 시세"
                             print(f"[WEBHOOK] ✅ 캡션에서 한국부동산원 시세 추출: {kb_price}만원", file=sys.stderr, flush=True)
                             logger.info(f"캡션에서 한국부동산원 시세 추출: {kb_price}만원")
                         else:
                             housematch_price = extract_housematch_price_from_special_notes(caption_text)
                             if housematch_price is not None:
                                 kb_price = f"{int(housematch_price):,}"
+                                alternative_price_type = "하우스머치 시세"
                                 print(f"[WEBHOOK] ✅ 캡션에서 하우스머치 시세 추출: {kb_price}만원", file=sys.stderr, flush=True)
                                 logger.info(f"캡션에서 하우스머치 시세 추출: {kb_price}만원")
             
@@ -968,8 +936,14 @@ def get_application():
                 logger.warning(error_message)
                 return error_message
             
-            lines.append(f"KB시세 : 일반 {kb_price}만원")
-            lines.append(f"KB시세 : 하한 {kb_price_low}만원" if kb_price_low else f"KB시세 : 하한      만원")
+            # 시세 표시 (KB 시세인지 대체 시세인지에 따라 다르게 표시)
+            if alternative_price_type:
+                # 대체 시세 사용 시: "감정가 : 60,000만원" 형식
+                lines.append(f"{alternative_price_type} : {kb_price}만원")
+            else:
+                # KB 시세 사용 시: 기존 형식 유지
+                lines.append(f"KB시세 : 일반 {kb_price}만원")
+                lines.append(f"KB시세 : 하한 {kb_price_low}만원" if kb_price_low else f"KB시세 : 하한      만원")
             
             # 근저당권 설정 내역
             lines.append(f"=========설정내역=========")
