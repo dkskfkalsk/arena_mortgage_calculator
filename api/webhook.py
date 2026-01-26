@@ -241,6 +241,7 @@ def get_application():
                         except Exception as del_err:
                             print(f"[WEBHOOK] Failed to delete processing message: {str(del_err)}", file=sys.stderr, flush=True)
                     
+                    # 결과 반환 (에러 메시지인 경우도 포함)
                     await message.reply_text(response)
                     
                 finally:
@@ -537,6 +538,23 @@ def get_application():
                     r'(?:kb\s*x|kbx)\s*/\s*(?:하우스\s*머치\s*중위|하머\s*중위|하머중위)\s*([\d,]+)',
                 ]
                 for pattern in hammer_patterns:
+                    match = re.search(pattern, caption, re.IGNORECASE)
+                    if match:
+                        price_text = match.group(1).strip()
+                        price_man = parse_complex_amount(price_text)
+                        if price_man:
+                            info['kb_price'] = f"{price_man:,}"
+                            kb_price_found = True
+                            break
+            
+            # 4. 감정가/탁감가 추출 (KB시세, 부동산테크시세, 하우스머치 중위시세가 없을 경우)
+            # "은행감정가 8억", "감정가 80,000만원", "탁감 80,000" 형식 처리
+            if not kb_price_found:
+                appraisal_patterns = [
+                    r'(?:은행\s*감정가|감정가|탁감)\s*[:：]?\s*([\d,\s억천만원]+)',
+                    r'(?:은행\s*감정가|감정가|탁감)\s*[:：]?\s*([\d,]+)',
+                ]
+                for pattern in appraisal_patterns:
                     match = re.search(pattern, caption, re.IGNORECASE)
                     if match:
                         price_text = match.group(1).strip()
@@ -854,7 +872,51 @@ def get_application():
                     print(f"[WEBHOOK] ❌ KB 시세 조회 중 오류: {str(e)}", file=sys.stderr, flush=True)
                     logger.error(f"KB 시세 조회 중 오류: {str(e)}", exc_info=True)
             
-            lines.append(f"KB시세 : 일반 {kb_price}만원" if kb_price else f"KB시세 : 일반      만원")
+            # KB 시세가 없으면 캡션에서 대체 시세 추출 시도 (감정가, 탁감가, 테크시세 등)
+            if not kb_price:
+                from utils.validators import (
+                    extract_bank_appraisal_price_from_special_notes,
+                    extract_realestatetech_price_from_special_notes,
+                    extract_korea_realestate_price_from_special_notes,
+                    extract_housematch_price_from_special_notes
+                )
+                
+                # 캡션을 special_notes로 사용하여 대체 시세 추출
+                caption_text = caption or ""
+                
+                # 우선순위: 감정가/탁감가 > 부동산테크 시세 > 한국부동산원 시세 > 하우스머치 시세
+                bank_appraisal_price = extract_bank_appraisal_price_from_special_notes(caption_text)
+                if bank_appraisal_price is not None:
+                    kb_price = f"{int(bank_appraisal_price):,}"
+                    print(f"[WEBHOOK] ✅ 캡션에서 탁감가 추출: {kb_price}만원", file=sys.stderr, flush=True)
+                    logger.info(f"캡션에서 탁감가 추출: {kb_price}만원")
+                else:
+                    realestatetech_price = extract_realestatetech_price_from_special_notes(caption_text)
+                    if realestatetech_price is not None:
+                        kb_price = f"{int(realestatetech_price):,}"
+                        print(f"[WEBHOOK] ✅ 캡션에서 부동산테크 시세 추출: {kb_price}만원", file=sys.stderr, flush=True)
+                        logger.info(f"캡션에서 부동산테크 시세 추출: {kb_price}만원")
+                    else:
+                        korea_realestate_price = extract_korea_realestate_price_from_special_notes(caption_text)
+                        if korea_realestate_price is not None:
+                            kb_price = f"{int(korea_realestate_price):,}"
+                            print(f"[WEBHOOK] ✅ 캡션에서 한국부동산원 시세 추출: {kb_price}만원", file=sys.stderr, flush=True)
+                            logger.info(f"캡션에서 한국부동산원 시세 추출: {kb_price}만원")
+                        else:
+                            housematch_price = extract_housematch_price_from_special_notes(caption_text)
+                            if housematch_price is not None:
+                                kb_price = f"{int(housematch_price):,}"
+                                print(f"[WEBHOOK] ✅ 캡션에서 하우스머치 시세 추출: {kb_price}만원", file=sys.stderr, flush=True)
+                                logger.info(f"캡션에서 하우스머치 시세 추출: {kb_price}만원")
+            
+            # KB 시세가 없고 대체 시세도 없을 때 에러 메시지 반환 (등기부 정보 표시 전)
+            if not kb_price:
+                error_message = "KB 시세가 검색되지 않으므로 다른 시세 첨부 부탁드립니다"
+                print(f"[WEBHOOK] {error_message}", file=sys.stderr, flush=True)
+                logger.warning(error_message)
+                return error_message
+            
+            lines.append(f"KB시세 : 일반 {kb_price}만원")
             lines.append(f"KB시세 : 하한 {kb_price_low}만원" if kb_price_low else f"KB시세 : 하한      만원")
             
             # 근저당권 설정 내역
