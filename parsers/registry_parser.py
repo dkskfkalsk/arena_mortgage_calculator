@@ -262,6 +262,14 @@ class RegistryParser:
         # 전유부분의 건물의 표시 섹션에서 전용면적 찾기
         # 표제부 > 전유부분의 건물의 표시에 나오는 면적이 전용면적
         
+        # 0. (전 1) 63.81㎡ 형태: 전유 1호기 전용면적 명시 (동문아파트 등)
+        match = re.search(r'\(전\s*\d+\)\s*(\d+\.?\d*)\s*㎡', self.text)
+        if match:
+            area = match.group(1)
+            area_float = float(area)
+            if 10 <= area_float <= 300:
+                return f"{area}㎡"
+        
         # 1. 전유부분 표시 섹션에서 찾기 (제X동 제X호 근처의 면적)
         # 패턴: 제2동 제203호 ... XX.XX㎡ 철근콘크리트
         patterns = [
@@ -282,19 +290,28 @@ class RegistryParser:
                 if 10 <= area_float <= 300:
                     return f"{area}㎡"
         
-        # 2. 표제부에서 모든 ㎡ 찾아서 전용면적 범위에 맞는 것 선택
-        all_areas = re.findall(r'(\d+\.?\d*)\s*㎡', self.text)
+        # 2. 표제부/전유부분 섹션 한정: 【 표 제 부 】 다음 ~ 다음 【 전까지
+        table_section = ""
+        m = re.search(r'【\s*표\s*제\s*부\s*】[\s\S]*?(?=【|$)', self.text, re.IGNORECASE)
+        if m:
+            table_section = m.group(0)
+        search_text = table_section if table_section else self.text
+        
+        all_areas = re.findall(r'(\d+\.?\d*)\s*㎡', search_text)
         valid_areas = []
         for area in all_areas:
-            area_float = float(area)
-            # 전용면적 범위 (보통 20~200㎡, 대형은 300㎡까지)
-            if 20 <= area_float <= 200:
-                valid_areas.append(area)
+            try:
+                area_float = float(area)
+                # 전용면적 범위 (보통 20~200㎡, 대형은 300㎡까지)
+                if 20 <= area_float <= 200:
+                    valid_areas.append((area_float, area))
+            except ValueError:
+                continue
         
-        # 가장 작은 값이 보통 전용면적 (대지권비율 등 제외)
+        # 가장 작은 값이 전용면적 (대지권비율·전체동 면적 등 제외)
         if valid_areas:
-            # 빈도가 높은 값 또는 첫 번째 적합한 값
-            return f"{valid_areas[0]}㎡"
+            valid_areas.sort(key=lambda x: x[0])
+            return f"{valid_areas[0][1]}㎡"
         
         return ""
     

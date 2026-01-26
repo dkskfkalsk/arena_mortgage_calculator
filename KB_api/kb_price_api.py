@@ -372,19 +372,19 @@ class KBPriceAPI:
                 response.raise_for_status()
                 data = response.json()
                 complexes = data.get("dataBody", {}).get("data", [])
-                print(f"✅ 단지 목록 조회 성공: {len(complexes)}개 단지")
+                print(f"[OK] 단지 목록 조회 성공: {len(complexes)}개 단지")
                 return complexes
             except (requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError) as e:
                 if attempt < max_retries - 1:
                     time.sleep(1.5 * (attempt + 1))
                     continue
-                print(f"❌ 단지 목록 조회 실패(연결 끊김): {e}")
+                print(f"[X] 단지 목록 조회 실패(연결 끊김): {e}")
                 return []
             except requests.exceptions.RequestException as e:
-                print(f"❌ 단지 목록 조회 실패: {e}")
+                print(f"[X] 단지 목록 조회 실패: {e}")
                 return []
             except Exception as e:
-                print(f"❌ 단지 목록 조회 오류: {e}")
+                print(f"[X] 단지 목록 조회 오류: {e}")
                 return []
         return []
     
@@ -409,14 +409,14 @@ class KBPriceAPI:
             data = response.json()
             prices = data.get("dataBody", {}).get("data", [])
             
-            print(f"✅ 단지 시세 조회 성공: {len(prices)}개 타입")
+            print(f"[OK] 단지 시세 조회 성공: {len(prices)}개 타입")
             return prices
             
         except requests.exceptions.RequestException as e:
-            print(f"❌ 단지 시세 조회 실패: {e}")
+            print(f"[X] 단지 시세 조회 실패: {e}")
             return []
         except Exception as e:
-            print(f"❌ 단지 시세 조회 오류: {e}")
+            print(f"[X] 단지 시세 조회 오류: {e}")
             return []
     
     def get_complex_info(self, complex_id: str) -> Optional[Dict[str, Any]]:
@@ -441,15 +441,15 @@ class KBPriceAPI:
             return None
     
     def find_matching_price(self, prices: List[Dict[str, Any]], area: float, 
-                           tolerance: float = 20.0) -> Optional[Dict[str, Any]]:
+                           tolerance: float = 5.0) -> Optional[Dict[str, Any]]:
         """
-        면적에 맞는 시세 찾기
+        면적에 맞는 시세 찾기 (정확한 매칭 우선)
         
         Args:
             prices: 평형별 시세 리스트
             area: 전용면적 (m²)
-            tolerance: 허용 오차 (m², 기본 20.0)
-                      등기부 전용면적과 KB 공급면적 차이를 고려하여 넓게 설정
+            tolerance: 허용 오차 (m², 기본 5.0)
+                      등기부 전용면적과 KB 면적 차이를 고려하여 엄격하게 설정
         
         Returns:
             가장 가까운 시세 정보 또는 None
@@ -465,42 +465,50 @@ class KBPriceAPI:
         candidates = []
         
         for i, price_info in enumerate(prices):
-            # 공급면적·전용면적 둘 다 후보: 등기부 면적이 전용에 가까운 경우가 있어 전용면적도 사용
+            # 전용면적을 우선적으로 비교 (등기부 면적은 전용면적에 가까움)
             def parse_area(s):
                 if not s: return None
                 try: return float(str(s).strip())
                 except (ValueError, TypeError): return None
-            supply = parse_area(price_info.get("공급면적") or price_info.get("면적", ""))
             dedicated = parse_area(price_info.get("전용면적", ""))
-            if supply is None and dedicated is None:
+            supply = parse_area(price_info.get("공급면적") or price_info.get("면적", ""))
+            
+            if dedicated is None and supply is None:
                 logger.debug(f"   [{i+1}] 면적 정보 없음, 스킵")
                 continue
-            # 이 행에서 목표 area와 차이가 가장 작은 면적(공급/전용)을 사용
-            row_candidates = [(supply, "공급면적")] if supply is not None else []
+            
+            # 전용면적을 우선 사용, 없으면 공급면적 사용
             if dedicated is not None:
-                row_candidates.append((dedicated, "전용면적"))
-            used_val, diff, used_key = min(
-                [(v, abs(v - area), k) for v, k in row_candidates],
-                key=lambda x: x[1]
-            )
-            candidates.append((used_val, diff, price_info))
+                used_val, diff, used_key = dedicated, abs(dedicated - area), "전용면적"
+            else:
+                used_val, diff, used_key = supply, abs(supply - area), "공급면적"
+            
+            candidates.append((used_val, diff, price_info, used_key))
             logger.debug(f"   [{i+1}] {used_key}={used_val}m², 차이={diff:.2f}m²")
+            
+            # 허용 오차 내에서 가장 가까운 것 선택
             if diff <= tolerance and diff < min_diff:
                 min_diff = diff
                 best_match = price_info
                 logger.debug(f"   현재 최적 매칭: {used_key}={used_val}m² (차이: {diff:.2f}m²)")
         
-        # 허용 오차 내 매칭 실패 시, 가장 가까운 것 사용
+        # 허용 오차 내 매칭 실패 시, 가장 가까운 것 사용 (단, 경고)
         if not best_match and candidates:
             candidates.sort(key=lambda x: x[1])
             closest = candidates[0]
-            logger.info(f"💡 허용 오차 내 매칭 실패, 가장 가까운 면적 사용: {closest[0]}m² (차이: {closest[1]:.2f}m²)")
+            closest_diff = closest[1]
+            logger.warning(f"[!] 허용 오차({tolerance}m²) 내 매칭 실패, 가장 가까운 면적 사용: {closest[0]}m² (차이: {closest_diff:.2f}m²)")
+            if closest_diff > 10.0:
+                logger.warning(f"[!] 면적 차이가 {closest_diff:.2f}m²로 큼 - 정확한 시세가 아닐 수 있음")
             best_match = closest[2]
-            min_diff = closest[1]
+            min_diff = closest_diff
         
         if best_match:
             matched_area = best_match.get("전용면적") or best_match.get("공급면적") or best_match.get("면적", "N/A")
-            logger.info(f"면적 매칭 성공: {matched_area}m² (차이: {min_diff:.2f}m²)")
+            if min_diff > 5.0:
+                logger.warning(f"[!] 면적 매칭 차이: {min_diff:.2f}m² (목표: {area}m², 매칭: {matched_area}m²)")
+            else:
+                logger.info(f"면적 매칭 성공: {matched_area}m² (차이: {min_diff:.2f}m²)")
         else:
             logger.warning(f"⚠️ 면적 매칭 실패: 후보가 없음")
         
@@ -536,7 +544,7 @@ class KBPriceAPI:
         logger.info(f"\n🔍 KB 시세 조회 시작")
         logger.info(f"   주소: {address}")
         logger.info(f"   면적: {area}m²")
-        print(f"\n🔍 KB 시세 조회 시작")
+        print(f"\n[KB] KB 시세 조회 시작")
         print(f"   주소: {address}")
         print(f"   면적: {area}m²")
         
@@ -545,7 +553,7 @@ class KBPriceAPI:
         dongcode = self.find_dongcode(address)
         if not dongcode:
             logger.error("❌ 법정동코드를 찾을 수 없어 시세 조회 불가")
-            print("❌ 법정동코드를 찾을 수 없어 시세 조회 불가")
+            print("[X] 법정동코드를 찾을 수 없어 시세 조회 불가")
             return None
         
         logger.info(f"✅ 법정동코드: {dongcode}")
@@ -555,7 +563,7 @@ class KBPriceAPI:
         complexes = self.get_complex_list(dongcode)
         if not complexes:
             logger.error("❌ 단지 목록을 찾을 수 없음")
-            print("❌ 단지 목록을 찾을 수 없음")
+            print("[X] 단지 목록을 찾을 수 없음")
             return None
         
         logger.info(f"✅ 단지 목록 조회 성공: {len(complexes)}개 단지")
@@ -586,7 +594,7 @@ class KBPriceAPI:
                 if complex_name == complex_name_from_api:
                     selected_complex = complex
                     logger.info(f"✅ 단지명 정확 매칭: {complex_name_from_api}")
-                    print(f"✅ 단지명 정확 매칭: {complex_name_from_api}")
+                    print(f"[OK] 단지명 정확 매칭: {complex_name_from_api}")
                     break
                 
                 # 부분 매칭 점수 계산 (더 긴 매칭이 우선)
@@ -618,7 +626,7 @@ class KBPriceAPI:
                 selected_complex = best_match
                 complex_name_from_api = selected_complex.get('단지명', '알 수 없음')
                 logger.info(f"✅ 단지명 부분 매칭: {complex_name_from_api} (점수: {best_score:.2f})")
-                print(f"✅ 단지명 부분 매칭: {complex_name_from_api}")
+                print(f"[OK] 단지명 부분 매칭: {complex_name_from_api}")
         
         # 단지명 매칭 실패 시 첫 번째 단지 사용
         if not selected_complex:
@@ -626,7 +634,7 @@ class KBPriceAPI:
             complex_name_from_api = selected_complex.get('단지명', '알 수 없음')
             logger.warning(f"⚠️ 단지명 매칭 실패, 첫 번째 단지 사용: {complex_name_from_api}")
             logger.debug(f"   사용 가능한 단지 목록: {[c.get('단지명', 'N/A') for c in complexes[:5]]}")
-            print(f"⚠️ 단지명 매칭 실패, 첫 번째 단지 사용: {complex_name_from_api}")
+            print(f"[!] 단지명 매칭 실패, 첫 번째 단지 사용: {complex_name_from_api}")
         
         # 4. 단지 데이터에서 매매 시세 정보 추출 (별도 API 호출 불필요)
         # fastPriceInfo API 응답에 이미 매매 배열이 포함되어 있음
@@ -634,12 +642,12 @@ class KBPriceAPI:
         prices = selected_complex.get("매매", [])
         if not prices:
             logger.error(f"❌ 해당 단지에 매매 시세 정보가 없음: {selected_complex.get('단지명')}")
-            print("❌ 해당 단지에 매매 시세 정보가 없음")
+            print("[X] 해당 단지에 매매 시세 정보가 없음")
             return None
         
         logger.info(f"✅ 단지에서 시세 정보 추출: {len(prices)}개 타입")
         logger.debug(f"   시세 타입별 면적: {[p.get('공급면적', 'N/A') for p in prices[:5]]}")
-        print(f"✅ 단지에서 시세 정보 추출: {len(prices)}개 타입")
+        print(f"[OK] 단지에서 시세 정보 추출: {len(prices)}개 타입")
         
         # 5. 면적에 맞는 시세 찾기
         logger.debug(f"5단계: 면적 매칭 (목표 면적: {area}m²)")
@@ -649,10 +657,10 @@ class KBPriceAPI:
         # 여기서는 None인 경우만 처리
         if not matched_price:
             logger.error(f"❌ 면적 {area}m²에 맞는 시세를 찾을 수 없음")
-            print(f"❌ 면적 {area}m²에 맞는 시세를 찾을 수 없음")
+            print(f"[X] 면적 {area}m²에 맞는 시세를 찾을 수 없음")
             if prices:
                 logger.warning(f"⚠️ 사용 가능한 면적: {[p.get('공급면적', 'N/A') for p in prices[:10]]}")
-                print(f"⚠️ 사용 가능한 면적: {[p.get('공급면적', 'N/A') for p in prices[:10]]}")
+                print(f"[!] 사용 가능한 면적: {[p.get('공급면적', 'N/A') for p in prices[:10]]}")
         
         # 6. 결과 구성
         logger.debug("6단계: 결과 구성")
@@ -666,7 +674,7 @@ class KBPriceAPI:
         
         if not price_value:
             logger.error(f"❌ 시세 가격 정보가 없음. 매칭된 데이터: {matched_price}")
-            print("❌ 시세 가격 정보가 없음")
+            print("[X] 시세 가격 정보가 없음")
             return None
         
         # 가격을 숫자로 변환 (만원 단위)
@@ -684,8 +692,12 @@ class KBPriceAPI:
         price_min_num = parse_price(price_min_value)
         
         if price_num is None:
-            print(f"❌ 시세 가격 파싱 실패: {price_value}")
+            print(f"[X] 시세 가격 파싱 실패: {price_value}")
             return None
+        
+        # 매칭된 면적과 원본 면적의 차이 계산
+        matched_area_val = float(matched_price.get("전용면적") or matched_price.get("공급면적") or matched_price.get("면적") or area)
+        area_diff = abs(matched_area_val - area)
         
         # 평수 계산 (전용면적을 평수로 변환: 1평 = 3.3058m²)
         pyeong_value = matched_price.get("전용면적") or matched_price.get("공급면적") or area
@@ -701,12 +713,14 @@ class KBPriceAPI:
             "kb_price_raw": f"{price_num:,.0f}만원",
             "kb_price_min_raw": f"{price_min_num:,.0f}만원" if price_min_num else None,
             "complex_name": selected_complex.get("단지명") or selected_complex.get("name", "알 수 없음"),
-            "area": float(matched_price.get("공급면적") or matched_price.get("전용면적") or area),
+            "area": matched_area_val,  # 매칭된 면적
+            "area_requested": area,  # 요청한 면적 (등기부 면적)
+            "area_diff": area_diff,  # 면적 차이 (m²)
             "pyeong": pyeong_str,
             "type": matched_price.get("주택형타입내용") or matched_price.get("타입", ""),
         }
         
-        # 7. 재건축·세대수: 재건축여부=1인 경우에만 /c/ 스크래퍼 호출 후 merge
+        # 7. 재건축·세대수: 재건축여부=1인 경우 redevelop_yn=True, /c/ 스크래퍼로 단계·세대수·동수 보강
         complex_id = selected_complex.get("단지기본일련번호")
         result["redevelop_stages"] = []
         result["households"] = None
@@ -716,11 +730,11 @@ class KBPriceAPI:
             info = self.get_complex_info(str(complex_id))
             redevelop_flag = (info or {}).get("재건축여부")
             if str(redevelop_flag) == "1":
+                result["redevelop_yn"] = True  # API 재건축여부=1이면 재건축 단지로 확정
                 extra = get_complex_extra_info(complex_id)
                 result["redevelop_stages"] = extra.get("redevelop_stages") or []
                 result["households"] = extra.get("households")
                 result["buildings"] = extra.get("buildings")
-                result["redevelop_yn"] = extra.get("redevelop_yn", False)
                 if extra.get("error"):
                     result["redevelop_error"] = extra["error"]
         
@@ -728,9 +742,14 @@ class KBPriceAPI:
         if price_min_num:
             price_info += f" (하한: {price_min_num:,.0f}만원)"
         
+        # 면적 차이 경고
+        if area_diff and area_diff > 5.0:
+            logger.warning(f"[!] 면적 차이: {area_diff:.2f}m² (요청: {area}m², 매칭: {matched_area_val}m²)")
+            print(f"[!] 면적 차이: {area_diff:.2f}m² (요청: {area}m², 매칭: {matched_area_val}m²)")
+        
         logger.info(f"✅ KB 시세 조회 완료: {price_info} ({result['complex_name']})")
         logger.debug(f"   최종 결과: {result}")
-        print(f"✅ KB 시세 조회 완료: {price_info} ({result['complex_name']})")
+        print(f"[OK] KB 시세 조회 완료: {price_info} ({result['complex_name']})")
         return result
 
 
@@ -753,7 +772,7 @@ def get_kb_price_from_registry(address: str, area: str) -> Optional[Dict[str, An
     area_match = re.search(r'([\d.]+)', str(area))
     if not area_match:
         logger.error(f"⚠️ 면적 파싱 실패: {area}")
-        print(f"⚠️ 면적 파싱 실패: {area}")
+        print(f"[!] 면적 파싱 실패: {area}")
         return None
     
     try:
@@ -761,7 +780,7 @@ def get_kb_price_from_registry(address: str, area: str) -> Optional[Dict[str, An
         logger.debug(f"   추출된 면적: {area_float}m²")
     except ValueError:
         logger.error(f"⚠️ 면적 변환 실패: {area}")
-        print(f"⚠️ 면적 변환 실패: {area}")
+        print(f"[!] 면적 변환 실패: {area}")
         return None
     
     # 주소에서 단지명 추출 (예: "미리내마을", "수원하늘채더퍼스트2단지")
