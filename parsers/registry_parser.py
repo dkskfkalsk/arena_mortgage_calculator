@@ -377,76 +377,109 @@ class RegistryParser:
                     return []
                 
                 # 요약본의 갑구에서 소유자 패턴 찾기
-                # 패턴: "이름 (공유자)" 다음 줄에 "주민번호-*******" (공동명의인 경우)
-                # 예: "김연정 (공유자)\n791106-*******"
+                # 등기부 갑구 구조:
+                # - 공동소유: "이름1 (공유자)" 다음 줄에 주민번호
+                # - 단독소유: "이름" 다음 줄에 주민번호 또는 같은 줄에
                 
                 # 줄 단위로 파싱
                 lines = gapgu_text.split('\n')
                 owner_matches = []
                 
-                for i, line in enumerate(lines):
+                # 제외할 키워드 (이름으로 오인할 수 있는 텍스트)
+                exclude_keywords = ['최종지분', '순위번호', '근저당권', '채권최고액', '설정일', 
+                                   '소유권', '이전', '등기', '접수', '말소', '갑구', '을구',
+                                   '출력일시', '고유번호', '소재지', '면적', '층수', '호수',
+                                   '지분', '번호', '일자', '금액', '원', '만원', '억']
+                
+                def is_valid_name(name):
+                    """이름 유효성 검사"""
+                    if not name or len(name) < 2 or len(name) > 4:
+                        return False
+                    # 한글만 포함되어야 함 (숫자, 특수문자 제외)
+                    if not re.match(r'^[가-힣]+$', name):
+                        return False
+                    # 제외 키워드가 포함되어 있으면 안 됨
+                    for keyword in exclude_keywords:
+                        if keyword in name:
+                            return False
+                    # 일반적인 한국 이름 패턴 (성 + 이름, 2-4자)
+                    # 너무 짧거나 긴 것은 제외
+                    if len(name) < 2 or len(name) > 4:
+                        return False
+                    return True
+                
+                # 갑구에서 "소유자" 또는 "소유권" 키워드 근처 찾기
+                # 소유자 정보는 보통 "소유자" 키워드 근처에 있음
+                owner_section_start = -1
+                for idx, line in enumerate(lines):
+                    if '소유자' in line or ('소유권' in line and '이전' not in line):
+                        owner_section_start = idx
+                        break
+                
+                # 소유자 섹션을 찾았으면 그 근처에서만 검색
+                search_start = max(0, owner_section_start - 5) if owner_section_start >= 0 else 0
+                search_end = min(len(lines), owner_section_start + 20) if owner_section_start >= 0 else len(lines)
+                
+                for i in range(search_start, search_end):
+                    line = lines[i]
+                    
                     # 패턴 1: "공유자" 키워드가 있는 줄 찾기 (공동명의인 경우)
                     if '공유자' in line:
                         # 이름 추출: "이름 (공유자)" 패턴
                         name_match = re.search(r'([가-힣]{2,4})\s*\(\s*공유자\s*\)', line)
                         if name_match:
                             name = name_match.group(1).strip()
-                            # 다음 몇 줄에서 주민번호 찾기 (최대 3줄까지)
-                            for j in range(1, min(4, len(lines) - i)):
-                                if i + j < len(lines):
-                                    next_line = lines[i + j]
-                                    resident_match = re.search(r'(\d{6})-[\d\*]+', next_line)
-                                    if resident_match:
-                                        resident_num = resident_match.group(1)
-                                        # 주민번호 유효성 검사
-                                        if len(resident_num) == 6 and resident_num.isdigit():
-                                            try:
-                                                mm = int(resident_num[2:4])
-                                                dd = int(resident_num[4:6])
-                                                if 1 <= mm <= 12 and 1 <= dd <= 31:
-                                                    owner_matches.append((name, resident_num))
-                                                    break  # 찾았으면 다음 소유자로
-                                            except:
-                                                pass
+                            if is_valid_name(name):
+                                # 다음 몇 줄에서 주민번호 찾기 (최대 3줄까지)
+                                for j in range(1, min(4, len(lines) - i)):
+                                    if i + j < len(lines):
+                                        next_line = lines[i + j]
+                                        resident_match = re.search(r'(\d{6})-[\d\*]+', next_line)
+                                        if resident_match:
+                                            resident_num = resident_match.group(1)
+                                            # 주민번호 유효성 검사
+                                            if len(resident_num) == 6 and resident_num.isdigit():
+                                                try:
+                                                    mm = int(resident_num[2:4])
+                                                    dd = int(resident_num[4:6])
+                                                    if 1 <= mm <= 12 and 1 <= dd <= 31:
+                                                        owner_matches.append((name, resident_num))
+                                                        break  # 찾았으면 다음 소유자로
+                                                except:
+                                                    pass
                     
-                    # 패턴 2: 단독소유인 경우 - 이름과 주민번호가 같은 줄 또는 인접한 줄에 있는 경우
-                    # "이름" 다음에 주민번호가 오는 패턴
-                    name_only_match = re.search(r'^([가-힣]{2,4})\s*$', line.strip())
-                    if name_only_match and '공유자' not in line:
-                        name = name_only_match.group(1).strip()
-                        # 다음 몇 줄에서 주민번호 찾기 (최대 5줄까지)
-                        for j in range(1, min(6, len(lines) - i)):
-                            if i + j < len(lines):
-                                next_line = lines[i + j]
-                                resident_match = re.search(r'(\d{6})-[\d\*]+', next_line)
-                                if resident_match:
-                                    resident_num = resident_match.group(1)
-                                    # 주민번호 유효성 검사
-                                    if len(resident_num) == 6 and resident_num.isdigit():
-                                        try:
-                                            mm = int(resident_num[2:4])
-                                            dd = int(resident_num[4:6])
-                                            if 1 <= mm <= 12 and 1 <= dd <= 31:
-                                                # 이미 찾은 이름이 아니면 추가
-                                                if not any(n == name for n, _ in owner_matches):
-                                                    owner_matches.append((name, resident_num))
-                                                    break
-                                        except:
-                                            pass
-                    
-                    # 패턴 3: 이름과 주민번호가 같은 줄에 있는 경우
-                    # "이름 주민번호-*******" 또는 "이름\n주민번호" 형식
-                    combined_match = re.search(r'([가-힣]{2,4})\s+(\d{6})-[\d\*]+', line)
-                    if combined_match:
-                        name = combined_match.group(1).strip()
-                        resident_num = combined_match.group(2)
+                    # 패턴 2: 단독소유인 경우 - 주민번호 근처에서 이름 찾기
+                    # 주민번호가 있는 줄에서 역방향으로 이름 찾기 (더 정확함)
+                    resident_match = re.search(r'(\d{6})-[\d\*]+', line)
+                    if resident_match:
+                        resident_num = resident_match.group(1)
                         if len(resident_num) == 6 and resident_num.isdigit():
                             try:
                                 mm = int(resident_num[2:4])
                                 dd = int(resident_num[4:6])
                                 if 1 <= mm <= 12 and 1 <= dd <= 31:
-                                    if not any(n == name for n, _ in owner_matches):
-                                        owner_matches.append((name, resident_num))
+                                    # 같은 줄에서 이름 찾기 (이름 주민번호 형식)
+                                    name_in_line = re.search(r'([가-힣]{2,4})\s+(\d{6})-[\d\*]+', line)
+                                    if name_in_line:
+                                        name = name_in_line.group(1).strip()
+                                        if is_valid_name(name):
+                                            if not any(n == name for n, _ in owner_matches):
+                                                owner_matches.append((name, resident_num))
+                                    else:
+                                        # 이전 줄에서 이름 찾기 (최대 2줄 전까지, 소유자 섹션 내에서만)
+                                        for k in range(1, min(3, i - search_start + 1)):
+                                            if i - k >= search_start:
+                                                prev_line = lines[i - k]
+                                                # 이전 줄이 이름만 있는 경우 (한글 2-4자, 공백만 허용)
+                                                # "최종지분", "순위번호" 같은 것은 제외
+                                                name_match = re.search(r'^([가-힣]{2,4})\s*$', prev_line.strip())
+                                                if name_match:
+                                                    name = name_match.group(1).strip()
+                                                    if is_valid_name(name):
+                                                        # 이미 찾은 이름이 아니고, 주민번호와 가까운 위치인지 확인
+                                                        if not any(n == name for n, _ in owner_matches):
+                                                            owner_matches.append((name, resident_num))
+                                                            break
                             except:
                                 pass
                 
