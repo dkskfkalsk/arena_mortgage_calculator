@@ -198,38 +198,55 @@ def extract_bank_appraisal_price_from_special_notes(special_notes):
         
         # "은행감정가", "감정가", "탁감" 패턴 찾기
         # "8억" -> 80000, "80,000만원" -> 80000, "60,000만" -> 60000 등 처리
-        patterns = [
-            r'(?:은행\s*감정가|감정가|탁감)\s*[:\s]*([\d,]+(?:\s*(?:억|만원|만))?)',  # "감정가 60,000만" 형식
-            r'(?:은행\s*감정가|감정가|탁감)\s*[:\s]*([\d,]+)',  # "감정가 60000" 형식
+        # 더 명확하고 간단한 패턴들
+        
+        # 먼저 "억" 단위가 있는지 확인
+        eok_pattern = r'(?:은행\s*감정가|감정가|탁감)\s*[:\s]*([\d,]+)\s*억'
+        eok_match = re.search(eok_pattern, notes_str, re.IGNORECASE)
+        if eok_match:
+            price_str = eok_match.group(1).strip().replace(",", "")
+            if price_str:
+                try:
+                    price = float(price_str) * 10000
+                    print(f"DEBUG: extract_bank_appraisal_price_from_special_notes - ✅ extracted bank appraisal price (억): {price}만원")
+                    return price
+                except ValueError:
+                    pass
+        
+        # "만원" 또는 "만" 단위가 있는 경우
+        man_patterns = [
+            r'(?:은행\s*감정가|감정가|탁감)\s*[:\s]*([\d,]+)\s*만원',  # "감정가 60,000만원" 형식
+            r'(?:은행\s*감정가|감정가|탁감)\s*[:\s]*([\d,]+)\s*만',  # "감정가 60,000만" 형식
         ]
         
-        for pattern in patterns:
+        for pattern in man_patterns:
             match = re.search(pattern, notes_str, re.IGNORECASE)
             if match:
-                price_str = match.group(1).strip()
+                price_str = match.group(1).strip().replace(",", "")
                 print(f"DEBUG: extract_bank_appraisal_price_from_special_notes - matched price_str: {price_str}")
-                
-                # "억" 처리 (8억 -> 80000)
-                if "억" in price_str:
-                    price_str = price_str.replace("억", "").replace(",", "").strip()
-                    if price_str:
-                        price = float(price_str) * 10000
-                        print(f"DEBUG: extract_bank_appraisal_price_from_special_notes - extracted bank appraisal price (억): {price}만원")
+                if price_str and len(price_str) >= 2:
+                    try:
+                        price = float(price_str)
+                        print(f"DEBUG: extract_bank_appraisal_price_from_special_notes - ✅ extracted bank appraisal price: {price}만원")
                         return price
-                else:
-                    # "만원" 또는 "만" 제거 후 숫자만 추출
-                    price_str_clean = price_str.replace("만원", "").replace("만", "").replace(",", "").strip()
-                    print(f"DEBUG: extract_bank_appraisal_price_from_special_notes - cleaned price_str: {price_str_clean}")
-                    if price_str_clean and len(price_str_clean) >= 2:  # 최소 2자리 이상 (10만원 이상)
-                        try:
-                            price = float(price_str_clean)
-                            print(f"DEBUG: extract_bank_appraisal_price_from_special_notes - extracted bank appraisal price: {price}만원")
-                            return price
-                        except ValueError:
-                            print(f"DEBUG: extract_bank_appraisal_price_from_special_notes - ValueError converting to float: {price_str_clean}")
-                            continue
+                    except ValueError:
+                        continue
         
-        print(f"DEBUG: extract_bank_appraisal_price_from_special_notes - no bank appraisal price found in special_notes: {notes_str}")
+        # 단위가 없는 경우 (숫자만)
+        no_unit_pattern = r'(?:은행\s*감정가|감정가|탁감)\s*[:\s]*([\d,]+)'
+        no_unit_match = re.search(no_unit_pattern, notes_str, re.IGNORECASE)
+        if no_unit_match:
+            price_str = no_unit_match.group(1).strip().replace(",", "")
+            print(f"DEBUG: extract_bank_appraisal_price_from_special_notes - matched price_str (no unit): {price_str}")
+            if price_str and len(price_str) >= 2:
+                try:
+                    price = float(price_str)
+                    print(f"DEBUG: extract_bank_appraisal_price_from_special_notes - ✅ extracted bank appraisal price (no unit): {price}만원")
+                    return price
+                except ValueError:
+                    pass
+        
+        print(f"DEBUG: extract_bank_appraisal_price_from_special_notes - ❌ no bank appraisal price found in special_notes: {notes_str}")
         return None
         
     except (ValueError, AttributeError, TypeError) as e:
