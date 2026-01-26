@@ -237,6 +237,39 @@ class BaseCalculator:
             log_print(f"DEBUG: BaseCalculator.calculate - original_kb_price_raw: {original_kb_price_raw}")
             log_print(f"DEBUG: BaseCalculator.calculate - bank_appraisal_price 설정: {price_sources.get('bank_appraisal_price', 0)}")
             
+            # 탁감가가 입력되어 있는지 먼저 확인
+            bank_appraisal_price = None
+            try:
+                # special_notes에서 탁감가 추출 시도
+                bank_appraisal_price = extract_bank_appraisal_price_from_special_notes(special_notes)
+                log_print(f"DEBUG: BaseCalculator.calculate - special_notes에서 탁감가 추출 시도 결과: {bank_appraisal_price}")
+            except Exception as e:
+                log_print(f"DEBUG: BaseCalculator.calculate - special_notes에서 탁감가 추출 에러: {e}")
+                logger.error(f"BaseCalculator.calculate - 탁감가 추출 에러: {e}")
+            
+            # kb_price_raw에서도 탁감가 추출 시도 (예: "감정가 60,000만" 형식)
+            if bank_appraisal_price is None and original_kb_price_raw:
+                try:
+                    log_print(f"DEBUG: BaseCalculator.calculate - kb_price_raw에서 탁감가 추출 시도")
+                    bank_appraisal_price = extract_bank_appraisal_price_from_special_notes(str(original_kb_price_raw))
+                    log_print(f"DEBUG: BaseCalculator.calculate - kb_price_raw에서 탁감가 추출 결과: {bank_appraisal_price}")
+                except Exception as e:
+                    log_print(f"DEBUG: BaseCalculator.calculate - kb_price_raw에서 탁감가 추출 에러: {e}")
+                    logger.error(f"BaseCalculator.calculate - kb_price_raw에서 탁감가 추출 에러: {e}")
+            
+            # 탁감가가 입력되어 있고, 해당 금융사가 탁감가를 사용하지 않으면 즉시 반환
+            if bank_appraisal_price is not None and price_sources.get("bank_appraisal_price", 0) == 0:
+                log_print(f"DEBUG: BaseCalculator.calculate - 탁감가 입력됨 ({bank_appraisal_price}만원) but 금융사가 탁감가 미사용")
+                logger.warning(f"BaseCalculator.calculate - 탁감가 입력됨 but 금융사가 탁감가 미사용: {self.bank_name}")
+                validation_errors.append("탁감가 적용 불가")
+                return {
+                    "bank_name": self.bank_name,
+                    "results": [],
+                    "conditions": self.config.get("conditions", []),
+                    "errors": validation_errors,
+                    "min_amount": self.config.get("min_amount", 3000)
+                }
+            
             # 우선순위에 따라 시세 추출 시도
             # kb_price는 이미 위에서 확인했으므로 제외
             if price_sources.get("kb_ai_price", 0) == 1:
@@ -249,37 +282,15 @@ class BaseCalculator:
                     property_data["kb_price_raw"] = kb_price_raw  # property_data 업데이트
                     property_data["kb_price"] = kb_price  # property_data 업데이트
             
-            if kb_price is None and price_sources.get("bank_appraisal_price", 0) == 1:
-                log_print(f"DEBUG: BaseCalculator.calculate - 탁감가 추출 시도 시작")
-                bank_appraisal_price = None
-                try:
-                    # special_notes에서 탁감가 추출 시도
-                    bank_appraisal_price = extract_bank_appraisal_price_from_special_notes(special_notes)
-                    log_print(f"DEBUG: BaseCalculator.calculate - special_notes에서 추출 결과: {bank_appraisal_price}")
-                except Exception as e:
-                    log_print(f"DEBUG: BaseCalculator.calculate - special_notes에서 탁감가 추출 에러: {e}")
-                    logger.error(f"BaseCalculator.calculate - 탁감가 추출 에러: {e}")
-                
-                # kb_price_raw에서도 탁감가 추출 시도 (예: "감정가 60,000만" 형식)
-                if bank_appraisal_price is None and original_kb_price_raw:
-                    try:
-                        log_print(f"DEBUG: BaseCalculator.calculate - kb_price_raw에서 탁감가 추출 시도")
-                        bank_appraisal_price = extract_bank_appraisal_price_from_special_notes(str(original_kb_price_raw))
-                        log_print(f"DEBUG: BaseCalculator.calculate - kb_price_raw에서 추출 결과: {bank_appraisal_price}")
-                    except Exception as e:
-                        log_print(f"DEBUG: BaseCalculator.calculate - kb_price_raw에서 탁감가 추출 에러: {e}")
-                        logger.error(f"BaseCalculator.calculate - kb_price_raw에서 탁감가 추출 에러: {e}")
-                
-                if bank_appraisal_price is not None:
-                    log_print(f"DEBUG: BaseCalculator.calculate - ✅ 탁감가 추출 성공: {bank_appraisal_price}만원")
-                    logger.info(f"BaseCalculator.calculate - 탁감가 추출: {bank_appraisal_price}만원")
-                    kb_price = bank_appraisal_price
-                    kb_price_raw = f"탁감가: {bank_appraisal_price}만원"
-                    property_data["kb_price_raw"] = kb_price_raw  # property_data 업데이트
-                    property_data["kb_price"] = kb_price  # property_data 업데이트
-                    log_print(f"DEBUG: BaseCalculator.calculate - property_data 업데이트 완료: kb_price={kb_price}, kb_price_raw={kb_price_raw}")
-                else:
-                    log_print(f"DEBUG: BaseCalculator.calculate - ❌ 탁감가 추출 실패")
+            # 탁감가 사용 가능한 경우 (이미 위에서 추출한 bank_appraisal_price 사용)
+            if kb_price is None and price_sources.get("bank_appraisal_price", 0) == 1 and bank_appraisal_price is not None:
+                log_print(f"DEBUG: BaseCalculator.calculate - ✅ 탁감가 사용: {bank_appraisal_price}만원")
+                logger.info(f"BaseCalculator.calculate - 탁감가 사용: {bank_appraisal_price}만원")
+                kb_price = bank_appraisal_price
+                kb_price_raw = f"탁감가: {bank_appraisal_price}만원"
+                property_data["kb_price_raw"] = kb_price_raw  # property_data 업데이트
+                property_data["kb_price"] = kb_price  # property_data 업데이트
+                log_print(f"DEBUG: BaseCalculator.calculate - property_data 업데이트 완료: kb_price={kb_price}, kb_price_raw={kb_price_raw}")
             
             if kb_price is None and price_sources.get("realestatetech_price", 0) == 1:
                 realestatetech_price = extract_realestatetech_price_from_special_notes(special_notes)
