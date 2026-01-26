@@ -1367,14 +1367,11 @@ class BaseCalculator:
             max_ltv_amount = kb_price * (max_ltv / 100)
             min_amount = self.config.get("min_amount", 3000)
             
-            # 대환인 경우: 대환할 근저당권의 원금 + 나머지 근저당권의 채권최고액을 합산하여 체크
+            # 대환 시: 선순위(대환 제외) 채권최고액만으로 한도 초과 여부 검사. 구 대환 대상은 담보에서 해지되므로 제외.
             # 대환이 아닌 경우: 기존 근저당권의 채권최고액만 체크
             if is_refinance:
-                # 대환할 근저당권의 원금을 채권최고액으로 추정 (원금 × 1.2)
-                refinance_max_amount = refinance_principal * 1.2
-                # 대환할 근저당권의 채권최고액 + 나머지 근저당권의 채권최고액
-                total_mortgage_for_check = refinance_max_amount + total_mortgage
-                print(f"DEBUG: BaseCalculator.calculate - 대환인 경우: refinance_principal={refinance_principal}만원, refinance_max_amount={refinance_max_amount}만원, total_mortgage={total_mortgage}만원, total_mortgage_for_check={total_mortgage_for_check}만원")
+                total_mortgage_for_check = total_mortgage
+                print(f"DEBUG: BaseCalculator.calculate - 대환인 경우(대환 대상 제외): total_mortgage={total_mortgage}만원, total_mortgage_for_check={total_mortgage_for_check}만원")
                 
                 if total_mortgage_for_check > max_ltv_amount:
                     shortage = total_mortgage_for_check - max_ltv_amount
