@@ -853,8 +853,14 @@ def get_application():
                     except:
                         pass
             
+            # KB API 검색 상태 추적 (실패/결과없음 구분용)
+            kb_api_searched = False
+            kb_api_failed = False  # 예외 발생 시 True
+            kb_api_no_result = False  # 결과 없음 시 True
+            
             # 캡션에 KB시세가 없고, 등기부에서 주소와 면적을 추출한 경우 KB API 호출
             if not kb_price and address and address != "확인불가" and area_value and area_value > 0:
+                kb_api_searched = True
                 try:
                     print(f"[WEBHOOK] KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area_value}m²", file=sys.stderr, flush=True)
                     logger.info(f"KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area_value}m²")
@@ -877,9 +883,11 @@ def get_application():
                             print(f"[WEBHOOK] ✅ KB 시세 하한 조회 성공: {kb_price_low}만원", file=sys.stderr, flush=True)
                             logger.info(f"KB 시세 하한 조회 성공: {kb_price_low}만원")
                     else:
+                        kb_api_no_result = True
                         print(f"[WEBHOOK] ⚠️ KB 시세 조회 실패 (결과 없음)", file=sys.stderr, flush=True)
                         logger.warning("KB 시세 조회 실패 (결과 없음)")
                 except Exception as e:
+                    kb_api_failed = True
                     print(f"[WEBHOOK] ❌ KB 시세 조회 중 오류: {str(e)}", file=sys.stderr, flush=True)
                     logger.error(f"KB 시세 조회 중 오류: {str(e)}", exc_info=True)
             
@@ -931,6 +939,15 @@ def get_application():
             
             # KB 시세가 없고 대체 시세도 없을 때 에러 메시지 반환 (등기부 정보 표시 전)
             if not kb_price:
+                # KB API 검색을 했는지, 실패했는지, 결과가 없었는지 구분
+                if kb_api_searched:
+                    if kb_api_failed:
+                        print(f"[WEBHOOK] KB API 검색 실패 (예외 발생)", file=sys.stderr, flush=True)
+                        logger.warning("KB API 검색 실패 (예외 발생)")
+                    elif kb_api_no_result:
+                        print(f"[WEBHOOK] KB API 검색 결과 없음", file=sys.stderr, flush=True)
+                        logger.warning("KB API 검색 결과 없음")
+                
                 error_message = "KB 시세가 검색되지 않으므로 다른 시세 첨부 부탁드립니다"
                 print(f"[WEBHOOK] {error_message}", file=sys.stderr, flush=True)
                 logger.warning(error_message)
@@ -1136,20 +1153,81 @@ def get_application():
                 missing_required = []
                 missing_optional = []
                 
-                # KB시세가 없으면 특이사항에서 탁감가 추출 시도 (필수 정보 체크용)
-                # 실제 계산은 base_calculator에서 각 금융사별 price_sources 설정에 따라 처리
+                # KB시세가 없으면 KB API 검색 시도 (주소와 면적이 있는 경우)
+                kb_api_searched = False
+                kb_api_failed = False
+                kb_api_no_result = False
+                
                 if not property_data.get("kb_price"):
-                    special_notes = property_data.get("special_notes", "") or ""
-                    bank_appraisal_price = extract_bank_appraisal_price_from_special_notes(special_notes)
-                    if bank_appraisal_price is not None:
-                        # 탁감가가 있으면 필수 정보 체크는 통과 (탁감가를 사용하는 금융사가 있을 수 있음)
-                        # property_data에 탁감가 정보 저장하여 base_calculator에서 사용할 수 있도록 함
-                        print(f"[WEBHOOK] 탁감가 추출됨 (필수 정보 체크용): {bank_appraisal_price}만원", file=sys.stderr, flush=True)
-                        logger.info(f"handle_message - 탁감가 추출됨 (필수 정보 체크용): {bank_appraisal_price}만원")
-                        # special_notes에 탁감가 정보가 이미 있으므로 property_data는 그대로 유지
-                        # kb_price는 None으로 유지하여 base_calculator에서 각 금융사별 설정에 따라 처리되도록 함
-                    else:
-                        missing_required.append("KB시세")
+                    address = property_data.get("address", "")
+                    area = property_data.get("area")
+                    
+                    # 면적이 문자열이면 숫자로 변환 시도
+                    area_value = None
+                    if area:
+                        try:
+                            if isinstance(area, str):
+                                import re
+                                area_match = re.search(r'([\d.]+)', str(area))
+                                if area_match:
+                                    area_value = float(area_match.group(1))
+                            else:
+                                area_value = float(area)
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    # 주소와 면적이 있으면 KB API 검색 시도
+                    if address and address != "확인불가" and area_value and area_value > 0:
+                        kb_api_searched = True
+                        try:
+                            print(f"[WEBHOOK] KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area_value}m²", file=sys.stderr, flush=True)
+                            logger.info(f"KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area_value}m²")
+                            
+                            from KB_api.kb_price_api import get_kb_price_from_registry
+                            kb_result = get_kb_price_from_registry(address, str(area_value))
+                            
+                            if kb_result:
+                                kb_price_num = kb_result.get('kb_price')
+                                if kb_price_num:
+                                    property_data["kb_price"] = kb_price_num
+                                    property_data["kb_price_raw"] = f"KB시세: {int(kb_price_num):,}만원"
+                                    print(f"[WEBHOOK] ✅ KB 시세 조회 성공: {int(kb_price_num):,}만원", file=sys.stderr, flush=True)
+                                    logger.info(f"KB 시세 조회 성공: {int(kb_price_num):,}만원")
+                                else:
+                                    kb_api_no_result = True
+                                    print(f"[WEBHOOK] ⚠️ KB 시세 조회 실패 (결과 없음)", file=sys.stderr, flush=True)
+                                    logger.warning("KB 시세 조회 실패 (결과 없음)")
+                            else:
+                                kb_api_no_result = True
+                                print(f"[WEBHOOK] ⚠️ KB 시세 조회 실패 (결과 없음)", file=sys.stderr, flush=True)
+                                logger.warning("KB 시세 조회 실패 (결과 없음)")
+                        except Exception as e:
+                            kb_api_failed = True
+                            print(f"[WEBHOOK] ❌ KB 시세 조회 중 오류: {str(e)}", file=sys.stderr, flush=True)
+                            logger.error(f"KB 시세 조회 중 오류: {str(e)}", exc_info=True)
+                    
+                    # KB API 검색 후에도 KB시세가 없으면 특이사항에서 탁감가 추출 시도
+                    if not property_data.get("kb_price"):
+                        special_notes = property_data.get("special_notes", "") or ""
+                        bank_appraisal_price = extract_bank_appraisal_price_from_special_notes(special_notes)
+                        if bank_appraisal_price is not None:
+                            # 탁감가가 있으면 필수 정보 체크는 통과 (탁감가를 사용하는 금융사가 있을 수 있음)
+                            # property_data에 탁감가 정보 저장하여 base_calculator에서 사용할 수 있도록 함
+                            print(f"[WEBHOOK] 탁감가 추출됨 (필수 정보 체크용): {bank_appraisal_price}만원", file=sys.stderr, flush=True)
+                            logger.info(f"handle_message - 탁감가 추출됨 (필수 정보 체크용): {bank_appraisal_price}만원")
+                            # special_notes에 탁감가 정보가 이미 있으므로 property_data는 그대로 유지
+                            # kb_price는 None으로 유지하여 base_calculator에서 각 금융사별 설정에 따라 처리되도록 함
+                        else:
+                            # KB API 검색을 했는지, 실패했는지, 결과가 없었는지 구분
+                            if kb_api_searched:
+                                if kb_api_failed:
+                                    print(f"[WEBHOOK] KB API 검색 실패 (예외 발생)", file=sys.stderr, flush=True)
+                                    logger.warning("KB API 검색 실패 (예외 발생)")
+                                elif kb_api_no_result:
+                                    print(f"[WEBHOOK] KB API 검색 결과 없음", file=sys.stderr, flush=True)
+                                    logger.warning("KB API 검색 결과 없음")
+                            
+                            missing_required.append("KB시세")
                 if not property_data.get("address") or not property_data.get("region"):
                     missing_required.append("주소(시/구 포함)")
                 
@@ -1159,6 +1237,13 @@ def get_application():
                     missing_optional.append("물건 유형(아파트/빌라/오피스텔 등)")
                 
                 if missing_required:
+                    # KB시세가 필수 항목에 있고, KB API 검색을 했지만 결과가 없고, 탁감가/감정가도 없을 때
+                    if "KB시세" in missing_required and kb_api_searched:
+                        error_message = "KB 시세가 검색되지 않으므로 다른 시세 첨부 부탁드립니다"
+                        await message.reply_text(error_message)
+                        logger.info("handle_message - KB 시세 검색 실패, 메시지 전송")
+                        return
+                    
                     lines = ["한도 산출을 위해 아래 정보가 필요합니다."]
                     for item in missing_required:
                         lines.append(f"- {item}")
