@@ -241,8 +241,57 @@ def get_application():
                         except Exception as del_err:
                             print(f"[WEBHOOK] Failed to delete processing message: {str(del_err)}", file=sys.stderr, flush=True)
                     
-                    # 결과 반환 (에러 메시지인 경우도 포함)
+                    # 에러 메시지인 경우 (KB 시세가 없고 대체 시세도 없는 경우)
+                    if response and isinstance(response, str) and "KB 시세가 검색되지 않으므로" in response:
+                        await message.reply_text(response)
+                        return
+                    
+                    # 결과 반환
                     await message.reply_text(response)
+                    
+                    # 등기부 정보를 파싱해서 계산 수행
+                    try:
+                        print(f"[WEBHOOK] 등기부 정보 파싱 및 계산 시작...", file=sys.stderr, flush=True)
+                        logger.info("등기부 정보 파싱 및 계산 시작")
+                        
+                        # 포맷팅된 텍스트를 MessageParser로 파싱
+                        parser = MessageParser()
+                        property_data = parser.parse(response)
+                        
+                        print(f"[WEBHOOK] 파싱 완료 - kb_price: {property_data.get('kb_price')}", file=sys.stderr, flush=True)
+                        logger.info(f"파싱 완료 - kb_price: {property_data.get('kb_price')}")
+                        
+                        # 파싱된 데이터가 의미 있는 경우에만 계산 수행
+                        has_meaningful_data = any([
+                            property_data.get("kb_price") is not None,
+                            property_data.get("address"),
+                            property_data.get("property_type"),
+                            bool(property_data.get("mortgages"))
+                        ])
+                        
+                        if has_meaningful_data:
+                            # 채팅방 타입에 따라 다른 계산 함수 호출
+                            chat_type = get_chat_type(chat_id)
+                            if chat_type == "loan":
+                                results = BaseCalculator.calculate_all_loans(property_data)
+                            else:  # banks 또는 None (기본값)
+                                results = BaseCalculator.calculate_all_banks(property_data)
+                            
+                            # 결과 포맷팅 및 전송
+                            if results:
+                                formatted_results = format_all_results(results)
+                                if formatted_results:
+                                    await message.reply_text(formatted_results)
+                                    print(f"[WEBHOOK] 계산 결과 전송 완료", file=sys.stderr, flush=True)
+                                    logger.info("계산 결과 전송 완료")
+                        else:
+                            print(f"[WEBHOOK] 파싱된 데이터가 의미 없음, 계산 건너뜀", file=sys.stderr, flush=True)
+                            logger.info("파싱된 데이터가 의미 없음, 계산 건너뜀")
+                            
+                    except Exception as calc_err:
+                        print(f"[WEBHOOK] 계산 중 오류 발생: {str(calc_err)}", file=sys.stderr, flush=True)
+                        logger.error(f"계산 중 오류 발생: {str(calc_err)}", exc_info=True)
+                        # 계산 오류는 무시하고 등기부 정보만 표시
                     
                 finally:
                     # 임시 파일 삭제
@@ -548,11 +597,12 @@ def get_application():
                             break
             
             # 4. 감정가/탁감가 추출 (KB시세, 부동산테크시세, 하우스머치 중위시세가 없을 경우)
-            # "은행감정가 8억", "감정가 80,000만원", "탁감 80,000" 형식 처리
+            # "은행감정가 8억", "감정가 80,000만원", "감정가 60,000만", "탁감 80,000" 형식 처리
             if not kb_price_found:
                 appraisal_patterns = [
-                    r'(?:은행\s*감정가|감정가|탁감)\s*[:：]?\s*([\d,\s억천만원]+)',
-                    r'(?:은행\s*감정가|감정가|탁감)\s*[:：]?\s*([\d,]+)',
+                    r'(?:은행\s*감정가|감정가|탁감)\s*[:：]?\s*([\d,\s억천만원]+)',  # "감정가 60,000만", "감정가 80,000만원" 등
+                    r'(?:은행\s*감정가|감정가|탁감)\s*[:：]?\s*([\d,]+(?:\s*만원?)?)',  # "감정가 60,000만" 형식 명시적 처리
+                    r'(?:은행\s*감정가|감정가|탁감)\s*[:：]?\s*([\d,]+)',  # 숫자만 있는 경우
                 ]
                 for pattern in appraisal_patterns:
                     match = re.search(pattern, caption, re.IGNORECASE)
@@ -562,6 +612,8 @@ def get_application():
                         if price_man:
                             info['kb_price'] = f"{price_man:,}"
                             kb_price_found = True
+                            print(f"[WEBHOOK] parse_caption_info - 감정가/탁감가 추출: {price_text} -> {price_man}만원", file=sys.stderr, flush=True)
+                            logger.info(f"parse_caption_info - 감정가/탁감가 추출: {price_text} -> {price_man}만원")
                             break
             
             # KB시세 하한 추출 (복합 단위 지원)
