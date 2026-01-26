@@ -85,17 +85,12 @@ class KBPriceAPI:
                     self.dongcode_data = data.get('regions', {})
                     file_name = os.path.basename(data_path)
                     total_regions = len(self.dongcode_data)
-                    logger.info(f"✅ 법정동코드 데이터 로드 완료: {file_name} (시/도: {total_regions}개)")
-                    print(f"✅ 법정동코드 데이터 로드 완료: {file_name}")
-                    if "전국" in file_name:
-                        print(f"   📍 전국 법정동코드 데이터 사용 중 (최신)")
+                    logger.info(f"법정동코드 데이터 로드 완료: {file_name} (시/도: {total_regions}개)")
             except Exception as e:
-                logger.error(f"⚠️ 법정동코드 데이터 로드 실패: {e}")
-                print(f"⚠️ 법정동코드 데이터 로드 실패: {e}")
+                logger.error(f"법정동코드 데이터 로드 실패: {e}")
                 self.dongcode_data = {}
         else:
-            logger.warning("⚠️ 법정동코드 데이터 파일을 찾을 수 없습니다.")
-            print("⚠️ 법정동코드 데이터 파일을 찾을 수 없습니다.")
+            logger.warning("법정동코드 데이터 파일을 찾을 수 없습니다.")
             self.dongcode_data = {}
     
     def parse_address(self, address: str) -> Dict[str, str]:
@@ -240,8 +235,7 @@ class KBPriceAPI:
         logger.debug(f"🔍 법정동코드 찾기 시작: {address}")
         
         if not self.dongcode_data:
-            logger.error("❌ 법정동코드 데이터가 로드되지 않았습니다.")
-            print("⚠️ 법정동코드 데이터가 로드되지 않았습니다.")
+            logger.error("법정동코드 데이터가 로드되지 않았습니다.")
             return None
         
         parsed = self.parse_address(address)
@@ -252,8 +246,7 @@ class KBPriceAPI:
         logger.debug(f"   파싱된 주소 정보: region={region}, district={district}, dong={dong}")
         
         if not all([region, district, dong]):
-            logger.warning(f"⚠️ 주소 파싱 실패: {address} -> {parsed}")
-            print(f"⚠️ 주소 파싱 실패: {address}")
+            logger.warning(f"주소 파싱 실패: {address} -> {parsed}")
             return None
         
         # 데이터에서 찾기
@@ -333,17 +326,14 @@ class KBPriceAPI:
             for key, value in dongs.items():
                 if isinstance(value, dict) and "code" in value:
                     dongcode = value.get("code")
-                    logger.info(f"✅ 구 단위 법정동코드 사용: {dongcode} ({region} {district} - {key})")
-                    print(f"✅ 법정동코드 찾음 (구 단위): {dongcode} ({region} {district})")
+                    logger.info(f"구 단위 법정동코드 사용: {dongcode} ({region} {district} - {key})")
                     return dongcode
         
         if dongcode:
-            logger.info(f"✅ 법정동코드 찾음: {dongcode} ({region} {district} {dong})")
-            print(f"✅ 법정동코드 찾음: {dongcode} ({region} {district} {dong})")
+            logger.info(f"법정동코드 찾음: {dongcode} ({region} {district} {dong})")
             return dongcode
         else:
-            logger.warning(f"⚠️ 법정동코드를 찾을 수 없음: {region} {district} {dong}")
-            print(f"⚠️ 법정동코드를 찾을 수 없음: {region} {district} {dong}")
+            logger.warning(f"법정동코드를 찾을 수 없음: {region} {district} {dong}")
             return None
     
     def get_complex_list(self, dongcode: str) -> List[Dict[str, Any]]:
@@ -451,28 +441,30 @@ class KBPriceAPI:
         candidates = []
         
         for i, price_info in enumerate(prices):
-            # 공급면적 추출 (KB 시세는 공급면적 기준)
-            supply_area_str = price_info.get("공급면적") or price_info.get("면적", "")
-            if not supply_area_str:
+            # 공급면적·전용면적 둘 다 후보: 등기부 면적이 전용에 가까운 경우가 있어 전용면적도 사용
+            def parse_area(s):
+                if not s: return None
+                try: return float(str(s).strip())
+                except (ValueError, TypeError): return None
+            supply = parse_area(price_info.get("공급면적") or price_info.get("면적", ""))
+            dedicated = parse_area(price_info.get("전용면적", ""))
+            if supply is None and dedicated is None:
                 logger.debug(f"   [{i+1}] 면적 정보 없음, 스킵")
                 continue
-            
-            try:
-                supply_area = float(str(supply_area_str).strip())
-            except (ValueError, TypeError):
-                logger.debug(f"   [{i+1}] 면적 파싱 실패: {supply_area_str}")
-                continue
-            
-            # 면적 차이 계산
-            diff = abs(supply_area - area)
-            candidates.append((supply_area, diff, price_info))
-            logger.debug(f"   [{i+1}] 공급면적={supply_area}m², 차이={diff:.2f}m²")
-            
-            # 허용 오차 내이고 가장 가까운 것 선택
+            # 이 행에서 목표 area와 차이가 가장 작은 면적(공급/전용)을 사용
+            row_candidates = [(supply, "공급면적")] if supply is not None else []
+            if dedicated is not None:
+                row_candidates.append((dedicated, "전용면적"))
+            used_val, diff, used_key = min(
+                [(v, abs(v - area), k) for v, k in row_candidates],
+                key=lambda x: x[1]
+            )
+            candidates.append((used_val, diff, price_info))
+            logger.debug(f"   [{i+1}] {used_key}={used_val}m², 차이={diff:.2f}m²")
             if diff <= tolerance and diff < min_diff:
                 min_diff = diff
                 best_match = price_info
-                logger.debug(f"   ✅ 현재 최적 매칭: {supply_area}m² (차이: {diff:.2f}m²)")
+                logger.debug(f"   현재 최적 매칭: {used_key}={used_val}m² (차이: {diff:.2f}m²)")
         
         # 허용 오차 내 매칭 실패 시, 가장 가까운 것 사용
         if not best_match and candidates:
@@ -483,8 +475,8 @@ class KBPriceAPI:
             min_diff = closest[1]
         
         if best_match:
-            matched_area = best_match.get("공급면적") or best_match.get("면적", "N/A")
-            logger.info(f"✅ 면적 매칭 성공: {matched_area}m² (차이: {min_diff:.2f}m²)")
+            matched_area = best_match.get("전용면적") or best_match.get("공급면적") or best_match.get("면적", "N/A")
+            logger.info(f"면적 매칭 성공: {matched_area}m² (차이: {min_diff:.2f}m²)")
         else:
             logger.warning(f"⚠️ 면적 매칭 실패: 후보가 없음")
         
