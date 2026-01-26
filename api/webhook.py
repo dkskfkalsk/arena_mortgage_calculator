@@ -804,14 +804,26 @@ def get_application():
             kb_price = caption_info['kb_price']
             kb_price_low = caption_info['kb_price_low']
             
+            # 면적에서 숫자 추출 (64.08㎡ -> 64.08)
+            area_value = None
+            if area:
+                import re as area_re
+                area_match = area_re.search(r'([\d.]+)', str(area))
+                if area_match:
+                    try:
+                        area_value = float(area_match.group(1))
+                    except:
+                        pass
+            
             # 캡션에 KB시세가 없고, 등기부에서 주소와 면적을 추출한 경우 KB API 호출
-            if not kb_price and address and address != "확인불가" and area:
+            if not kb_price and address and address != "확인불가" and area_value and area_value > 0:
                 try:
-                    print(f"[WEBHOOK] KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area}", file=sys.stderr, flush=True)
-                    logger.info(f"KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area}")
+                    print(f"[WEBHOOK] KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area_value}m²", file=sys.stderr, flush=True)
+                    logger.info(f"KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area_value}m²")
                     
                     from KB_api.kb_price_api import get_kb_price_from_registry
-                    kb_result = get_kb_price_from_registry(address, area)
+                    # 면적을 문자열로 변환 (get_kb_price_from_registry는 문자열을 받음)
+                    kb_result = get_kb_price_from_registry(address, str(area_value))
                     
                     if kb_result:
                         kb_price_num = kb_result.get('kb_price')

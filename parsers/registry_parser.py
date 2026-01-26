@@ -385,7 +385,7 @@ class RegistryParser:
                 owner_matches = []
                 
                 for i, line in enumerate(lines):
-                    # "공유자" 키워드가 있는 줄 찾기 (공동명의인 경우)
+                    # 패턴 1: "공유자" 키워드가 있는 줄 찾기 (공동명의인 경우)
                     if '공유자' in line:
                         # 이름 추출: "이름 (공유자)" 패턴
                         name_match = re.search(r'([가-힣]{2,4})\s*\(\s*공유자\s*\)', line)
@@ -408,6 +408,47 @@ class RegistryParser:
                                                     break  # 찾았으면 다음 소유자로
                                             except:
                                                 pass
+                    
+                    # 패턴 2: 단독소유인 경우 - 이름과 주민번호가 같은 줄 또는 인접한 줄에 있는 경우
+                    # "이름" 다음에 주민번호가 오는 패턴
+                    name_only_match = re.search(r'^([가-힣]{2,4})\s*$', line.strip())
+                    if name_only_match and '공유자' not in line:
+                        name = name_only_match.group(1).strip()
+                        # 다음 몇 줄에서 주민번호 찾기 (최대 5줄까지)
+                        for j in range(1, min(6, len(lines) - i)):
+                            if i + j < len(lines):
+                                next_line = lines[i + j]
+                                resident_match = re.search(r'(\d{6})-[\d\*]+', next_line)
+                                if resident_match:
+                                    resident_num = resident_match.group(1)
+                                    # 주민번호 유효성 검사
+                                    if len(resident_num) == 6 and resident_num.isdigit():
+                                        try:
+                                            mm = int(resident_num[2:4])
+                                            dd = int(resident_num[4:6])
+                                            if 1 <= mm <= 12 and 1 <= dd <= 31:
+                                                # 이미 찾은 이름이 아니면 추가
+                                                if not any(n == name for n, _ in owner_matches):
+                                                    owner_matches.append((name, resident_num))
+                                                    break
+                                        except:
+                                            pass
+                    
+                    # 패턴 3: 이름과 주민번호가 같은 줄에 있는 경우
+                    # "이름 주민번호-*******" 또는 "이름\n주민번호" 형식
+                    combined_match = re.search(r'([가-힣]{2,4})\s+(\d{6})-[\d\*]+', line)
+                    if combined_match:
+                        name = combined_match.group(1).strip()
+                        resident_num = combined_match.group(2)
+                        if len(resident_num) == 6 and resident_num.isdigit():
+                            try:
+                                mm = int(resident_num[2:4])
+                                dd = int(resident_num[4:6])
+                                if 1 <= mm <= 12 and 1 <= dd <= 31:
+                                    if not any(n == name for n, _ in owner_matches):
+                                        owner_matches.append((name, resident_num))
+                            except:
+                                pass
                 
                 # 유효한 소유자들을 OwnerInfo로 변환
                 if owner_matches:
