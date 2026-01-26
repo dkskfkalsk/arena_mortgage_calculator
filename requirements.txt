@@ -3,3 +3,5 @@ pydantic==2.5.3
 pyyaml==6.0.1
 PyMuPDF
 requests
+# KB /c/ 스크래퍼(재건축·세대수) 사용 시 추가. 최초 1회: playwright install chromium
+# playwright>=1.40.0

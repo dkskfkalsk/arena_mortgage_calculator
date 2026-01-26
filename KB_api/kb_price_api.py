@@ -13,6 +13,8 @@ import logging
 from typing import Dict, List, Optional, Tuple, Any
 from pathlib import Path
 
+from .kb_complex_scraper import get_complex_extra_info
+
 # KB API 요청 시 브라우저로 보이도록 (User-Agent 미설정 시 연결 끊김 발생 가능)
 DEFAULT_HEADERS = {
     "Accept": "application/json, text/plain, */*",
@@ -417,6 +419,27 @@ class KBPriceAPI:
             print(f"❌ 단지 시세 조회 오류: {e}")
             return []
     
+    def get_complex_info(self, complex_id: str) -> Optional[Dict[str, Any]]:
+        """
+        단지 기본정보 조회 (재건축여부 등)
+        
+        Args:
+            complex_id: 단지기본일련번호
+        
+        Returns:
+            dataBody.data (단지명, 재건축여부, 법정동코드 등) 또는 None
+        """
+        url = f"{self.base_url}/land-complex/complex/info"
+        params = {"단지기본일련번호": complex_id}
+        try:
+            response = requests.get(url, params=params, headers=DEFAULT_HEADERS, timeout=15)
+            response.raise_for_status()
+            data = response.json()
+            return data.get("dataBody", {}).get("data")
+        except Exception as e:
+            logger.debug("get_complex_info 실패: %s", e)
+            return None
+    
     def find_matching_price(self, prices: List[Dict[str, Any]], area: float, 
                            tolerance: float = 20.0) -> Optional[Dict[str, Any]]:
         """
@@ -502,7 +525,12 @@ class KBPriceAPI:
                 "complex_name": "대치아이파크",
                 "area": 84.93,
                 "pyeong": 25.7,
-                "type": "84A형"
+                "type": "84A형",
+                "redevelop_stages": [],   # 재건축 단계 (재건축여부=1이고 스크래퍼 성공 시)
+                "households": None,       # 세대수 (재건축 단지 스크래핑 시)
+                "buildings": None,        # 동수 (재건축 단지 스크래핑 시)
+                "redevelop_yn": False,    # 재건축 단지 여부
+                "redevelop_error": None,  # 스크래퍼 오류 시 메시지 (선택)
             } 또는 None
         """
         logger.info(f"\n🔍 KB 시세 조회 시작")
@@ -677,6 +705,24 @@ class KBPriceAPI:
             "pyeong": pyeong_str,
             "type": matched_price.get("주택형타입내용") or matched_price.get("타입", ""),
         }
+        
+        # 7. 재건축·세대수: 재건축여부=1인 경우에만 /c/ 스크래퍼 호출 후 merge
+        complex_id = selected_complex.get("단지기본일련번호")
+        result["redevelop_stages"] = []
+        result["households"] = None
+        result["buildings"] = None
+        result["redevelop_yn"] = False
+        if complex_id is not None:
+            info = self.get_complex_info(str(complex_id))
+            redevelop_flag = (info or {}).get("재건축여부")
+            if str(redevelop_flag) == "1":
+                extra = get_complex_extra_info(complex_id)
+                result["redevelop_stages"] = extra.get("redevelop_stages") or []
+                result["households"] = extra.get("households")
+                result["buildings"] = extra.get("buildings")
+                result["redevelop_yn"] = extra.get("redevelop_yn", False)
+                if extra.get("error"):
+                    result["redevelop_error"] = extra["error"]
         
         price_info = f"{result['kb_price']:,.0f}만원"
         if price_min_num:
