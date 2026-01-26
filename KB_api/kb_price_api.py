@@ -7,10 +7,21 @@ KB 부동산 시세 API 호출 모듈
 import json
 import os
 import re
+import time
 import requests
 import logging
 from typing import Dict, List, Optional, Tuple, Any
 from pathlib import Path
+
+# KB API 요청 시 브라우저로 보이도록 (User-Agent 미설정 시 연결 끊김 발생 가능)
+DEFAULT_HEADERS = {
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "ko-KR,ko;q=0.9",
+    "Cache-Control": "no-cache",
+    "Origin": "https://kbland.kr",
+    "Referer": "https://kbland.kr/",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+}
 
 # 로깅 설정
 # Vercel 환경에서는 파일 로깅이 제한적이므로 stdout/stderr 사용
@@ -352,31 +363,28 @@ class KBPriceAPI:
             "유형": "1",  # 아파트
             "거래유형": "0"  # 매매
         }
-        
-        headers = {
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'ko-KR,ko;q=0.9',
-            'Cache-Control': 'no-cache',
-            'Origin': 'https://kbland.kr',
-            'Referer': 'https://kbland.kr/'
-        }
-        
-        try:
-            response = requests.get(url, params=params, headers=headers, timeout=10)
-            response.raise_for_status()
-            
-            data = response.json()
-            complexes = data.get("dataBody", {}).get("data", [])
-            
-            print(f"✅ 단지 목록 조회 성공: {len(complexes)}개 단지")
-            return complexes
-            
-        except requests.exceptions.RequestException as e:
-            print(f"❌ 단지 목록 조회 실패: {e}")
-            return []
-        except Exception as e:
-            print(f"❌ 단지 목록 조회 오류: {e}")
-            return []
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(url, params=params, headers=DEFAULT_HEADERS, timeout=15)
+                response.raise_for_status()
+                data = response.json()
+                complexes = data.get("dataBody", {}).get("data", [])
+                print(f"✅ 단지 목록 조회 성공: {len(complexes)}개 단지")
+                return complexes
+            except (requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError) as e:
+                if attempt < max_retries - 1:
+                    time.sleep(1.5 * (attempt + 1))
+                    continue
+                print(f"❌ 단지 목록 조회 실패(연결 끊김): {e}")
+                return []
+            except requests.exceptions.RequestException as e:
+                print(f"❌ 단지 목록 조회 실패: {e}")
+                return []
+            except Exception as e:
+                print(f"❌ 단지 목록 조회 오류: {e}")
+                return []
+        return []
     
     def get_complex_price(self, complex_id: str) -> List[Dict[str, Any]]:
         """
@@ -392,15 +400,8 @@ class KBPriceAPI:
         params = {
             "단지기본일련번호": complex_id
         }
-        
-        headers = {
-            'Accept': 'application/json, text/plain, */*',
-            'Origin': 'https://kbland.kr',
-            'Referer': 'https://kbland.kr/'
-        }
-        
         try:
-            response = requests.get(url, params=params, headers=headers, timeout=10)
+            response = requests.get(url, params=params, headers=DEFAULT_HEADERS, timeout=15)
             response.raise_for_status()
             
             data = response.json()
