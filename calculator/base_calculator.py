@@ -276,7 +276,14 @@ class BaseCalculator:
         if kb_price is None:
             log_print(f"DEBUG: BaseCalculator.calculate - KB price is None, returning None")
             logger.warning("BaseCalculator.calculate - KB price is None, returning None")
-            validation_errors.append("KB시세 정보가 없어 취급 불가합니다")
+            
+            # 탁감가를 사용하는 금융사인 경우 에러 메시지 변경
+            price_sources = self.config.get("price_sources", {})
+            if price_sources.get("bank_appraisal_price", 0) == 1:
+                validation_errors.append("감정가 취급 불가")
+            else:
+                validation_errors.append("KB시세 정보가 없어 취급 불가합니다")
+            
             return {
                 "bank_name": self.bank_name,
                 "results": [],
