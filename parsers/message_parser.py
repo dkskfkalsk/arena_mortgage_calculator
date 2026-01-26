@@ -352,13 +352,26 @@ class MessageParser:
                 
                 # 기존 대환 로직 (명시적으로 지정된 경우)
                 if "대환" in data["requests"]:
-                    # 패턴: "N순위 [기관명] 대환" 또는 "[기관명] 대환" 등
-                    # 1. "N순위 [기관명] 대환" 또는 "N순위 [기관명] 대환조건" 패턴
-                    # 정규식 개선: "대환"이라는 연속된 문자열 전까지 모든 문자를 캡처 (non-greedy)
-                    # 예: "2순위 도원캐피탈대부 대환조건" -> priority=2, institution="도원캐피탈대부"
-                    # [^대환]+?는 "대"나 "환" 문자가 나오면 멈추므로, "도원캐피탈대부"의 "대"에서 멈출 수 있음
-                    # 따라서 ".+?"를 사용하여 "대환" 전까지 모든 문자를 캡처
-                    refinance_match = re.search(r'(\d+)순위\s+(.+?)\s*대환', data["requests"])
+                    # 패턴: "N순위 [기관명] 대환" 또는 "[기관명] 대환" 또는 "N순위 대환조건" 등
+                    # 0. "N순위 대환조건" 또는 "N순위 대환 조건" 패턴 (기관명 없이 순위만)
+                    refinance_match = re.search(r'(\d+)순위\s*대환\s*조?건?', data["requests"])
+                    if refinance_match:
+                        priority = int(refinance_match.group(1))
+                        print(f"DEBUG: Found 'N순위 대환조건' pattern - priority: {priority}, treating as refinance request")
+                        
+                        # 해당 순위의 근저당권을 대환으로 설정
+                        for mortgage in data["mortgages"]:
+                            if mortgage.get("priority") == priority:
+                                mortgage["is_refinance"] = True
+                                print(f"DEBUG: Set is_refinance=True for mortgage: priority={priority}, institution='{mortgage.get('institution')}'")
+                                break
+                    else:
+                        # 1. "N순위 [기관명] 대환" 또는 "N순위 [기관명] 대환조건" 패턴
+                        # 정규식 개선: "대환"이라는 연속된 문자열 전까지 모든 문자를 캡처 (non-greedy)
+                        # 예: "2순위 도원캐피탈대부 대환조건" -> priority=2, institution="도원캐피탈대부"
+                        # [^대환]+?는 "대"나 "환" 문자가 나오면 멈추므로, "도원캐피탈대부"의 "대"에서 멈출 수 있음
+                        # 따라서 ".+?"를 사용하여 "대환" 전까지 모든 문자를 캡처
+                        refinance_match = re.search(r'(\d+)순위\s+(.+?)\s*대환', data["requests"])
                     if refinance_match:
                         priority = int(refinance_match.group(1))
                         institution_keyword = refinance_match.group(2).strip()
@@ -425,8 +438,9 @@ class MessageParser:
         
         if not has_refinance:
             # 전체 텍스트에서 "대환조건" 또는 "대환 조건" 패턴 찾기
-            # 패턴: "[기관명] 대환조건" 또는 "[기관명] 대환 조건" 또는 "N순위 [기관명] 대환조건"
+            # 패턴: "[기관명] 대환조건" 또는 "[기관명] 대환 조건" 또는 "N순위 [기관명] 대환조건" 또는 "N순위 대환조건"
             refinance_condition_patterns = [
+                r'(\d+)순위\s*대환\s*조?건?',  # "N순위 대환조건" 또는 "N순위 대환 조건" (기관명 없이 순위만)
                 r'(\d+)순위\s+([가-힣a-zA-Z0-9]+(?:[가-힣a-zA-Z0-9\s,]+)?)\s*대환\s*조건',  # "N순위 [기관명] 대환 조건" (공백 있음, 순위 명시)
                 r'(\d+)순위\s+([가-힣a-zA-Z0-9]+(?:[가-힣a-zA-Z0-9\s,]+)?)대환조건',  # "N순위 [기관명] 대환조건" (공백 없음, 순위 명시)
                 r'([가-힣a-zA-Z0-9]+(?:[가-힣a-zA-Z0-9\s,]+)?)\s*대환\s*조건',  # "[기관명] 대환 조건" (공백 있음, 순위 없음)
@@ -438,7 +452,23 @@ class MessageParser:
                 if refinance_match:
                     # 순위가 명시된 경우와 그렇지 않은 경우를 구분
                     groups = refinance_match.groups()
-                    if len(groups) == 2 and groups[0].isdigit():
+                    # "N순위 대환조건" 패턴 (순위만, 기관명 없음)
+                    if len(groups) == 1 and groups[0].isdigit():
+                        priority = int(groups[0])
+                        print(f"DEBUG: Found refinance condition in full text (priority only) - priority: {priority}, treating as refinance request")
+                        
+                        # 해당 순위의 근저당권을 대환으로 설정
+                        found = False
+                        for mortgage in data["mortgages"]:
+                            if mortgage.get("priority") == priority:
+                                mortgage["is_refinance"] = True
+                                found = True
+                                print(f"DEBUG: Set is_refinance=True for mortgage: priority={priority}, institution='{mortgage.get('institution')}'")
+                                break
+                        
+                        if found:
+                            break  # 패턴을 찾았고 매칭도 성공했으면 종료
+                    elif len(groups) == 2 and groups[0].isdigit():
                         # 순위가 명시된 경우: 해당 순위만 대환
                         priority = int(groups[0])
                         institution_keyword = groups[1].strip()

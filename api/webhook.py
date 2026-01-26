@@ -53,6 +53,7 @@ def get_application():
         from parsers.message_parser import MessageParser
         from calculator.base_calculator import BaseCalculator
         from utils.formatter import format_all_results
+        from utils.validators import extract_bank_appraisal_price_from_special_notes
 
         # 환경변수에서 토큰 가져오기
         TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -1047,8 +1048,18 @@ def get_application():
                 missing_required = []
                 missing_optional = []
                 
+                # KB시세가 없으면 특이사항에서 탁감가 추출 시도
                 if not property_data.get("kb_price"):
-                    missing_required.append("KB시세")
+                    special_notes = property_data.get("special_notes", "") or ""
+                    bank_appraisal_price = extract_bank_appraisal_price_from_special_notes(special_notes)
+                    if bank_appraisal_price is not None:
+                        # 탁감가가 있으면 property_data에 추가 (base_calculator에서도 사용)
+                        property_data["kb_price"] = bank_appraisal_price
+                        property_data["kb_price_raw"] = f"탁감가: {bank_appraisal_price}만원"
+                        print(f"[WEBHOOK] 탁감가 추출: {bank_appraisal_price}만원", file=sys.stderr, flush=True)
+                        logger.info(f"handle_message - 탁감가 추출: {bank_appraisal_price}만원")
+                    else:
+                        missing_required.append("KB시세")
                 if not property_data.get("address") or not property_data.get("region"):
                     missing_required.append("주소(시/구 포함)")
                 
