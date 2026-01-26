@@ -1048,16 +1048,17 @@ def get_application():
                 missing_required = []
                 missing_optional = []
                 
-                # KB시세가 없으면 특이사항에서 탁감가 추출 시도
+                # KB시세가 없으면 특이사항에서 탁감가 추출 시도 (필수 정보 체크용)
+                # 실제 계산은 base_calculator에서 각 금융사별 price_sources 설정에 따라 처리
                 if not property_data.get("kb_price"):
                     special_notes = property_data.get("special_notes", "") or ""
                     bank_appraisal_price = extract_bank_appraisal_price_from_special_notes(special_notes)
                     if bank_appraisal_price is not None:
-                        # 탁감가가 있으면 property_data에 추가 (base_calculator에서도 사용)
-                        property_data["kb_price"] = bank_appraisal_price
-                        property_data["kb_price_raw"] = f"탁감가: {bank_appraisal_price}만원"
-                        print(f"[WEBHOOK] 탁감가 추출: {bank_appraisal_price}만원", file=sys.stderr, flush=True)
-                        logger.info(f"handle_message - 탁감가 추출: {bank_appraisal_price}만원")
+                        # 탁감가가 있으면 필수 정보 체크는 통과 (탁감가를 사용하는 금융사가 있을 수 있음)
+                        # 하지만 kb_price에는 넣지 않음 - base_calculator에서 각 금융사별 설정에 따라 사용
+                        print(f"[WEBHOOK] 탁감가 추출됨 (필수 정보 체크용): {bank_appraisal_price}만원", file=sys.stderr, flush=True)
+                        logger.info(f"handle_message - 탁감가 추출됨 (필수 정보 체크용): {bank_appraisal_price}만원")
+                        # kb_price는 None으로 유지하여 base_calculator에서 각 금융사별 설정에 따라 처리되도록 함
                     else:
                         missing_required.append("KB시세")
                 if not property_data.get("address") or not property_data.get("region"):
