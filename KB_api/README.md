@@ -147,8 +147,8 @@ python KB_api/check_api_status.py
 ## 주의사항
 
 1. **법정동코드 데이터 파일 필요**
-   - `kbland_price-main/static/combined_dongcode_data.json` 파일이 필요합니다
-   - 없으면 자동으로 서울/경기도 개별 파일을 찾습니다
+   - `KB_api/전국_dongcode_data.json` 파일이 필요합니다
+   - 파일이 없으면 법정동코드를 찾을 수 없습니다
 
 2. **API 호출 제한**
    - KB 부동산 API는 CORS 제한이 있을 수 있습니다

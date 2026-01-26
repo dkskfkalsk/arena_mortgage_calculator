@@ -66,14 +66,10 @@ class KBPriceAPI:
         if self.dongcode_data_path and os.path.exists(self.dongcode_data_path):
             data_path = self.dongcode_data_path
         else:
-            # 자동으로 찾기 (KB_api 폴더 기준으로 상위 폴더에서 찾기)
+            # 자동으로 찾기 (KB_api 폴더 내에서 찾기)
             current_dir = Path(__file__).parent
-            project_root = current_dir.parent
             possible_paths = [
-                project_root / "kbland_price-main" / "static" / "전국_dongcode_data.json",  # 최신 전국 데이터 (우선)
-                project_root / "kbland_price-main" / "static" / "combined_dongcode_data.json",
-                project_root / "kbland_price-main" / "static" / "서울_dongcode_data.json",
-                project_root / "kbland_price-main" / "static" / "경기도_dongcode_data.json",
+                current_dir / "전국_dongcode_data.json",  # 전국 데이터 (필수)
             ]
             
             data_path = None

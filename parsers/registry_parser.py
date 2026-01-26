@@ -10,8 +10,30 @@ import fitz  # PyMuPDF
 import re
 import os
 import json
+import sys
+import logging
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
+
+# 로깅 설정 - Vercel 환경에서 stderr로 출력
+is_vercel = os.getenv('VERCEL') == '1' or os.getenv('VERCEL_ENV') is not None
+handlers = [logging.StreamHandler(sys.stderr)]
+
+if not is_vercel:
+    try:
+        handlers.append(logging.FileHandler('registry_parser_debug.log', encoding='utf-8'))
+    except Exception:
+        pass
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=handlers
+)
+logger = logging.getLogger(__name__)
+
+if is_vercel:
+    logger.info("🔵 RegistryParser: Vercel 환경 감지 - 로그는 Vercel 대시보드에서 확인하세요")
 
 
 @dataclass
@@ -353,8 +375,11 @@ class RegistryParser:
     
     def _extract_owners(self) -> List[OwnerInfo]:
         """소유자 정보 추출 - 간단하고 명확한 패턴만 사용"""
+        logger.debug("🔍 소유자 정보 추출 시작")
+        
         # 수탁자 여부 확인 (신탁인 경우)
         if '수탁자' in self.text:
+            logger.debug("⚠️ 수탁자 감지 - 빈 리스트 반환")
             return []
         
         owner_matches = []
@@ -386,6 +411,8 @@ class RegistryParser:
             matches = re.finditer(pattern, self.text)
             for match in matches:
                 name = match.group(1).strip()
+                logger.debug(f"🔍 패턴 매칭 발견: '{name}' (패턴: {pattern})")
+                
                 if is_valid_name(name):
                     # 이름 근처에서 주민번호 찾기 (매치 위치 기준 앞뒤 200자)
                     start = max(0, match.start() - 200)
@@ -403,8 +430,15 @@ class RegistryParser:
                                     # 중복 체크
                                     if not any(n == name and r == resident_num for n, r in owner_matches):
                                         owner_matches.append((name, resident_num))
-                            except:
-                                pass
+                                        logger.info(f"✅ 소유자 추출 성공: {name} (주민번호: {resident_num}-*******)")
+                                    else:
+                                        logger.debug(f"⚠️ 중복 소유자 무시: {name}")
+                            except Exception as e:
+                                logger.debug(f"⚠️ 주민번호 검증 실패: {e}")
+                    else:
+                        logger.debug(f"⚠️ '{name}' 근처에서 주민번호를 찾을 수 없음")
+                else:
+                    logger.debug(f"⚠️ '{name}' 이름 유효성 검사 실패")
         
         # OwnerInfo로 변환
         owners = []
@@ -428,6 +462,11 @@ class RegistryParser:
             if owner.성명 not in seen_names:
                 seen_names.add(owner.성명)
                 unique_owners.append(owner)
+        
+        if unique_owners:
+            logger.info(f"✅ 총 {len(unique_owners)}명의 소유자 추출 완료: {[o.성명 for o in unique_owners]}")
+        else:
+            logger.warning("⚠️ 소유자를 찾을 수 없음")
         
         return unique_owners
     
@@ -968,20 +1007,20 @@ def analyze_all_pdfs_in_folder(folder_path: str) -> Dict[str, RegistryDocument]:
     results = {}
     
     if not os.path.exists(folder_path):
-        print(f"폴더를 찾을 수 없음: {folder_path}")
+        logger.error(f"폴더를 찾을 수 없음: {folder_path}")
         return results
     
     pdf_files = [f for f in os.listdir(folder_path) if f.lower().endswith('.pdf')]
     
     for pdf_file in pdf_files:
         pdf_path = os.path.join(folder_path, pdf_file)
-        print(f"\n분석 중: {pdf_file}")
+        logger.info(f"분석 중: {pdf_file}")
         try:
             doc = analyze_pdf(pdf_path)
             results[pdf_file] = doc
-            print(doc.summary())
+            logger.info(f"파싱 결과:\n{doc.summary()}")
         except Exception as e:
-            print(f"  에러: {e}")
+            logger.error(f"에러: {e}", exc_info=True)
     
     return results
 
@@ -1015,4 +1054,4 @@ if __name__ == "__main__":
                 except Exception as e:
                     f.write(f"  에러: {e}\n")
     
-    print(f"분석 결과가 저장되었습니다: {output_file}")
+    logger.info(f"분석 결과가 저장되었습니다: {output_file}")
