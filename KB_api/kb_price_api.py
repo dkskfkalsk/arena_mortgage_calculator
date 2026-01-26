@@ -441,20 +441,19 @@ class KBPriceAPI:
             return None
     
     def find_matching_price(self, prices: List[Dict[str, Any]], area: float, 
-                           tolerance: float = 5.0) -> Optional[Dict[str, Any]]:
+                           tolerance: float = 0.0) -> Optional[Dict[str, Any]]:
         """
-        면적에 맞는 시세 찾기 (정확한 매칭 우선)
+        면적에 맞는 시세 찾기 (정확히 일치하는 면적만)
         
         Args:
             prices: 평형별 시세 리스트
             area: 전용면적 (m²)
-            tolerance: 허용 오차 (m², 기본 5.0)
-                      등기부 전용면적과 KB 면적 차이를 고려하여 엄격하게 설정
+            tolerance: 허용 오차 (m², 기본 0.0 = 정확히 일치만)
         
         Returns:
-            가장 가까운 시세 정보 또는 None
+            정확히 일치하는 시세 정보 또는 None (일치하는 것이 없으면 None)
         """
-        logger.debug(f"   면적 매칭 시작: 목표 면적={area}m², 허용 오차={tolerance}m², 후보 수={len(prices)}")
+        logger.debug(f"   면적 매칭 시작: 목표 면적={area}m², 허용 오차={tolerance}m² (정확 매칭), 후보 수={len(prices)}")
         
         if not prices or area <= 0:
             logger.warning(f"⚠️ 면적 매칭 불가: prices={len(prices) if prices else 0}, area={area}")
@@ -462,7 +461,6 @@ class KBPriceAPI:
         
         best_match = None
         min_diff = float('inf')
-        candidates = []
         
         for i, price_info in enumerate(prices):
             # 전용면적을 우선적으로 비교 (등기부 면적은 전용면적에 가까움)
@@ -483,34 +481,21 @@ class KBPriceAPI:
             else:
                 used_val, diff, used_key = supply, abs(supply - area), "공급면적"
             
-            candidates.append((used_val, diff, price_info, used_key))
             logger.debug(f"   [{i+1}] {used_key}={used_val}m², 차이={diff:.2f}m²")
             
-            # 허용 오차 내에서 가장 가까운 것 선택
-            if diff <= tolerance and diff < min_diff:
-                min_diff = diff
-                best_match = price_info
-                logger.debug(f"   현재 최적 매칭: {used_key}={used_val}m² (차이: {diff:.2f}m²)")
-        
-        # 허용 오차 내 매칭 실패 시, 가장 가까운 것 사용 (단, 경고)
-        if not best_match and candidates:
-            candidates.sort(key=lambda x: x[1])
-            closest = candidates[0]
-            closest_diff = closest[1]
-            logger.warning(f"[!] 허용 오차({tolerance}m²) 내 매칭 실패, 가장 가까운 면적 사용: {closest[0]}m² (차이: {closest_diff:.2f}m²)")
-            if closest_diff > 10.0:
-                logger.warning(f"[!] 면적 차이가 {closest_diff:.2f}m²로 큼 - 정확한 시세가 아닐 수 있음")
-            best_match = closest[2]
-            min_diff = closest_diff
+            # 정확히 일치하는 면적만 선택 (부동소수점 오차 고려하여 0.01㎡ 이내)
+            if diff <= tolerance + 0.01:  # 부동소수점 오차 허용
+                if diff < min_diff:
+                    min_diff = diff
+                    best_match = price_info
+                    logger.debug(f"   정확 매칭 발견: {used_key}={used_val}m² (차이: {diff:.2f}m²)")
         
         if best_match:
             matched_area = best_match.get("전용면적") or best_match.get("공급면적") or best_match.get("면적", "N/A")
-            if min_diff > 5.0:
-                logger.warning(f"[!] 면적 매칭 차이: {min_diff:.2f}m² (목표: {area}m², 매칭: {matched_area}m²)")
-            else:
-                logger.info(f"면적 매칭 성공: {matched_area}m² (차이: {min_diff:.2f}m²)")
+            logger.info(f"면적 정확 매칭 성공: {matched_area}m² (차이: {min_diff:.2f}m²)")
         else:
-            logger.warning(f"⚠️ 면적 매칭 실패: 후보가 없음")
+            logger.warning(f"⚠️ 정확히 일치하는 면적 없음: {area}m²")
+            logger.debug(f"   사용 가능한 면적: {[p.get('전용면적') or p.get('공급면적') or 'N/A' for p in prices[:10]]}")
         
         return best_match
     
