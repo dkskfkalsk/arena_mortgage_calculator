@@ -402,10 +402,6 @@ class RegistryParser:
                     for keyword in exclude_keywords:
                         if keyword in name:
                             return False
-                    # 일반적인 한국 이름 패턴 (성 + 이름, 2-4자)
-                    # 너무 짧거나 긴 것은 제외
-                    if len(name) < 2 or len(name) > 4:
-                        return False
                     return True
                 
                 # 갑구에서 "소유자" 또는 "소유권" 키워드 근처 찾기
@@ -447,6 +443,66 @@ class RegistryParser:
                                                         break  # 찾았으면 다음 소유자로
                                                 except:
                                                     pass
+                    
+                    # 패턴 1-2: "소유자" 키워드가 있는 줄 찾기 (단독소유인 경우)
+                    # "이름 (소유자)" 패턴: "김지은 (소유자)"
+                    if '소유자' in line and '공유자' not in line:
+                        name_match = re.search(r'([가-힣]{2,4})\s*\(\s*소유자\s*\)', line)
+                        if name_match:
+                            name = name_match.group(1).strip()
+                            if is_valid_name(name):
+                                # 다음 몇 줄에서 주민번호 찾기 (최대 3줄까지)
+                                for j in range(1, min(4, len(lines) - i)):
+                                    if i + j < len(lines):
+                                        next_line = lines[i + j]
+                                        resident_match = re.search(r'(\d{6})-[\d\*]+', next_line)
+                                        if resident_match:
+                                            resident_num = resident_match.group(1)
+                                            # 주민번호 유효성 검사
+                                            if len(resident_num) == 6 and resident_num.isdigit():
+                                                try:
+                                                    mm = int(resident_num[2:4])
+                                                    dd = int(resident_num[4:6])
+                                                    if 1 <= mm <= 12 and 1 <= dd <= 31:
+                                                        if not any(n == name for n, _ in owner_matches):
+                                                            owner_matches.append((name, resident_num))
+                                                            break
+                                                except:
+                                                    pass
+                    
+                    # 패턴 1-3: "등기명의인" 섹션에서 이름 찾기
+                    # "등기명의인" 다음 줄에 "이름 (소유자)" 또는 "이름" 형식
+                    if '등기명의인' in line:
+                        # 다음 몇 줄에서 이름 찾기
+                        for j in range(1, min(5, len(lines) - i)):
+                            if i + j < len(lines):
+                                next_line = lines[i + j]
+                                # "이름 (소유자)" 패턴
+                                name_match = re.search(r'([가-힣]{2,4})\s*\(\s*소유자\s*\)', next_line)
+                                if not name_match:
+                                    # "이름"만 있는 경우
+                                    name_match = re.search(r'^([가-힣]{2,4})\s*$', next_line.strip())
+                                if name_match:
+                                    name = name_match.group(1).strip()
+                                    if is_valid_name(name):
+                                        # 주민번호 찾기 (이름 다음 몇 줄)
+                                        for k in range(1, min(4, len(lines) - i - j)):
+                                            if i + j + k < len(lines):
+                                                resident_line = lines[i + j + k]
+                                                resident_match = re.search(r'(\d{6})-[\d\*]+', resident_line)
+                                                if resident_match:
+                                                    resident_num = resident_match.group(1)
+                                                    if len(resident_num) == 6 and resident_num.isdigit():
+                                                        try:
+                                                            mm = int(resident_num[2:4])
+                                                            dd = int(resident_num[4:6])
+                                                            if 1 <= mm <= 12 and 1 <= dd <= 31:
+                                                                if not any(n == name for n, _ in owner_matches):
+                                                                    owner_matches.append((name, resident_num))
+                                                                    break
+                                                        except:
+                                                            pass
+                                        break
                     
                     # 패턴 2: 단독소유인 경우 - 주민번호 근처에서 이름 찾기
                     # 주민번호가 있는 줄에서 역방향으로 이름 찾기 (더 정확함)
@@ -511,6 +567,62 @@ class RegistryParser:
             if owner.성명 not in seen_names:
                 seen_names.add(owner.성명)
                 unique_owners.append(owner)
+        
+        # 소유자를 찾지 못한 경우, 전체 텍스트에서 추가 패턴 시도
+        if not unique_owners:
+            # 제외 키워드 정의 (함수 내부에서 사용)
+            exclude_keywords = ['최종지분', '순위번호', '근저당권', '채권최고액', '설정일', 
+                               '소유권', '이전', '등기', '접수', '말소', '갑구', '을구',
+                               '출력일시', '고유번호', '소재지', '면적', '층수', '호수',
+                               '지분', '번호', '일자', '금액', '원', '만원', '억']
+            
+            def is_valid_name(name):
+                """이름 유효성 검사"""
+                if not name or len(name) < 2 or len(name) > 4:
+                    return False
+                if not re.match(r'^[가-힣]+$', name):
+                    return False
+                for keyword in exclude_keywords:
+                    if keyword in name:
+                        return False
+                return True
+            
+            # 전체 텍스트에서 "이름 (소유자)" 또는 "이름 (공유자)" 패턴 찾기
+            owner_patterns = [
+                r'([가-힣]{2,4})\s*\(\s*소유자\s*\)',  # "김지은 (소유자)"
+                r'([가-힣]{2,4})\s*\(\s*공유자\s*\)',  # "이름 (공유자)"
+            ]
+            
+            for pattern in owner_patterns:
+                matches = re.finditer(pattern, self.text)
+                for match in matches:
+                    name = match.group(1).strip()
+                    if is_valid_name(name):
+                        # 이름 근처에서 주민번호 찾기 (매치 위치 기준 앞뒤 300자)
+                        start = max(0, match.start() - 300)
+                        end = min(len(self.text), match.end() + 300)
+                        context = self.text[start:end]
+                        
+                        resident_match = re.search(r'(\d{6})-[\d\*]+', context)
+                        if resident_match:
+                            resident_num = resident_match.group(1)
+                            if len(resident_num) == 6 and resident_num.isdigit():
+                                try:
+                                    mm = int(resident_num[2:4])
+                                    dd = int(resident_num[4:6])
+                                    if 1 <= mm <= 12 and 1 <= dd <= 31:
+                                        if not any(o.성명 == name for o in unique_owners):
+                                            birth = self._convert_birth_date(resident_num)
+                                            owner = OwnerInfo(
+                                                성명=name,
+                                                주민번호=f"{resident_num}-*******",
+                                                생년월일=birth,
+                                                주소="",
+                                                지분="단독소유" if "소유자" in match.group(0) else "공동소유"
+                                            )
+                                            unique_owners.append(owner)
+                                except:
+                                    pass
         
         return unique_owners
     

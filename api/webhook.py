@@ -746,10 +746,18 @@ def get_application():
                 lines.append(f"소유현황 : {share}")
             else:
                 # 등기부에서 소유자를 못 찾은 경우
+                # 파일명에서 이름 추출 시도
+                name_from_file = extract_name_from_filename(file_name)
+                
                 if borrower and collateral_provider:
                     name_display = f"{borrower}(차), {collateral_provider}(담)"
                 elif borrower:
                     name_display = f"{borrower}(차)"
+                elif name_from_file:
+                    # 파일명에서 추출한 이름 사용
+                    name_display = name_from_file
+                    print(f"[WEBHOOK] 파일명에서 이름 추출: {name_from_file}", file=sys.stderr, flush=True)
+                    logger.info(f"파일명에서 이름 추출: {name_from_file}")
                 else:
                     name_display = "확인불가"
                 
