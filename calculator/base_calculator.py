@@ -277,12 +277,41 @@ class BaseCalculator:
             log_print(f"DEBUG: BaseCalculator.calculate - KB price is None, returning None")
             logger.warning("BaseCalculator.calculate - KB price is None, returning None")
             
-            # 탁감가를 사용하는 금융사인 경우 에러 메시지 변경
-            price_sources = self.config.get("price_sources", {})
-            if price_sources.get("bank_appraisal_price", 0) == 1:
+            # property_data에서 탁감가 정보가 있는지 확인 (실제 입력된 시세 정보 확인)
+            kb_price_raw = property_data.get("kb_price_raw", "") or ""
+            special_notes = property_data.get("special_notes", "") or ""
+            
+            # 탁감가/감정가 정보가 있는지 확인 (여러 소스에서 확인)
+            has_appraisal_price = False
+            
+            # 1. kb_price_raw에서 확인
+            if kb_price_raw:
+                kb_price_raw_str = str(kb_price_raw).lower()
+                if "탁감가" in kb_price_raw_str or "감정가" in kb_price_raw_str or "은행감정가" in kb_price_raw_str:
+                    has_appraisal_price = True
+                    log_print(f"DEBUG: 탁감가 감지됨 (kb_price_raw): {kb_price_raw}")
+            
+            # 2. special_notes에서 확인
+            if not has_appraisal_price and special_notes:
+                special_notes_str = str(special_notes).lower()
+                if "탁감가" in special_notes_str or "감정가" in special_notes_str or "은행감정가" in special_notes_str:
+                    has_appraisal_price = True
+                    log_print(f"DEBUG: 탁감가 감지됨 (special_notes): {special_notes}")
+                else:
+                    # special_notes에서 탁감가 추출 시도
+                    from utils.validators import extract_bank_appraisal_price_from_special_notes
+                    appraisal_price = extract_bank_appraisal_price_from_special_notes(special_notes)
+                    if appraisal_price is not None:
+                        has_appraisal_price = True
+                        log_print(f"DEBUG: 탁감가 추출됨 (special_notes): {appraisal_price}만원")
+            
+            # 탁감가 정보가 있으면 "탁감가 취급 불가", 없으면 "KB시세 정보가 없어 취급 불가합니다"
+            if has_appraisal_price:
                 validation_errors.append("탁감가 취급 불가")
+                log_print(f"DEBUG: 탁감가 취급 불가 메시지 추가")
             else:
                 validation_errors.append("KB시세 정보가 없어 취급 불가합니다")
+                log_print(f"DEBUG: KB시세 정보 없음 메시지 추가")
             
             return {
                 "bank_name": self.bank_name,
