@@ -226,6 +226,37 @@ class BaseCalculator:
         log_print(f"DEBUG: BaseCalculator.calculate - kb_price after validation: {kb_price}")
         logger.debug(f"BaseCalculator.calculate - kb_price after validation: {kb_price}")
         
+        # 탁감가 여부 확인 (kb_price가 설정되어 있어도 체크)
+        price_sources = self.config.get("price_sources", {})
+        is_tackgamga = False
+        if kb_price_raw:
+            kb_price_raw_str = str(kb_price_raw).lower()
+            if "탁감가" in kb_price_raw_str or "감정가" in kb_price_raw_str or "은행감정가" in kb_price_raw_str:
+                is_tackgamga = True
+                log_print(f"DEBUG: BaseCalculator.calculate - 탁감가 감지됨 (kb_price_raw): {kb_price_raw}")
+        
+        # special_notes에서도 탁감가 확인
+        if not is_tackgamga:
+            special_notes = property_data.get("special_notes", "") or ""
+            if special_notes:
+                special_notes_str = str(special_notes).lower()
+                if "탁감가" in special_notes_str or "감정가" in special_notes_str or "은행감정가" in special_notes_str:
+                    is_tackgamga = True
+                    log_print(f"DEBUG: BaseCalculator.calculate - 탁감가 감지됨 (special_notes): {special_notes}")
+        
+        # 탁감가가 입력되어 있고, 해당 금융사가 탁감가를 사용하지 않으면 즉시 반환
+        if is_tackgamga and price_sources.get("bank_appraisal_price", 0) == 0:
+            log_print(f"DEBUG: BaseCalculator.calculate - 탁감가 입력됨 but 금융사가 탁감가 미사용: {self.bank_name}")
+            logger.warning(f"BaseCalculator.calculate - 탁감가 입력됨 but 금융사가 탁감가 미사용: {self.bank_name}")
+            validation_errors.append("탁감가 적용 불가")
+            return {
+                "bank_name": self.bank_name,
+                "results": [],
+                "conditions": self.config.get("conditions", []),
+                "errors": validation_errors,
+                "min_amount": self.config.get("min_amount", 3000)
+            }
+        
         # price_sources 설정에 따라 시세 추출 시도 (KB시세가 없을 경우)
         if kb_price is None:
             price_sources = self.config.get("price_sources", {})
