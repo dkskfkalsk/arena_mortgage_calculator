@@ -859,10 +859,9 @@ def get_application():
             kb_api_no_result = False  # 결과 없음 시 True
             
             # 등기부에서 주소와 면적을 추출한 경우 KB API 호출
-            # (KB시세가 없거나 세대수/구분 정보가 없을 때 호출)
+            # 항상 등기부 주소로 KB API를 먼저 시도 (캡션에 KB시세가 있어도 등기부 주소로 정확한 시세 조회)
             should_call_kb_api = (
-                address and address != "확인불가" and area_value and area_value > 0 and
-                (not kb_price or not households or not property_type)
+                address and address != "확인불가" and area_value and area_value > 0
             )
             
             if should_call_kb_api:
