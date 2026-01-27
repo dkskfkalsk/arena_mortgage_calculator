@@ -2720,41 +2720,72 @@ class BaseCalculator:
         print(f"DEBUG: get_interest_rate - ltv: {ltv}, credit_score: {credit_score}, credit_grade: {credit_grade}, region_grade: {region_grade}, is_subordinate: {is_subordinate}")  # 추가
         print(f"DEBUG: get_interest_rate - ltv_key: {ltv_key}, available ltv_keys: {list(ltv_rates.keys())}")  # 추가
         
-        # 애큐온저축은행, MG캐피탈: LTV 키가 없으면 가장 가까운 높은(이상) 금리 사용
+        # 애큐온저축은행, MG캐피탈: LTV 키가 없으면 범위 기반으로 금리 조회
         is_acuon = self.bank_name == "애큐온저축은행" or "애큐온" in self.bank_name
         is_mg_capital = self.bank_name == "MG캐피탈" or "MG캐피탈" in self.bank_name or "엠지케피탈" in self.bank_name
         if ltv_key not in ltv_rates:
             if (is_acuon or is_mg_capital) and ((is_subordinate and subordinate_rates_by_region) or (not is_subordinate and primary_rates) or (is_subordinate and subordinate_rates)):
-                # 애큐온저축은행 또는 MG캐피탈이고 후순위/선순위 금리 테이블을 사용하는 경우
-                # 사용 가능한 LTV 키 중에서 요청된 LTV 이상인 것 중 가장 작은 값 찾기 (요청된 LTV 이상의 금리)
-                # 소수점 LTV 지원: float로 변환하여 비교
-                ltv_float = float(ltv)
-                available_keys = []
-                for k in ltv_rates.keys():
-                    try:
-                        k_float = float(k)
-                        if k_float >= ltv_float:
-                            available_keys.append(k_float)
-                    except ValueError:
-                        continue
-                
-                if available_keys:
-                    closest_key = min(available_keys)  # 요청된 LTV 이상인 것 중 가장 작은 값 (예: 83.5% → 85%, 82.1% → 85%, 77.3% → 80%)
-                    # 정수면 정수로, 소수점이면 1자리까지
-                    if closest_key == int(closest_key):
-                        ltv_key = str(int(closest_key))
+                # MG캐피탈: LTV 범위 기반 매칭
+                if is_mg_capital:
+                    ltv_float = float(ltv)
+                    # LTV 범위 정의: 60% 이하, 60.1~65%, 65.1~70%, 70.1~75%, 75.1~80%, 80.1~85%
+                    ltv_ranges = [
+                        (0, 60, "60"),
+                        (60.1, 65, "65"),
+                        (65.1, 70, "70"),
+                        (70.1, 75, "75"),
+                        (75.1, 80, "80"),
+                        (80.1, 85, "85")
+                    ]
+                    
+                    matched_key = None
+                    for min_ltv, max_ltv, key in ltv_ranges:
+                        if min_ltv <= ltv_float <= max_ltv:
+                            if key in ltv_rates:
+                                matched_key = key
+                                break
+                    
+                    if matched_key:
+                        ltv_key = matched_key
+                        print(f"DEBUG: get_interest_rate - MG캐피탈: LTV {ltv}%는 범위 매칭으로 {ltv_key}% 금리 테이블 사용")
                     else:
-                        ltv_key = str(round(closest_key, 1))
-                    bank_display_name = "애큐온저축은행" if is_acuon else "MG캐피탈"
-                    print(f"DEBUG: get_interest_rate - {bank_display_name}: LTV {ltv}%에 대한 키 없음, 가장 가까운 이상 금리 키 {ltv_key}% 사용")
+                        print(f"DEBUG: get_interest_rate - MG캐피탈: LTV {ltv}%에 대한 적절한 범위를 찾을 수 없음")
+                        return {
+                            "interest_rate": None,
+                            "interest_rate_range": None,
+                            "credit_grade": credit_grade
+                        }
                 else:
-                    bank_display_name = "애큐온저축은행" if is_acuon else "MG캐피탈"
-                    print(f"DEBUG: get_interest_rate - {bank_display_name}: LTV {ltv}%에 대한 적절한 금리 키를 찾을 수 없음")
-                    return {
-                        "interest_rate": None,
-                        "interest_rate_range": None,
-                        "credit_grade": credit_grade
-                    }
+                    # 애큐온저축은행: 기존 로직 (상향 적용)
+                    # 사용 가능한 LTV 키 중에서 요청된 LTV 이상인 것 중 가장 작은 값 찾기 (요청된 LTV 이상의 금리)
+                    # 소수점 LTV 지원: float로 변환하여 비교
+                    ltv_float = float(ltv)
+                    available_keys = []
+                    for k in ltv_rates.keys():
+                        try:
+                            k_float = float(k)
+                            if k_float >= ltv_float:
+                                available_keys.append(k_float)
+                        except ValueError:
+                            continue
+                    
+                    if available_keys:
+                        closest_key = min(available_keys)  # 요청된 LTV 이상인 것 중 가장 작은 값 (예: 83.5% → 85%, 82.1% → 85%, 77.3% → 80%)
+                        # 정수면 정수로, 소수점이면 1자리까지
+                        if closest_key == int(closest_key):
+                            ltv_key = str(int(closest_key))
+                        else:
+                            ltv_key = str(round(closest_key, 1))
+                        bank_display_name = "애큐온저축은행"
+                        print(f"DEBUG: get_interest_rate - {bank_display_name}: LTV {ltv}%에 대한 키 없음, 가장 가까운 이상 금리 키 {ltv_key}% 사용")
+                    else:
+                        bank_display_name = "애큐온저축은행"
+                        print(f"DEBUG: get_interest_rate - {bank_display_name}: LTV {ltv}%에 대한 적절한 금리 키를 찾을 수 없음")
+                        return {
+                            "interest_rate": None,
+                            "interest_rate_range": None,
+                            "credit_grade": credit_grade
+                        }
             else:
                 print(f"DEBUG: get_interest_rate - LTV {ltv_key} not found in interest_rates_by_ltv")  # 추가
                 return {
