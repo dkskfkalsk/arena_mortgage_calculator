@@ -834,9 +834,9 @@ def get_application():
             area = caption_info.get('area') or result.면적 or ''
             lines.append(f"면   적 : {area}")
             
-            # 세대수, 구분, KB시세 (캡션에서 추출한 정보 사용)
-            lines.append(f"세대수 : {caption_info['households']}")
-            lines.append(f"구   분 : {caption_info['property_type']}")
+            # 세대수, 구분, KB시세 (캡션에서 추출한 정보 사용, KB API 결과로 업데이트 가능)
+            households = caption_info.get('households') or ''
+            property_type = caption_info.get('property_type') or ''
             
             # KB시세: 캡션에서 추출한 것이 없으면 등기부 주소/면적로 자동 조회
             kb_price = caption_info['kb_price']
@@ -858,9 +858,16 @@ def get_application():
             kb_api_failed = False  # 예외 발생 시 True
             kb_api_no_result = False  # 결과 없음 시 True
             
-            # 캡션에 KB시세가 없고, 등기부에서 주소와 면적을 추출한 경우 KB API 호출
-            if not kb_price and address and address != "확인불가" and area_value and area_value > 0:
+            # 등기부에서 주소와 면적을 추출한 경우 KB API 호출
+            # (KB시세가 없거나 세대수/구분 정보가 없을 때 호출)
+            should_call_kb_api = (
+                address and address != "확인불가" and area_value and area_value > 0 and
+                (not kb_price or not households or not property_type)
+            )
+            
+            if should_call_kb_api:
                 kb_api_searched = True
+                print(f"[WEBHOOK] KB API 호출 조건 충족 - KB시세: {kb_price or '없음'}, 세대수: {households or '없음'}, 구분: {property_type or '없음'}", file=sys.stderr, flush=True)
                 try:
                     print(f"[WEBHOOK] KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area_value}m²", file=sys.stderr, flush=True)
                     logger.info(f"KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area_value}m²")
@@ -882,6 +889,30 @@ def get_application():
                             kb_price_low = f"{int(kb_price_min_num):,}"
                             print(f"[WEBHOOK] ✅ KB 시세 하한 조회 성공: {kb_price_low}만원", file=sys.stderr, flush=True)
                             logger.info(f"KB 시세 하한 조회 성공: {kb_price_low}만원")
+                        
+                        # KB API 결과에서 세대수 정보 가져오기 (캡션에 없을 경우)
+                        kb_households = kb_result.get('households')
+                        if kb_households is not None:
+                            if not households:
+                                households = str(kb_households)
+                                print(f"[WEBHOOK] ✅ KB API에서 세대수 추출: {households}세대", file=sys.stderr, flush=True)
+                                logger.info(f"KB API에서 세대수 추출: {households}세대")
+                            else:
+                                print(f"[WEBHOOK] 세대수는 캡션에서 이미 제공됨: {households}세대", file=sys.stderr, flush=True)
+                        
+                        # KB API 결과에서 구분 정보 가져오기 (캡션에 없을 경우)
+                        kb_type = kb_result.get('type')
+                        kb_complex_name = kb_result.get('complex_name', '')
+                        if not property_type:
+                            # KB API의 type이 "84A형" 같은 형식이므로, 주택 타입으로 변환
+                            # 아파트는 보통 면적+타입 형식이므로 "아파트"로 설정
+                            # 단지명이나 타입 정보를 보고 판단
+                            if kb_type or kb_complex_name:
+                                property_type = "아파트"  # 기본값
+                                print(f"[WEBHOOK] ✅ KB API에서 구분 추출: {property_type}", file=sys.stderr, flush=True)
+                                logger.info(f"KB API에서 구분 추출: {property_type}")
+                        else:
+                            print(f"[WEBHOOK] 구분은 캡션에서 이미 제공됨: {property_type}", file=sys.stderr, flush=True)
                     else:
                         kb_api_no_result = True
                         print(f"[WEBHOOK] ⚠️ KB 시세 조회 실패 (결과 없음)", file=sys.stderr, flush=True)
@@ -952,6 +983,10 @@ def get_application():
                 print(f"[WEBHOOK] {error_message}", file=sys.stderr, flush=True)
                 logger.warning(error_message)
                 return error_message
+            
+            # 세대수, 구분 표시 (KB API 결과로 업데이트된 값 사용)
+            lines.append(f"세대수 : {households}")
+            lines.append(f"구   분 : {property_type}")
             
             # 시세 표시 (KB 시세인지 대체 시세인지에 따라 다르게 표시)
             if alternative_price_type:

@@ -1381,11 +1381,84 @@ class BaseCalculator:
             
             print(f"DEBUG: BaseCalculator.calculate - max_ltv: {max_ltv}, ltv_steps: {ltv_steps}")  # 추가
             
-            for ltv in ltv_steps:
-                # 최대 LTV를 초과하면 스킵 (이미 필터링했지만 안전장치)
-                if max_ltv is not None and ltv > max_ltv:
-                    print(f"DEBUG: LTV {ltv} > max_ltv {max_ltv}, skipping")  # 추가
-                    continue
+            # 대환조건일 때는 0.1% 단위로 LTV 계산 (MG캐피탈 등)
+            is_mg_capital = self.bank_name == "MG캐피탈" or "MG캐피탈" in self.bank_name or "엠지케피탈" in self.bank_name
+            if is_refinance and is_mg_capital and max_ltv is not None:
+                # 대환조건: max_ltv부터 0.1%씩 감소시키며 한도가 나오는 최대 LTV 찾기
+                min_ltv_limit = min(ltv_steps) if ltv_steps else 60  # 최소 LTV 제한
+                calculated_ltv = None
+                
+                # max_ltv부터 0.1%씩 감소시키며 한도 계산
+                test_ltv = float(max_ltv)
+                while test_ltv >= min_ltv_limit:
+                    # 소수점 1자리로 반올림
+                    test_ltv_rounded = round(test_ltv, 1)
+                    
+                    # 가용 한도 계산
+                    amount_info = self.calculate_available_amount(
+                        kb_price, test_ltv_rounded, total_mortgage, is_refinance, refinance_principal
+                    )
+                    
+                    # 요청사항에 '부족자금'이 있는지 확인
+                    requests = property_data.get("requests", "") or ""
+                    allow_negative_available = "부족자금" in requests
+                    
+                    # 가용 한도가 0보다 크면 (또는 부족자금 요청이 있으면) 해당 LTV 사용
+                    if amount_info["available_amount"] > 0 or allow_negative_available:
+                        calculated_ltv = test_ltv_rounded
+                        print(f"DEBUG: BaseCalculator.calculate - MG캐피탈 대환: LTV {calculated_ltv}%에서 한도 발견, available_amount={amount_info['available_amount']}")
+                        break
+                    
+                    # 0.1% 감소
+                    test_ltv -= 0.1
+                
+                # 계산된 LTV가 있으면 해당 LTV로 결과 생성
+                if calculated_ltv is not None:
+                    # 금리 조회 (소수점 LTV는 상향 적용)
+                    rate_info = self.get_interest_rate(credit_score, credit_grade, calculated_ltv, grade)
+                    
+                    # 가계 상품 한도 제한 적용
+                    final_amount = amount_info["available_amount"]
+                    if max_amount_limit is not None and final_amount > max_amount_limit:
+                        final_amount = max_amount_limit
+                        print(f"DEBUG: BaseCalculator.calculate - 가계 상품 한도 제한 적용: {amount_info['available_amount']}만원 -> {final_amount}만원")
+                    
+                    # 100만 단위로 절삭
+                    final_amount = self.round_down_to_hundred_thousand(final_amount)
+                    final_total_amount = self.round_down_to_hundred_thousand(amount_info["total_amount"])
+                    
+                    # 최소진행금액 체크: 가한도(available_limit) 기준으로 체크
+                    min_amount = self.config.get("min_amount")
+                    available_limit = amount_info.get("available_limit", amount_info.get("available_amount", 0))
+                    available_limit_rounded = self.round_down_to_hundred_thousand(available_limit)
+                    if min_amount is not None and available_limit_rounded < min_amount:
+                        print(f"DEBUG: BaseCalculator.calculate - MG캐피탈 대환: 가한도 {available_limit_rounded}만원이 min_amount {min_amount}만원보다 작아서 제외")
+                    else:
+                        result = {
+                            "ltv": calculated_ltv,
+                            "amount": final_amount,
+                            "interest_rate": rate_info.get("interest_rate"),
+                            "interest_rate_range": rate_info.get("interest_rate_range"),
+                            "type": "대환",
+                            "available_amount": final_amount,
+                            "total_amount": final_total_amount,
+                            "is_refinance": True,
+                            "credit_grade": rate_info.get("credit_grade"),
+                            "below_standard_ltv": is_below_standard,
+                            "fixed_rate_comment": rate_info.get("fixed_rate_comment"),
+                            "refinance_institutions": refinance_institutions if is_household_for_ok else None
+                        }
+                        results.append(result)
+                        print(f"DEBUG: BaseCalculator.calculate - MG캐피탈 대환: LTV {calculated_ltv}% 결과 추가")
+                else:
+                    print(f"DEBUG: BaseCalculator.calculate - MG캐피탈 대환: 한도가 나오는 LTV를 찾지 못함 (min_ltv_limit={min_ltv_limit}%)")
+            else:
+                # 기존 로직: ltv_steps 순회
+                for ltv in ltv_steps:
+                    # 최대 LTV를 초과하면 스킵 (이미 필터링했지만 안전장치)
+                    if max_ltv is not None and ltv > max_ltv:
+                        print(f"DEBUG: LTV {ltv} > max_ltv {max_ltv}, skipping")  # 추가
+                        continue
                 
                 # 가용 한도 계산
                 # OK저축은행, 애큐온저축은행, MG캐피탈인 경우 특별한 계산 방식 적용
@@ -2065,6 +2138,9 @@ class BaseCalculator:
             등급 번호 (1~8) 또는 None
         """
         score_range_to_grade = self.config.get("credit_score_range_to_grade_number", {})
+        # credit_score_range_to_grade_number가 없으면 credit_score_to_grade를 fallback으로 사용
+        if not score_range_to_grade:
+            score_range_to_grade = self.config.get("credit_score_to_grade", {})
         if not score_range_to_grade:
             return None
         
@@ -2288,7 +2364,7 @@ class BaseCalculator:
     def calculate_available_amount(
         self, 
         kb_price: float, 
-        ltv: int, 
+        ltv: Union[int, float], 
         total_mortgage: float,
         is_refinance: bool = False,
         refinance_principal: float = 0.0
@@ -2636,7 +2712,10 @@ class BaseCalculator:
             ltv_key = "82_2"
             print(f"DEBUG: get_interest_rate - 82% LTV with region_grade 2, using key: {ltv_key}")  # 추가
         else:
-            ltv_key = str(ltv)
+            # 소수점 LTV 지원: 1자리까지 반올림
+            ltv_float = float(ltv)
+            ltv_rounded = round(ltv_float, 1)
+            ltv_key = str(ltv_rounded) if ltv_rounded != int(ltv_rounded) else str(int(ltv_rounded))
         
         print(f"DEBUG: get_interest_rate - ltv: {ltv}, credit_score: {credit_score}, credit_grade: {credit_grade}, region_grade: {region_grade}, is_subordinate: {is_subordinate}")  # 추가
         print(f"DEBUG: get_interest_rate - ltv_key: {ltv_key}, available ltv_keys: {list(ltv_rates.keys())}")  # 추가
@@ -2648,10 +2727,24 @@ class BaseCalculator:
             if (is_acuon or is_mg_capital) and ((is_subordinate and subordinate_rates_by_region) or (not is_subordinate and primary_rates) or (is_subordinate and subordinate_rates)):
                 # 애큐온저축은행 또는 MG캐피탈이고 후순위/선순위 금리 테이블을 사용하는 경우
                 # 사용 가능한 LTV 키 중에서 요청된 LTV 이상인 것 중 가장 작은 값 찾기 (요청된 LTV 이상의 금리)
-                available_keys = [int(k) for k in ltv_rates.keys() if k.isdigit() and int(k) >= ltv]
+                # 소수점 LTV 지원: float로 변환하여 비교
+                ltv_float = float(ltv)
+                available_keys = []
+                for k in ltv_rates.keys():
+                    try:
+                        k_float = float(k)
+                        if k_float >= ltv_float:
+                            available_keys.append(k_float)
+                    except ValueError:
+                        continue
+                
                 if available_keys:
-                    closest_key = min(available_keys)  # 요청된 LTV 이상인 것 중 가장 작은 값 (예: 83% → 85%, 82% → 85%, 77% → 80%)
-                    ltv_key = str(closest_key)
+                    closest_key = min(available_keys)  # 요청된 LTV 이상인 것 중 가장 작은 값 (예: 83.5% → 85%, 82.1% → 85%, 77.3% → 80%)
+                    # 정수면 정수로, 소수점이면 1자리까지
+                    if closest_key == int(closest_key):
+                        ltv_key = str(int(closest_key))
+                    else:
+                        ltv_key = str(round(closest_key, 1))
                     bank_display_name = "애큐온저축은행" if is_acuon else "MG캐피탈"
                     print(f"DEBUG: get_interest_rate - {bank_display_name}: LTV {ltv}%에 대한 키 없음, 가장 가까운 이상 금리 키 {ltv_key}% 사용")
                 else:
