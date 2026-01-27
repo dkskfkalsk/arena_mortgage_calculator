@@ -1459,94 +1459,94 @@ class BaseCalculator:
                     if max_ltv is not None and ltv > max_ltv:
                         print(f"DEBUG: LTV {ltv} > max_ltv {max_ltv}, skipping")  # 추가
                         continue
-                
-                # 가용 한도 계산
-                # OK저축은행, 애큐온저축은행, MG캐피탈인 경우 특별한 계산 방식 적용
-                is_acuon = self.bank_name == "애큐온저축은행" or "애큐온" in self.bank_name
-                is_mg_capital = self.bank_name == "MG캐피탈" or "MG캐피탈" in self.bank_name or "엠지케피탈" in self.bank_name
-                
-                if (is_ok_bank or is_acuon or is_mg_capital) and not is_refinance:
-                    # 저축은행/캐피탈 후순위: 현재 LTV 한도에서 기존 근저당권이 차지하는 LTV 수준의 한도를 차감
-                    # 기존 근저당권이 차지하는 LTV = total_mortgage / kb_price * 100
-                    existing_ltv = (total_mortgage / kb_price) * 100 if kb_price > 0 else 0
-                    # 기존 근저당권 LTV 수준의 한도 계산
-                    existing_ltv_limit = kb_price * (existing_ltv / 100)
-                    # 현재 LTV 한도에서 기존 근저당권 LTV 수준 한도를 차감
-                    max_amount_principal = kb_price * (ltv / 100)
-                    available_principal = max_amount_principal - existing_ltv_limit
-                    amount_info = {
-                        "total_amount": max(0, available_principal),
-                        "available_amount": max(0, available_principal),
-                        "available_limit": max(0, available_principal)  # 후순위는 가한도와 가용금액이 동일
-                    }
-                    bank_display_name = "OK저축은행" if is_ok_bank else ("애큐온저축은행" if is_acuon else "MG캐피탈")
-                    print(f"DEBUG: BaseCalculator.calculate - {bank_display_name} 후순위 특별 계산: ltv={ltv}%, existing_ltv={existing_ltv:.2f}%, max_amount={max_amount_principal}, existing_limit={existing_ltv_limit}, available={available_principal}")
-                elif (is_ok_bank or is_acuon or is_mg_capital) and is_refinance:
-                    # 저축은행/캐피탈 대환: 일반 대환 계산 방식 사용 (calculate_available_amount)
-                    amount_info = self.calculate_available_amount(
-                        kb_price, ltv, total_mortgage, is_refinance, refinance_principal
-                    )
-                    bank_display_name = "OK저축은행" if is_ok_bank else ("애큐온저축은행" if is_acuon else "MG캐피탈")
-                    print(f"DEBUG: BaseCalculator.calculate - {bank_display_name} 대환 계산: ltv={ltv}%, amount_info={amount_info}")
-                else:
-                    # 일반 계산 방식
-                    amount_info = self.calculate_available_amount(
-                        kb_price, ltv, total_mortgage, is_refinance, refinance_principal
-                    )
-                
-                print(f"DEBUG: LTV {ltv} - amount_info: {amount_info}")  # 추가
-                
-                # 요청사항에 '부족자금'이 있는지 확인
-                requests = property_data.get("requests", "") or ""
-                allow_negative_available = "부족자금" in requests
-                
-                # 가용 한도가 마이너스일 경우 처리
-                # - 요청사항에 '부족자금'이 있는 경우만: 마이너스여도 산출
-                # - 그 외: 가용 한도가 0 이하면 스킵 (대환이든 후순위든 상관없이)
-                if amount_info["available_amount"] <= 0:
-                    if not allow_negative_available:
-                        print(f"DEBUG: LTV {ltv} - available_amount <= 0, skipping (부족자금 요청 없음)")  # 추가
-                        continue
+                    
+                    # 가용 한도 계산
+                    # OK저축은행, 애큐온저축은행, MG캐피탈인 경우 특별한 계산 방식 적용
+                    is_acuon = self.bank_name == "애큐온저축은행" or "애큐온" in self.bank_name
+                    is_mg_capital = self.bank_name == "MG캐피탈" or "MG캐피탈" in self.bank_name or "엠지케피탈" in self.bank_name
+                    
+                    if (is_ok_bank or is_acuon or is_mg_capital) and not is_refinance:
+                        # 저축은행/캐피탈 후순위: 현재 LTV 한도에서 기존 근저당권이 차지하는 LTV 수준의 한도를 차감
+                        # 기존 근저당권이 차지하는 LTV = total_mortgage / kb_price * 100
+                        existing_ltv = (total_mortgage / kb_price) * 100 if kb_price > 0 else 0
+                        # 기존 근저당권 LTV 수준의 한도 계산
+                        existing_ltv_limit = kb_price * (existing_ltv / 100)
+                        # 현재 LTV 한도에서 기존 근저당권 LTV 수준 한도를 차감
+                        max_amount_principal = kb_price * (ltv / 100)
+                        available_principal = max_amount_principal - existing_ltv_limit
+                        amount_info = {
+                            "total_amount": max(0, available_principal),
+                            "available_amount": max(0, available_principal),
+                            "available_limit": max(0, available_principal)  # 후순위는 가한도와 가용금액이 동일
+                        }
+                        bank_display_name = "OK저축은행" if is_ok_bank else ("애큐온저축은행" if is_acuon else "MG캐피탈")
+                        print(f"DEBUG: BaseCalculator.calculate - {bank_display_name} 후순위 특별 계산: ltv={ltv}%, existing_ltv={existing_ltv:.2f}%, max_amount={max_amount_principal}, existing_limit={existing_ltv_limit}, available={available_principal}")
+                    elif (is_ok_bank or is_acuon or is_mg_capital) and is_refinance:
+                        # 저축은행/캐피탈 대환: 일반 대환 계산 방식 사용 (calculate_available_amount)
+                        amount_info = self.calculate_available_amount(
+                            kb_price, ltv, total_mortgage, is_refinance, refinance_principal
+                        )
+                        bank_display_name = "OK저축은행" if is_ok_bank else ("애큐온저축은행" if is_acuon else "MG캐피탈")
+                        print(f"DEBUG: BaseCalculator.calculate - {bank_display_name} 대환 계산: ltv={ltv}%, amount_info={amount_info}")
                     else:
-                        print(f"DEBUG: LTV {ltv} - available_amount <= 0, but allowing due to '부족자금' request")  # 추가
-                
-                # 금리 조회 (82% LTV의 경우 region_grade에 따라 다른 금리 적용)
-                rate_info = self.get_interest_rate(credit_score, credit_grade, ltv, grade)
-                
-                # 가계 상품 한도 제한 적용
-                final_amount = amount_info["available_amount"]
-                if max_amount_limit is not None and final_amount > max_amount_limit:
-                    final_amount = max_amount_limit
-                    print(f"DEBUG: BaseCalculator.calculate - 가계 상품 한도 제한 적용: {amount_info['available_amount']}만원 -> {final_amount}만원")
-                
-                # 100만 단위로 절삭
-                final_amount = self.round_down_to_hundred_thousand(final_amount)
-                final_total_amount = self.round_down_to_hundred_thousand(amount_info["total_amount"])
-                
-                # 최소진행금액 체크: 가한도(available_limit) 기준으로 체크
-                min_amount = self.config.get("min_amount")
-                available_limit = amount_info.get("available_limit", amount_info.get("available_amount", 0))
-                available_limit_rounded = self.round_down_to_hundred_thousand(available_limit)
-                if min_amount is not None and available_limit_rounded < min_amount:
-                    print(f"DEBUG: LTV {ltv} - 가한도 {available_limit_rounded}만원이 min_amount {min_amount}만원보다 작아서 제외 (가용금액: {final_amount}만원)")
-                    continue
-                
-                result = {
-                    "ltv": ltv,
-                    "amount": final_amount,
-                    "interest_rate": rate_info.get("interest_rate"),
-                    "interest_rate_range": rate_info.get("interest_rate_range"),
-                    "type": "대환" if is_refinance else "후순위",
-                    "available_amount": final_amount,
-                    "total_amount": final_total_amount,
-                    "is_refinance": is_refinance,
-                    "credit_grade": rate_info.get("credit_grade"),
-                    "below_standard_ltv": is_below_standard,  # 기준 LTV 이하 지역 여부
-                    "fixed_rate_comment": rate_info.get("fixed_rate_comment"),  # 고정금리 코멘트
-                    "refinance_institutions": refinance_institutions if is_household_for_ok and is_refinance else None  # 가계자금 대환 시 대환하는 금융사 이름
-                }
-                
-                results.append(result)
+                        # 일반 계산 방식
+                        amount_info = self.calculate_available_amount(
+                            kb_price, ltv, total_mortgage, is_refinance, refinance_principal
+                        )
+                    
+                    print(f"DEBUG: LTV {ltv} - amount_info: {amount_info}")  # 추가
+                    
+                    # 요청사항에 '부족자금'이 있는지 확인
+                    requests = property_data.get("requests", "") or ""
+                    allow_negative_available = "부족자금" in requests
+                    
+                    # 가용 한도가 마이너스일 경우 처리
+                    # - 요청사항에 '부족자금'이 있는 경우만: 마이너스여도 산출
+                    # - 그 외: 가용 한도가 0 이하면 스킵 (대환이든 후순위든 상관없이)
+                    if amount_info["available_amount"] <= 0:
+                        if not allow_negative_available:
+                            print(f"DEBUG: LTV {ltv} - available_amount <= 0, skipping (부족자금 요청 없음)")  # 추가
+                            continue
+                        else:
+                            print(f"DEBUG: LTV {ltv} - available_amount <= 0, but allowing due to '부족자금' request")  # 추가
+                    
+                    # 금리 조회 (82% LTV의 경우 region_grade에 따라 다른 금리 적용)
+                    rate_info = self.get_interest_rate(credit_score, credit_grade, ltv, grade)
+                    
+                    # 가계 상품 한도 제한 적용
+                    final_amount = amount_info["available_amount"]
+                    if max_amount_limit is not None and final_amount > max_amount_limit:
+                        final_amount = max_amount_limit
+                        print(f"DEBUG: BaseCalculator.calculate - 가계 상품 한도 제한 적용: {amount_info['available_amount']}만원 -> {final_amount}만원")
+                    
+                    # 100만 단위로 절삭
+                    final_amount = self.round_down_to_hundred_thousand(final_amount)
+                    final_total_amount = self.round_down_to_hundred_thousand(amount_info["total_amount"])
+                    
+                    # 최소진행금액 체크: 가한도(available_limit) 기준으로 체크
+                    min_amount = self.config.get("min_amount")
+                    available_limit = amount_info.get("available_limit", amount_info.get("available_amount", 0))
+                    available_limit_rounded = self.round_down_to_hundred_thousand(available_limit)
+                    if min_amount is not None and available_limit_rounded < min_amount:
+                        print(f"DEBUG: LTV {ltv} - 가한도 {available_limit_rounded}만원이 min_amount {min_amount}만원보다 작아서 제외 (가용금액: {final_amount}만원)")
+                        continue
+                    
+                    result = {
+                        "ltv": ltv,
+                        "amount": final_amount,
+                        "interest_rate": rate_info.get("interest_rate"),
+                        "interest_rate_range": rate_info.get("interest_rate_range"),
+                        "type": "대환" if is_refinance else "후순위",
+                        "available_amount": final_amount,
+                        "total_amount": final_total_amount,
+                        "is_refinance": is_refinance,
+                        "credit_grade": rate_info.get("credit_grade"),
+                        "below_standard_ltv": is_below_standard,  # 기준 LTV 이하 지역 여부
+                        "fixed_rate_comment": rate_info.get("fixed_rate_comment"),  # 고정금리 코멘트
+                        "refinance_institutions": refinance_institutions if is_household_for_ok and is_refinance else None  # 가계자금 대환 시 대환하는 금융사 이름
+                    }
+                    
+                    results.append(result)
         
         # 결과가 없으면 에러 메시지와 함께 반환 (가용 한도 부족 등)
         if not results:
