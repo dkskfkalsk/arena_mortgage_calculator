@@ -353,18 +353,49 @@ class MessageParser:
                 # 기존 대환 로직 (명시적으로 지정된 경우)
                 if "대환" in data["requests"]:
                     # 패턴: "N순위 [기관명] 대환" 또는 "[기관명] 대환" 또는 "N순위 대환조건" 등
-                    # 0. "N순위 대환조건" 또는 "N순위 대환 조건" 패턴 (기관명 없이 순위만)
-                    refinance_match = re.search(r'(\d+)순위\s*대환\s*조?건?', data["requests"])
-                    if refinance_match:
-                        priority = int(refinance_match.group(1))
-                        print(f"DEBUG: Found 'N순위 대환조건' pattern - priority: {priority}, treating as refinance request")
+                    # 0-1. "N~M순위 대환조건" 또는 "N~M순위 대환 조건" 패턴 (범위 순위)
+                    range_match = re.search(r'(\d+)~(\d+)순위\s*대환\s*조?건?', data["requests"])
+                    if range_match:
+                        start_priority = int(range_match.group(1))
+                        end_priority = int(range_match.group(2))
+                        print(f"DEBUG: Found 'N~M순위 대환조건' pattern - priority range: {start_priority}~{end_priority}, treating as refinance request")
                         
-                        # 해당 순위의 근저당권을 대환으로 설정
+                        # 범위 내 모든 순위의 근저당권을 대환으로 설정
                         for mortgage in data["mortgages"]:
-                            if mortgage.get("priority") == priority:
+                            priority = mortgage.get("priority")
+                            if priority and start_priority <= priority <= end_priority:
                                 mortgage["is_refinance"] = True
                                 print(f"DEBUG: Set is_refinance=True for mortgage: priority={priority}, institution='{mortgage.get('institution')}'")
-                                break
+                    # 0-2. "N순위 M순위 대환조건" 또는 "N순위 M순위 대환 조건" 패턴 (연속 순위)
+                    elif re.search(r'\d+순위\s+\d+순위\s*대환\s*조?건?', data["requests"]):
+                        # "대환조건" 또는 "대환 조건" 앞에 있는 순위들만 추출
+                        match = re.search(r'((?:\d+순위\s+)+)대환\s*조?건?', data["requests"])
+                        if match:
+                            priorities_text = match.group(1)
+                            priorities = re.findall(r'(\d+)순위', priorities_text)
+                            if priorities:
+                                priority_set = set(int(p) for p in priorities)
+                                print(f"DEBUG: Found 'N순위 M순위 대환조건' pattern - priorities: {priority_set}, treating as refinance request")
+                                
+                                # 추출된 모든 순위의 근저당권을 대환으로 설정
+                                for mortgage in data["mortgages"]:
+                                    priority = mortgage.get("priority")
+                                    if priority and priority in priority_set:
+                                        mortgage["is_refinance"] = True
+                                        print(f"DEBUG: Set is_refinance=True for mortgage: priority={priority}, institution='{mortgage.get('institution')}'")
+                    # 0-3. "N순위 대환조건" 또는 "N순위 대환 조건" 패턴 (기관명 없이 순위만)
+                    else:
+                        refinance_match = re.search(r'(\d+)순위\s*대환\s*조?건?', data["requests"])
+                        if refinance_match:
+                            priority = int(refinance_match.group(1))
+                            print(f"DEBUG: Found 'N순위 대환조건' pattern - priority: {priority}, treating as refinance request")
+                            
+                            # 해당 순위의 근저당권을 대환으로 설정
+                            for mortgage in data["mortgages"]:
+                                if mortgage.get("priority") == priority:
+                                    mortgage["is_refinance"] = True
+                                    print(f"DEBUG: Set is_refinance=True for mortgage: priority={priority}, institution='{mortgage.get('institution')}'")
+                                    break
                     else:
                         # 1. "N순위 [기관명] 대환" 또는 "N순위 [기관명] 대환조건" 패턴
                         # 정규식 개선: "대환"이라는 연속된 문자열 전까지 모든 문자를 캡처 (non-greedy)
@@ -439,35 +470,81 @@ class MessageParser:
         if not has_refinance:
             # 전체 텍스트에서 "대환조건" 또는 "대환 조건" 패턴 찾기
             # 패턴: "[기관명] 대환조건" 또는 "[기관명] 대환 조건" 또는 "N순위 [기관명] 대환조건" 또는 "N순위 대환조건"
-            refinance_condition_patterns = [
-                r'(\d+)순위\s*대환\s*조?건?',  # "N순위 대환조건" 또는 "N순위 대환 조건" (기관명 없이 순위만)
-                r'(\d+)순위\s+([가-힣a-zA-Z0-9]+(?:[가-힣a-zA-Z0-9\s,]+)?)\s*대환\s*조건',  # "N순위 [기관명] 대환 조건" (공백 있음, 순위 명시)
-                r'(\d+)순위\s+([가-힣a-zA-Z0-9]+(?:[가-힣a-zA-Z0-9\s,]+)?)대환조건',  # "N순위 [기관명] 대환조건" (공백 없음, 순위 명시)
-                r'([가-힣a-zA-Z0-9]+(?:[가-힣a-zA-Z0-9\s,]+)?)\s*대환\s*조건',  # "[기관명] 대환 조건" (공백 있음, 순위 없음)
-                r'([가-힣a-zA-Z0-9]+(?:[가-힣a-zA-Z0-9\s,]+)?)대환조건',  # "[기관명] 대환조건" (공백 없음, 순위 없음)
-            ]
             
-            for pattern in refinance_condition_patterns:
-                refinance_match = re.search(pattern, message_text)
-                if refinance_match:
-                    # 순위가 명시된 경우와 그렇지 않은 경우를 구분
-                    groups = refinance_match.groups()
-                    # "N순위 대환조건" 패턴 (순위만, 기관명 없음)
-                    if len(groups) == 1 and groups[0].isdigit():
-                        priority = int(groups[0])
-                        print(f"DEBUG: Found refinance condition in full text (priority only) - priority: {priority}, treating as refinance request")
+            # 먼저 범위 패턴과 연속 순위 패턴 확인
+            # 1. "N~M순위 대환조건" 패턴
+            range_match = re.search(r'(\d+)~(\d+)순위\s*대환\s*조?건?', message_text)
+            if range_match:
+                start_priority = int(range_match.group(1))
+                end_priority = int(range_match.group(2))
+                print(f"DEBUG: Found 'N~M순위 대환조건' pattern in full text - priority range: {start_priority}~{end_priority}, treating as refinance request")
+                
+                # 범위 내 모든 순위의 근저당권을 대환으로 설정
+                found = False
+                for mortgage in data["mortgages"]:
+                    priority = mortgage.get("priority")
+                    if priority and start_priority <= priority <= end_priority:
+                        mortgage["is_refinance"] = True
+                        found = True
+                        print(f"DEBUG: Set is_refinance=True for mortgage: priority={priority}, institution='{mortgage.get('institution')}'")
+                
+                if found:
+                    has_refinance = True
+            
+            # 2. "N순위 M순위 대환조건" 패턴 (연속 순위)
+            if not has_refinance:
+                # "대환조건" 또는 "대환 조건" 앞에 있는 순위들만 추출
+                match = re.search(r'((?:\d+순위\s+)+)대환\s*조?건?', message_text)
+                if match:
+                    priorities_text = match.group(1)
+                    priorities = re.findall(r'(\d+)순위', priorities_text)
+                    if len(priorities) >= 2:  # 최소 2개 이상의 순위가 있어야 함
+                        priority_set = set(int(p) for p in priorities)
+                        print(f"DEBUG: Found 'N순위 M순위 대환조건' pattern in full text - priorities: {priority_set}, treating as refinance request")
                         
-                        # 해당 순위의 근저당권을 대환으로 설정
+                        # 추출된 모든 순위의 근저당권을 대환으로 설정
                         found = False
                         for mortgage in data["mortgages"]:
-                            if mortgage.get("priority") == priority:
+                            priority = mortgage.get("priority")
+                            if priority and priority in priority_set:
                                 mortgage["is_refinance"] = True
                                 found = True
                                 print(f"DEBUG: Set is_refinance=True for mortgage: priority={priority}, institution='{mortgage.get('institution')}'")
-                                break
                         
                         if found:
-                            break  # 패턴을 찾았고 매칭도 성공했으면 종료
+                            has_refinance = True
+            
+            # 3. 기존 패턴들 확인
+            if not has_refinance:
+                refinance_condition_patterns = [
+                    r'(\d+)순위\s*대환\s*조?건?',  # "N순위 대환조건" 또는 "N순위 대환 조건" (기관명 없이 순위만)
+                    r'(\d+)순위\s+([가-힣a-zA-Z0-9]+(?:[가-힣a-zA-Z0-9\s,]+)?)\s*대환\s*조건',  # "N순위 [기관명] 대환 조건" (공백 있음, 순위 명시)
+                    r'(\d+)순위\s+([가-힣a-zA-Z0-9]+(?:[가-힣a-zA-Z0-9\s,]+)?)대환조건',  # "N순위 [기관명] 대환조건" (공백 없음, 순위 명시)
+                    r'([가-힣a-zA-Z0-9]+(?:[가-힣a-zA-Z0-9\s,]+)?)\s*대환\s*조건',  # "[기관명] 대환 조건" (공백 있음, 순위 없음)
+                    r'([가-힣a-zA-Z0-9]+(?:[가-힣a-zA-Z0-9\s,]+)?)대환조건',  # "[기관명] 대환조건" (공백 없음, 순위 없음)
+                ]
+                
+                for pattern in refinance_condition_patterns:
+                    refinance_match = re.search(pattern, message_text)
+                    if refinance_match:
+                        # 순위가 명시된 경우와 그렇지 않은 경우를 구분
+                        groups = refinance_match.groups()
+                        # "N순위 대환조건" 패턴 (순위만, 기관명 없음)
+                        if len(groups) == 1 and groups[0].isdigit():
+                            priority = int(groups[0])
+                            print(f"DEBUG: Found refinance condition in full text (priority only) - priority: {priority}, treating as refinance request")
+                            
+                            # 해당 순위의 근저당권을 대환으로 설정
+                            found = False
+                            for mortgage in data["mortgages"]:
+                                if mortgage.get("priority") == priority:
+                                    mortgage["is_refinance"] = True
+                                    found = True
+                                    print(f"DEBUG: Set is_refinance=True for mortgage: priority={priority}, institution='{mortgage.get('institution')}'")
+                                    break
+                            
+                            if found:
+                                break  # 패턴을 찾았고 매칭도 성공했으면 종료
                     elif len(groups) == 2 and groups[0].isdigit():
                         # 순위가 명시된 경우: 해당 순위만 대환
                         priority = int(groups[0])
@@ -496,8 +573,10 @@ class MessageParser:
                             print(f"DEBUG: Warning - Could not find matching mortgage for priority {priority} with keyword '{institution_keyword}' from refinance condition pattern")
                     else:
                         # 순위가 명시되지 않은 경우: 같은 기관명을 가진 모든 순위를 대환
-                        institution_keyword = groups[0] if len(groups) == 2 else groups[0]
-                        institution_keyword = institution_keyword.strip()
+                        if len(groups) > 0:
+                            institution_keyword = groups[0].strip()
+                        else:
+                            institution_keyword = ""
                         
                         # "대환조건"이라는 단어 자체는 제외
                         if institution_keyword and institution_keyword != "대환조건" and institution_keyword != "대환":
