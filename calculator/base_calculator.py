@@ -1385,10 +1385,16 @@ class BaseCalculator:
             is_mg_capital = self.bank_name == "MG캐피탈" or "MG캐피탈" in self.bank_name or "엠지케피탈" in self.bank_name
             if is_refinance and is_mg_capital and max_ltv is not None:
                 # 대환조건: max_ltv부터 0.1%씩 감소시키며 한도가 나오는 최대 LTV 찾기
+                # 그리고 ltv_steps에 있는 LTV 단계들도 추가 산출
                 min_ltv_limit = min(ltv_steps) if ltv_steps else 60  # 최소 LTV 제한
-                calculated_ltv = None
+                calculated_max_ltv = None
+                calculated_ltvs = set()  # 이미 산출된 LTV 추적 (중복 방지)
                 
-                # max_ltv부터 0.1%씩 감소시키며 한도 계산
+                # 요청사항에 '부족자금'이 있는지 확인
+                requests = property_data.get("requests", "") or ""
+                allow_negative_available = "부족자금" in requests
+                
+                # 1단계: max_ltv부터 0.1%씩 감소시키며 한도가 나오는 최대 LTV 찾기
                 test_ltv = float(max_ltv)
                 while test_ltv >= min_ltv_limit:
                     # 소수점 1자리로 반올림
@@ -1399,23 +1405,23 @@ class BaseCalculator:
                         kb_price, test_ltv_rounded, total_mortgage, is_refinance, refinance_principal
                     )
                     
-                    # 요청사항에 '부족자금'이 있는지 확인
-                    requests = property_data.get("requests", "") or ""
-                    allow_negative_available = "부족자금" in requests
-                    
                     # 가용 한도가 0보다 크면 (또는 부족자금 요청이 있으면) 해당 LTV 사용
                     if amount_info["available_amount"] > 0 or allow_negative_available:
-                        calculated_ltv = test_ltv_rounded
-                        print(f"DEBUG: BaseCalculator.calculate - MG캐피탈 대환: LTV {calculated_ltv}%에서 한도 발견, available_amount={amount_info['available_amount']}")
+                        calculated_max_ltv = test_ltv_rounded
+                        print(f"DEBUG: BaseCalculator.calculate - MG캐피탈 대환: 최대 LTV {calculated_max_ltv}%에서 한도 발견, available_amount={amount_info['available_amount']}")
                         break
                     
                     # 0.1% 감소
                     test_ltv -= 0.1
                 
-                # 계산된 LTV가 있으면 해당 LTV로 결과 생성
-                if calculated_ltv is not None:
-                    # 금리 조회 (소수점 LTV는 상향 적용)
-                    rate_info = self.get_interest_rate(credit_score, credit_grade, calculated_ltv, grade)
+                # 최대 LTV로 결과 생성
+                if calculated_max_ltv is not None:
+                    amount_info = self.calculate_available_amount(
+                        kb_price, calculated_max_ltv, total_mortgage, is_refinance, refinance_principal
+                    )
+                    
+                    # 금리 조회
+                    rate_info = self.get_interest_rate(credit_score, credit_grade, calculated_max_ltv, grade)
                     
                     # 가계 상품 한도 제한 적용
                     final_amount = amount_info["available_amount"]
@@ -1435,7 +1441,7 @@ class BaseCalculator:
                         print(f"DEBUG: BaseCalculator.calculate - MG캐피탈 대환: 가한도 {available_limit_rounded}만원이 min_amount {min_amount}만원보다 작아서 제외")
                     else:
                         result = {
-                            "ltv": calculated_ltv,
+                            "ltv": calculated_max_ltv,
                             "amount": final_amount,
                             "interest_rate": rate_info.get("interest_rate"),
                             "interest_rate_range": rate_info.get("interest_rate_range"),
@@ -1449,9 +1455,77 @@ class BaseCalculator:
                             "refinance_institutions": refinance_institutions if is_household_for_ok else None
                         }
                         results.append(result)
-                        print(f"DEBUG: BaseCalculator.calculate - MG캐피탈 대환: LTV {calculated_ltv}% 결과 추가")
-                else:
-                    print(f"DEBUG: BaseCalculator.calculate - MG캐피탈 대환: 한도가 나오는 LTV를 찾지 못함 (min_ltv_limit={min_ltv_limit}%)")
+                        calculated_ltvs.add(calculated_max_ltv)
+                        print(f"DEBUG: BaseCalculator.calculate - MG캐피탈 대환: 최대 LTV {calculated_max_ltv}% 결과 추가")
+                
+                # 2단계: ltv_steps 순회하여 추가 산출 (이미 산출된 LTV 제외)
+                if ltv_steps:
+                    for ltv in ltv_steps:
+                        # 최대 LTV를 초과하면 스킵
+                        if max_ltv is not None and ltv > max_ltv:
+                            continue
+                        
+                        # 이미 산출된 LTV는 제외 (중복 방지)
+                        if ltv in calculated_ltvs:
+                            print(f"DEBUG: BaseCalculator.calculate - MG캐피탈 대환: LTV {ltv}%는 이미 산출되어 제외")
+                            continue
+                        
+                        # 가용 한도 계산
+                        amount_info = self.calculate_available_amount(
+                            kb_price, ltv, total_mortgage, is_refinance, refinance_principal
+                        )
+                        
+                        # 가용 한도가 마이너스일 경우 처리
+                        if amount_info["available_amount"] <= 0:
+                            if not allow_negative_available:
+                                print(f"DEBUG: BaseCalculator.calculate - MG캐피탈 대환: LTV {ltv}% - available_amount <= 0, skipping (부족자금 요청 없음)")
+                                continue
+                            else:
+                                print(f"DEBUG: BaseCalculator.calculate - MG캐피탈 대환: LTV {ltv}% - available_amount <= 0, but allowing due to '부족자금' request")
+                        
+                        # 금리 조회
+                        rate_info = self.get_interest_rate(credit_score, credit_grade, ltv, grade)
+                        
+                        # 가계 상품 한도 제한 적용
+                        final_amount = amount_info["available_amount"]
+                        if max_amount_limit is not None and final_amount > max_amount_limit:
+                            final_amount = max_amount_limit
+                            print(f"DEBUG: BaseCalculator.calculate - 가계 상품 한도 제한 적용: {amount_info['available_amount']}만원 -> {final_amount}만원")
+                        
+                        # 100만 단위로 절삭
+                        final_amount = self.round_down_to_hundred_thousand(final_amount)
+                        final_total_amount = self.round_down_to_hundred_thousand(amount_info["total_amount"])
+                        
+                        # 최소진행금액 체크: 가한도(available_limit) 기준으로 체크
+                        min_amount = self.config.get("min_amount")
+                        available_limit = amount_info.get("available_limit", amount_info.get("available_amount", 0))
+                        available_limit_rounded = self.round_down_to_hundred_thousand(available_limit)
+                        if min_amount is not None and available_limit_rounded < min_amount:
+                            print(f"DEBUG: BaseCalculator.calculate - MG캐피탈 대환: LTV {ltv}% - 가한도 {available_limit_rounded}만원이 min_amount {min_amount}만원보다 작아서 제외")
+                            continue
+                        
+                        result = {
+                            "ltv": ltv,
+                            "amount": final_amount,
+                            "interest_rate": rate_info.get("interest_rate"),
+                            "interest_rate_range": rate_info.get("interest_rate_range"),
+                            "type": "대환",
+                            "available_amount": final_amount,
+                            "total_amount": final_total_amount,
+                            "is_refinance": True,
+                            "credit_grade": rate_info.get("credit_grade"),
+                            "below_standard_ltv": is_below_standard,
+                            "fixed_rate_comment": rate_info.get("fixed_rate_comment"),
+                            "refinance_institutions": refinance_institutions if is_household_for_ok else None
+                        }
+                        results.append(result)
+                        calculated_ltvs.add(ltv)
+                        print(f"DEBUG: BaseCalculator.calculate - MG캐피탈 대환: LTV {ltv}% 결과 추가")
+                
+                # 3단계: 결과를 LTV 높은 순으로 정렬
+                if results:
+                    results.sort(key=lambda x: x.get("ltv", 0), reverse=True)
+                    print(f"DEBUG: BaseCalculator.calculate - MG캐피탈 대환: 결과 정렬 완료 (LTV 높은 순)")
             else:
                 # 기존 로직: ltv_steps 순회
                 for ltv in ltv_steps:
