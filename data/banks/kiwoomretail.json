@@ -308,7 +308,7 @@
     "6": 0
   },
   "max_ltv_primary": 90,
-  "max_ltv_subordinate": 110,
+  "max_ltv_subordinate": 90,
   "ltv_steps_primary": [90, 85, 80, 75, 70],
   "ltv_steps_subordinate": [90, 85, 80, 75, 70],
   "credit_score_to_grade": {

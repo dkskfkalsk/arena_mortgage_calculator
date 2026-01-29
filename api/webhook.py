@@ -213,7 +213,7 @@ def get_application():
                 "특이사항에 압류·가압류·경매취하자금 → 취급 불가\n\n"
                 
                 "【기타】\n"
-                "특정 채널 PDF 업로드→등기부 자동분석·KB시세 조회 / 신용X→금리 범위 표시"
+                "PDF 업로드→등기부 자동분석·KB시세 조회 / 신용X→금리 범위 표시"
             )
             try:
                 await message.reply_text(help_message)
@@ -1186,9 +1186,16 @@ def get_application():
             print(f"[WEBHOOK] Chat type: {chat_type}", file=sys.stderr, flush=True)
             logger.info(f"handle_message - chat_type: {chat_type}")
             
-            # banks_2 채팅방에서 문서(PDF)가 있으면 문서 핸들러로 처리
-            if chat_type == "banks_2" and message.document:
+            # PDF 등기부 업로드: banks_2에 포함된 채팅방이면 문서 핸들러로 처리
+            # (get_chat_type은 banks → loan → banks_2 순으로 판별하므로, 동일 chat_id가 여러 목록에 있으면
+            # banks로만 인식될 수 있음. 문서 처리만큼은 banks_2 소속 여부를 직접 확인)
+            if message.document and (chat_id in allowed_chat_ids_banks_2):
+                print(f"[WEBHOOK] PDF in banks_2 chat, calling handle_document", file=sys.stderr, flush=True)
                 await handle_document(update, context)
+                return
+            # 다른 방에서 PDF만 보낸 경우 안내 메시지 (무응답 방지)
+            if message.document:
+                await message.reply_text("등기부 PDF 분석은 등기부·KB시세 전용 방에서 이용해 주세요.")
                 return
             
             # 새 멤버 입장 메시지 처리
