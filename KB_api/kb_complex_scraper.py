@@ -3,6 +3,7 @@
 KB /c/ 단지 페이지 스크래퍼
 - kbland.kr/c/{단지기본일련번호} 에서 재건축 단계(조합설립인가 등) + 세대수·동수 추출
 - Playwright 사용 (JS 렌더링 SPA 대응)
+- Vercel 등에서는 Playwright 대신 requests로 HTML만 가져와 파싱 시도 (폴백)
 """
 
 import os
@@ -19,6 +20,13 @@ else:
     _SCRAPER_DISABLED = False
 
 _BASE_URL = "https://kbland.kr/c/"
+
+# requests 폴백용 헤더 (브라우저처럼 보이게)
+_REQUESTS_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+}
 
 
 def _empty_result(complex_id: Any, error: Optional[str] = None) -> Dict[str, Any]:
@@ -150,6 +158,51 @@ class KBComplexScraper:
         return out
 
 
+def _fetch_with_requests(complex_id: int | str) -> Dict[str, Any]:
+    """
+    Vercel 등 Playwright 불가 환경에서 requests로 /c/ 페이지 HTML만 가져와
+    세대수·동수 파싱 시도. (SPA면 HTML에 없어서 실패할 수 있음)
+    """
+    out = _empty_result(complex_id, error=None)
+    out["source_url"] = f"{_BASE_URL}{complex_id}" if complex_id else None
+    if not complex_id or str(complex_id).strip() == "":
+        out["error"] = "complex_id 필요"
+        return out
+    try:
+        import requests
+        url = f"{_BASE_URL}{complex_id}"
+        r = requests.get(url, headers=_REQUESTS_HEADERS, timeout=15)
+        r.raise_for_status()
+        text = r.text or ""
+        households, buildings = _parse_households_buildings(text)
+        # SPA: HTML 내 JSON(script 등)에서 세대수 패턴 시도
+        if households is None:
+            for pattern in [
+                r'"세대수"\s*:\s*(\d+)',
+                r'"households"\s*:\s*(\d+)',
+                r'"총세대수"\s*:\s*(\d+)',
+                r'세대["\']?\s*:\s*(\d+)',
+            ]:
+                m = re.search(pattern, text)
+                if m:
+                    val = int(m.group(1))
+                    if 1 <= val <= 100000:
+                        households = val
+                        break
+        if households is not None:
+            out["households"] = households
+            logger.info("requests 폴백: 세대수 %s 추출", households)
+        if buildings is not None:
+            out["buildings"] = buildings
+            logger.info("requests 폴백: 동수 %s 추출", buildings)
+        if not out["households"] and not out["buildings"]:
+            out["error"] = "HTML에서 세대수/동수 미발견 (SPA는 JS 렌더링 필요)"
+    except Exception as e:
+        out["error"] = str(e)
+        logger.warning("requests 폴백 실패: %s", e)
+    return out
+
+
 def get_complex_extra_info(complex_id: int | str) -> Dict[str, Any]:
     """
     단지기본일련번호로 /c/ 스크래핑 후 재건축·세대수·동수 반환.
@@ -168,5 +221,7 @@ def get_complex_extra_info(complex_id: int | str) -> Dict[str, Any]:
             "error": None,
         }
     """
+    if _SCRAPER_DISABLED:
+        return _fetch_with_requests(complex_id)
     s = KBComplexScraper()
     return s.scrape(complex_id)
