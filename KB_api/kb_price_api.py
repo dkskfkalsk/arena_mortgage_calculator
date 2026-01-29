@@ -705,23 +705,72 @@ class KBPriceAPI:
             "type": matched_price.get("주택형타입내용") or matched_price.get("타입", ""),
         }
         
-        # 7. 재건축·세대수: 재건축여부=1인 경우 redevelop_yn=True, /c/ 스크래퍼로 단계·세대수·동수 보강
+        # 7. 재건축·세대수: 단지 목록 → get_complex_info → /c/ 스크래퍼 순으로 세대수/동수 채우기
         complex_id = selected_complex.get("단지기본일련번호")
         result["redevelop_stages"] = []
         result["households"] = None
         result["buildings"] = None
         result["redevelop_yn"] = False
+        # fastPriceInfo 단지 항목에 세대수/동수 필드가 있으면 우선 사용
+        for key in ("세대수", "총세대수", "총호수", "호수"):
+            val = selected_complex.get(key)
+            if val is not None and str(val).strip() != "":
+                try:
+                    result["households"] = int(float(str(val).replace(",", "")))
+                    break
+                except (ValueError, TypeError):
+                    pass
+        for key in ("동수", "총동수", "개동"):
+            val = selected_complex.get(key)
+            if val is not None and str(val).strip() != "":
+                try:
+                    result["buildings"] = int(float(str(val).replace(",", "")))
+                    break
+                except (ValueError, TypeError):
+                    pass
         if complex_id is not None:
             info = self.get_complex_info(str(complex_id))
             redevelop_flag = (info or {}).get("재건축여부")
             if str(redevelop_flag) == "1":
-                result["redevelop_yn"] = True  # API 재건축여부=1이면 재건축 단지로 확정
-                extra = get_complex_extra_info(complex_id)
+                result["redevelop_yn"] = True
+            # API 응답에서 세대수/동수 필드 시도 (KB API 필드명이 있을 수 있음)
+            if info:
+                for key in ("세대수", "총세대수", "총호수", "호수"):
+                    val = info.get(key)
+                    if val is not None and str(val).strip() != "":
+                        try:
+                            result["households"] = int(float(str(val).replace(",", "")))
+                            logger.info(f"✅ API에서 세대수 추출: {result['households']} (필드: {key})")
+                            break
+                        except (ValueError, TypeError):
+                            pass
+                for key in ("동수", "총동수", "개동"):
+                    val = info.get(key)
+                    if val is not None and str(val).strip() != "":
+                        try:
+                            result["buildings"] = int(float(str(val).replace(",", "")))
+                            logger.info(f"✅ API에서 동수 추출: {result['buildings']} (필드: {key})")
+                            break
+                        except (ValueError, TypeError):
+                            pass
+            # /c/ 스크래퍼: 재건축이면 단계+세대수·동수, 일반 단지면 세대수·동수만 (아직 None일 때)
+            extra = get_complex_extra_info(complex_id)
+            if result["redevelop_yn"]:
                 result["redevelop_stages"] = extra.get("redevelop_stages") or []
-                result["households"] = extra.get("households")
-                result["buildings"] = extra.get("buildings")
+                if extra.get("households") is not None:
+                    result["households"] = extra["households"]
+                if extra.get("buildings") is not None:
+                    result["buildings"] = extra["buildings"]
                 if extra.get("error"):
                     result["redevelop_error"] = extra["error"]
+            else:
+                # 일반 단지: 스크래퍼에서 세대수·동수만 채우기 (API에 없을 때)
+                if result["households"] is None and extra.get("households") is not None:
+                    result["households"] = extra["households"]
+                    logger.info(f"✅ 스크래퍼에서 세대수 추출: {result['households']}")
+                if result["buildings"] is None and extra.get("buildings") is not None:
+                    result["buildings"] = extra["buildings"]
+                    logger.info(f"✅ 스크래퍼에서 동수 추출: {result['buildings']}")
         
         price_info = f"{result['kb_price']:,.0f}만원"
         if price_min_num:

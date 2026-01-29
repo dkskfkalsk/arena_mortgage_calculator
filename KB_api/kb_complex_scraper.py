@@ -34,14 +34,31 @@ def _empty_result(complex_id: Any, error: Optional[str] = None) -> Dict[str, Any
 
 
 def _parse_households_buildings(text: str) -> Tuple[Optional[int], Optional[int]]:
-    """기본정보 텍스트에서 (세대수, 동수) 추출."""
+    """기본정보 텍스트에서 (세대수, 동수) 추출. 예: '아파트1,268세대08.04' → 1268."""
     households, buildings = None, None
-    m = re.search(r"([\d,]+)\s*세대", text)
-    if m:
+
+    def _parse_number(s: str) -> Optional[int]:
+        if not s:
+            return None
+        s = s.replace(",", "").replace("，", "").replace(" ", "").replace("\u00a0", "")
         try:
-            households = int(m.group(1).replace(",", ""))
+            return int(s)
         except ValueError:
-            pass
+            return None
+
+    # 세대: 여러 패턴 시도 (쉼표/공백/전각 포함)
+    for pattern in [
+        r"([\d,，\s]+)\s*세대",   # 1,268세대 / 1 268 세대
+        r"(\d{1,3}(?:[,，\s]\d{3})*)\s*세대",
+        r"세대\s*[수:：]*\s*([\d,，]+)",
+    ]:
+        m = re.search(pattern, text)
+        if m:
+            val = _parse_number(m.group(1))
+            if val is not None and 1 <= val <= 100000:
+                households = val
+                break
+
     m = re.search(r"(\d+)\s*개동", text)
     if m:
         try:
@@ -101,7 +118,11 @@ class KBComplexScraper:
                 browser = p.chromium.launch(headless=self.headless)
                 page = browser.new_page()
                 page.goto(url, wait_until="networkidle", timeout=self.timeout_ms)
-
+                # SPA 렌더링 대기 (세대수 등 기본정보가 늦게 뜨는 경우 대비)
+                try:
+                    page.wait_for_timeout(3000)
+                except Exception:
+                    pass
                 body_text = page.inner_text("body") or ""
 
                 # 1) 재건축 단계

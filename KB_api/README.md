@@ -140,6 +140,23 @@ python KB_api/check_api_status.py
 - API 응답 데이터 구조
 - 오류 메시지 및 원인
 
+## 로컬에서 세대수 스크래핑 실행
+
+Vercel에서는 Playwright를 사용할 수 없어 `/c/` 페이지 스크래핑이 비활성화됩니다.  
+로컬에서 **세대수·동수**를 가져오려면 아래 스크립트를 사용하세요.
+
+**필요:** `pip install playwright` 후 `playwright install chromium`
+
+```bash
+# 단지 ID만 지정 (예: 15385 → https://kbland.kr/c/15385)
+python scripts/run_scraper_local.py 15385
+
+# PDF 지정 시: 파싱 → KB 시세 조회 → 스크래퍼로 세대수/동수까지 한 번에 실행
+python scripts/run_scraper_local.py --pdf "pdf_Parsing_example/권현주 250819.pdf"
+```
+
+스크립트는 실행 시 `VERCEL`/`VERCEL_ENV`를 제거해 스크래퍼가 동작하도록 합니다.
+
 ## 예제 코드
 
 더 자세한 예제는 `KB_api/usage_example.py`를 참고하세요.
