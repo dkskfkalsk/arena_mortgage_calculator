@@ -3,12 +3,8 @@
 Vercel 서버리스 함수 - 텔레그램 Webhook
 """
 
-# 가장 먼저 실행되는 로그 (모듈 임포트 시 즉시 실행)
+# 가장 먼저 실행되는 로그 (모듈 임포트 시 즉시 실행, Vercel 로그 절약을 위해 최소화)
 import sys
-sys.stderr.write("=" * 80 + "\n")
-sys.stderr.write("WEBHOOK.PY FILE LOADED - MODULE IMPORT STARTED\n")
-sys.stderr.write("=" * 80 + "\n")
-sys.stderr.flush()
 
 import json
 import os
@@ -28,11 +24,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 모듈 로드 시 로그 출력 (여러 방법으로 확실하게)
-sys.stderr.write("[WEBHOOK] Module loaded - stderr write\n")
-sys.stderr.flush()
-print("=" * 60, file=sys.stderr, flush=True)
-print("[WEBHOOK] Module loaded - print to stderr", file=sys.stderr, flush=True)
+# Vercel: 요청당 256줄 제한이 있으므로 서드파티 로거를 WARNING으로 올려 로그 양 축소
+if os.getenv("VERCEL") == "1" or os.getenv("VERCEL_ENV"):
+    for name in ("httpx", "httpcore", "httpcore.http11", "httpcore.connection",
+                 "telegram", "telegram.ext", "telegram.ext.ExtBot",
+                 "asyncio", "urllib3.connectionpool"):
+        log = logging.getLogger(name)
+        log.setLevel(logging.WARNING)
+
+# 모듈 로드 시 로그 출력 (한 줄로 축소)
 logger.info("Webhook module initialized")
 
 # 전역 애플리케이션 인스턴스

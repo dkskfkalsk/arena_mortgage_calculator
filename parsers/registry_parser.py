@@ -26,14 +26,13 @@ if not is_vercel:
         pass
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO if is_vercel else logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=handlers
 )
 logger = logging.getLogger(__name__)
-
 if is_vercel:
-    logger.info("🔵 RegistryParser: Vercel 환경 감지 - 로그는 Vercel 대시보드에서 확인하세요")
+    logger.setLevel(logging.INFO)
 
 
 @dataclass

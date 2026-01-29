@@ -37,9 +37,10 @@ def log_print(*args, **kwargs):
     except:
         pass
 
-# 로깅 설정
+# 로깅 설정 (Vercel에서는 INFO만 출력해 로그 256줄 제한 내 유지)
+_is_vercel = os.getenv("VERCEL") == "1" or os.getenv("VERCEL_ENV") is not None
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO if _is_vercel else logging.DEBUG,
     format='[%(asctime)s] %(levelname)s - %(name)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S',
     handlers=[
@@ -49,6 +50,8 @@ logging.basicConfig(
     force=True
 )
 logger = logging.getLogger(__name__)
+if _is_vercel:
+    logger.setLevel(logging.INFO)
 
 # 원본 print 함수를 래핑하여 모든 print가 stderr로도 출력되도록
 _original_print = print
