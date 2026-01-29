@@ -1382,7 +1382,7 @@ def get_application():
         # 핸들러 등록
         application.add_handler(CommandHandler("start", start_command))
         application.add_handler(CommandHandler("help", help_command))
-        application.add_handler(CommandHandler("도움말", help_command))
+        # '도움말'은 BotFather에 등록되지 않으면 PTB가 ValueError를 던지므로, handle_message에서만 처리
         application.add_handler(MessageHandler(~filters.COMMAND, handle_message))
         
         # handle_message를 전역에서 접근 가능하도록 저장
