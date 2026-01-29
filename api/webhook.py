@@ -231,10 +231,10 @@ def get_application():
             if not is_allowed_chat(chat_id):
                 return
             
-            chat_type = get_chat_type(chat_id)
-            
-            # banks_2 채팅방에서만 PDF 분석 수행
-            if chat_type != "banks_2":
+            # banks_2 소속 여부는 get_chat_type 순서와 무관하게 직접 확인
+            # (동일 chat_id가 banks에도 있으면 get_chat_type이 'banks'만 반환함)
+            if chat_id not in allowed_chat_ids_banks_2:
+                await message.reply_text("등기부 PDF 분석은 등기부·KB시세 전용 방에서 이용해 주세요.")
                 return
             
             document = message.document
@@ -1181,6 +1181,15 @@ def get_application():
             
             print(f"[WEBHOOK] handle_message - Chat {chat_id} is allowed, processing", file=sys.stderr, flush=True)
             
+            # 명령어 처리 (process_update 없이 _handle_message만 쓸 때 필요)
+            cmd = (message.text or "").strip()
+            if cmd == "/start":
+                await start_command(update, context)
+                return
+            if cmd in ("/help", "/도움말"):
+                await help_command(update, context)
+                return
+            
             # 채팅방 타입 확인 (banks, loan, 또는 banks_2)
             chat_type = get_chat_type(chat_id)
             print(f"[WEBHOOK] Chat type: {chat_type}", file=sys.stderr, flush=True)
@@ -1535,17 +1544,14 @@ class handler(BaseHTTPRequestHandler):
                         print("[WEBHOOK] Initializing application", file=sys.stderr, flush=True)
                         await app.initialize()
                     
-                    # channel_post, edited_message, edited_channel_post는 직접 처리
-                    if update.channel_post or update.edited_message or update.edited_channel_post:
-                        print("[WEBHOOK] Processing channel_post/edited_message directly", file=sys.stderr, flush=True)
-                        if hasattr(app, '_handle_message'):
-                            await app._handle_message(update, None)
-                        else:
-                            logger.warning("_handle_message not found, using process_update")
-                            await app.process_update(update)
+                    # 모든 업데이트를 _handle_message로 직접 처리 (process_update 우회)
+                    # API·스크래핑 혼합 후 서버리스에서 process_update가 문서 업데이트를 제대로
+                    # dispatch하지 않는 경우 방지
+                    if hasattr(app, '_handle_message'):
+                        print("[WEBHOOK] Processing update with _handle_message", file=sys.stderr, flush=True)
+                        await app._handle_message(update, None)
                     else:
-                        # 일반 메시지는 process_update로 처리
-                        print("[WEBHOOK] Processing regular message with process_update", file=sys.stderr, flush=True)
+                        logger.warning("_handle_message not found, using process_update")
                         await app.process_update(update)
                     
                     print("[WEBHOOK] Message processing completed", file=sys.stderr, flush=True)
