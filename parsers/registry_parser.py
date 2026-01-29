@@ -258,61 +258,97 @@ class RegistryParser:
         return ""
     
     def _extract_area(self) -> str:
-        """면적 추출 (전용면적)"""
+        """면적 추출 (전용면적) - 표제부 '전유부분의 건물의 표시'에 기재된 면적 사용"""
         # 전유부분의 건물의 표시 섹션에서 전용면적 찾기
-        # 표제부 > 전유부분의 건물의 표시에 나오는 면적이 전용면적
-        
-        # 0. (전 1) 63.81㎡ 형태: 전유 1호기 전용면적 명시 (동문아파트 등)
+        # 표제부 > ( 전유부분의 건물의 표시 ) > 철근콘크리트구조 / 도면편철장 제N책 제N호 / 148.01㎡
+
+        # 0. ( 전유부분의 건물의 표시 ) 블록 한정: 층별 면적(1층 61.95㎡ 등) 제외, 전용면적만 추출
+        # 예: 도면편철장 제133책 제109호 다음 줄 148.01㎡ → 148.01 사용. 1층 61.95㎡는 제외.
+        building_section = ""
+        m_building = re.search(
+            r'\(\s*전유부분의\s*건물의\s*표시\s*\)\s*([\s\S]*?)(?=\(\s*[^)]*\)|【|$)', self.text
+        )
+        if m_building:
+            building_section = m_building.group(1)
+        if building_section:
+            # 도면편철장 제N책 제N호 뒤에 오는 면적 (같은 줄 또는 다음 줄)
+            match_doyoung = re.search(r'도면편철장\s*제\d+책\s*제\d+호[\s\S]*?(\d+\.?\d*)\s*㎡', building_section)
+            if match_doyoung:
+                area = match_doyoung.group(1)
+                area_float = float(area)
+                if 10 <= area_float <= 300:
+                    return f"{area}㎡"
+            # 전유부분 블록 내 'N층 XX㎡'가 아닌 면적만 수집 (층별 면적 제외)
+            area_matches = list(re.finditer(r'(\d+\.?\d*)\s*㎡', building_section))
+            non_floor_areas = []
+            for ma in area_matches:
+                area_float = None
+                try:
+                    area_float = float(ma.group(1))
+                except ValueError:
+                    continue
+                if not (10 <= area_float <= 300):
+                    continue
+                # 직전 10자 안에 'N층 '이 있으면 층별 면적으로 간주하고 제외
+                start = max(0, ma.start() - 12)
+                prefix = building_section[start:ma.start()]
+                if re.search(r'\d+층\s*$', prefix):
+                    continue
+                non_floor_areas.append((area_float, ma.group(1)))
+            if non_floor_areas:
+                # 전유부분 블록에서는 전용면적 1개가 보통이므로 가장 큰 값 사용 (층별 제외 후)
+                non_floor_areas.sort(key=lambda x: x[0], reverse=True)
+                return f"{non_floor_areas[0][1]}㎡"
+
+        # 1. (전 1) 63.81㎡ 형태: 전유 1호기 전용면적 명시 (동문아파트 등)
         match = re.search(r'\(전\s*\d+\)\s*(\d+\.?\d*)\s*㎡', self.text)
         if match:
             area = match.group(1)
             area_float = float(area)
             if 10 <= area_float <= 300:
                 return f"{area}㎡"
-        
-        # 1. 전유부분 표시 섹션에서 찾기 (제X동 제X호 근처의 면적)
-        # 패턴: 제2동 제203호 ... XX.XX㎡ 철근콘크리트
+
+        # 2. 전유부분 표시 섹션에서 찾기 (제X동 제X호 근처의 면적)
         patterns = [
-            # 전유부분 건물표시에서 철근콘크리트 앞의 면적
             r'제?\d+호\s+\S*\s+(\d+\.?\d*)\s*㎡\s*철근',
-            # 호수 뒤 면적
             r'제?\d+호.*?(\d{2,3}\.?\d*)\s*㎡',
-            # 전용면적 명시
             r'전용면적[:\s]*(\d+\.?\d*)\s*㎡',
         ]
-        
         for pattern in patterns:
             match = re.search(pattern, self.text, re.DOTALL)
             if match:
                 area = match.group(1)
                 area_float = float(area)
-                # 전용면적 범위 체크 (일반적으로 10~300㎡)
                 if 10 <= area_float <= 300:
                     return f"{area}㎡"
-        
-        # 2. 표제부/전유부분 섹션 한정: 【 표 제 부 】 다음 ~ 다음 【 전까지
+
+        # 3. 표제부 전체: 【 표 제 부 】 내 면적 중 'N층 XX㎡' 제외 후 가장 큰 값 사용
+        # (층별 면적이 작고, 전용면적이 더 크므로)
         table_section = ""
         m = re.search(r'【\s*표\s*제\s*부\s*】[\s\S]*?(?=【|$)', self.text, re.IGNORECASE)
         if m:
             table_section = m.group(0)
         search_text = table_section if table_section else self.text
-        
-        all_areas = re.findall(r'(\d+\.?\d*)\s*㎡', search_text)
+
+        area_matches = list(re.finditer(r'(\d+\.?\d*)\s*㎡', search_text))
         valid_areas = []
-        for area in all_areas:
+        for ma in area_matches:
             try:
-                area_float = float(area)
-                # 전용면적 범위 (보통 20~200㎡, 대형은 300㎡까지)
-                if 20 <= area_float <= 200:
-                    valid_areas.append((area_float, area))
+                area_float = float(ma.group(1))
+                if not (20 <= area_float <= 300):
+                    continue
+                start = max(0, ma.start() - 12)
+                prefix = search_text[start:ma.start()]
+                if re.search(r'\d+층\s*$', prefix):
+                    continue
+                valid_areas.append((area_float, ma.group(1)))
             except ValueError:
                 continue
-        
-        # 가장 작은 값이 전용면적 (대지권비율·전체동 면적 등 제외)
+
         if valid_areas:
-            valid_areas.sort(key=lambda x: x[0])
+            valid_areas.sort(key=lambda x: x[0], reverse=True)
             return f"{valid_areas[0][1]}㎡"
-        
+
         return ""
     
     def _extract_floor_info(self) -> str:
