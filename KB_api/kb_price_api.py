@@ -621,15 +621,20 @@ class KBPriceAPI:
             logger.debug(f"   사용 가능한 단지 목록: {[c.get('단지명', 'N/A') for c in complexes[:5]]}")
             print(f"[!] 단지명 매칭 실패, 첫 번째 단지 사용: {complex_name_from_api}")
         
-        # 4. 단지 데이터에서 매매 시세 정보 추출 (별도 API 호출 불필요)
-        # fastPriceInfo API 응답에 이미 매매 배열이 포함되어 있음
+        # 4. 단지 데이터에서 매매 시세 정보 추출
+        # fastPriceInfo API에 매매 배열이 있으면 사용, 없으면 get_complex_price(단지기본일련번호) 호출
+        complex_id = selected_complex.get("단지기본일련번호")
         logger.debug("4단계: 매매 시세 정보 추출")
-        prices = selected_complex.get("매매", [])
+        prices = selected_complex.get("매매", []) or selected_complex.get("매매가", [])
+        if not prices and complex_id is not None:
+            logger.info("   fastPriceInfo에 매매 없음 → get_complex_price 호출")
+            print("[*] 단지 시세 별도 조회 중...")
+            prices = self.get_complex_price(str(complex_id))
         if not prices:
             logger.error(f"❌ 해당 단지에 매매 시세 정보가 없음: {selected_complex.get('단지명')}")
             print("[X] 해당 단지에 매매 시세 정보가 없음")
             return None
-        
+
         logger.info(f"✅ 단지에서 시세 정보 추출: {len(prices)}개 타입")
         logger.debug(f"   시세 타입별 면적: {[p.get('공급면적', 'N/A') for p in prices[:5]]}")
         print(f"[OK] 단지에서 시세 정보 추출: {len(prices)}개 타입")
@@ -646,7 +651,8 @@ class KBPriceAPI:
             if prices:
                 logger.warning(f"⚠️ 사용 가능한 면적: {[p.get('공급면적', 'N/A') for p in prices[:10]]}")
                 print(f"[!] 사용 가능한 면적: {[p.get('공급면적', 'N/A') for p in prices[:10]]}")
-        
+            return None
+
         # 6. 결과 구성
         logger.debug("6단계: 결과 구성")
         # 실제 API 응답에서는 "일반평균" 필드에 일반 매매가, "하위평균"에 하한 매매가가 있음
@@ -706,7 +712,6 @@ class KBPriceAPI:
         }
         
         # 7. 재건축·세대수: 단지 목록 → get_complex_info → /c/ 스크래퍼 순으로 세대수/동수 채우기
-        complex_id = selected_complex.get("단지기본일련번호")
         result["redevelop_stages"] = []
         result["households"] = None
         result["buildings"] = None
