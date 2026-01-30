@@ -73,6 +73,25 @@ def _wrapped_print(*args, **kwargs):
 import builtins
 builtins.print = _wrapped_print
 
+# 대환 가능 금융기관 공통 목록 (저축은행+캐피탈) 캐시. 금융사별 config에 business_product_names 없을 때 사용.
+_REFINANCEABLE_INSTITUTIONS_CACHE: Optional[List[str]] = None
+
+
+def _load_refinanceable_institutions() -> List[str]:
+    """data/refinanceable_institutions.json에서 대환 가능 기관 목록 로드 (한 번만 로드)."""
+    global _REFINANCEABLE_INSTITUTIONS_CACHE
+    if _REFINANCEABLE_INSTITUTIONS_CACHE is not None:
+        return _REFINANCEABLE_INSTITUTIONS_CACHE
+    path = os.path.join(os.path.dirname(__file__), "..", "data", "refinanceable_institutions.json")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        _REFINANCEABLE_INSTITUTIONS_CACHE = data.get("names") or []
+    except Exception as e:
+        logger.warning("refinanceable_institutions.json 로드 실패: %s", e)
+        _REFINANCEABLE_INSTITUTIONS_CACHE = []
+    return _REFINANCEABLE_INSTITUTIONS_CACHE
+
 
 class BaseCalculator:
     """
@@ -163,6 +182,13 @@ class BaseCalculator:
         
         self.config = config
         self.bank_name = config.get("bank_name", "Unknown")
+
+    def _get_business_product_names(self) -> List[str]:
+        """대환 가능 금융기관 목록. config에 business_product_names가 있으면 사용, 없으면 공통 목록(refinanceable_institutions.json) 사용."""
+        from_config = self.config.get("business_product_names")
+        if from_config is not None and len(from_config) > 0:
+            return from_config
+        return _load_refinanceable_institutions()
     
     @staticmethod
     def round_down_to_hundred_thousand(amount: float) -> float:
@@ -808,9 +834,9 @@ class BaseCalculator:
         all_refinance_institutions = []  # 대환하는 모든 금융사 이름 리스트 (전체용)
         other_mortgages = []  # 나머지 근저당권들
         
-        # 가계자금인 경우: 물상담보 제외, business_product_names에 없는 것만 대환 가능
+        # 가계자금인 경우: 물상담보 제외, business_product_names(공통 목록)에 없는 것만 대환 가능
         if is_household_for_ok:
-            business_product_names = self.config.get("business_product_names", [])
+            business_product_names = self._get_business_product_names()
             requests = property_data.get("requests", "")
             household_refinance_requested = "가계자금" in requests or "가계" in requests
             
@@ -854,7 +880,7 @@ class BaseCalculator:
             is_acuon = self.bank_name == "애큐온저축은행" or "애큐온" in self.bank_name
             is_mg_capital = self.bank_name == "MG캐피탈" or "MG캐피탈" in self.bank_name or "엠지케피탈" in self.bank_name
             is_business_product = is_bnk or is_ok_bank or is_acuon or is_mg_capital
-            business_product_names = self.config.get("business_product_names", []) if is_business_product else []
+            business_product_names = self._get_business_product_names() if is_business_product else []
             
             for mortgage in mortgages:
                 if mortgage.get("is_refinance", False):
@@ -941,7 +967,7 @@ class BaseCalculator:
                         requested_institutions.append(mortgage.get("institution", ""))
                 
                 institutions_str = ", ".join(requested_institutions) if requested_institutions else "요청된 기관"
-                refinanceable_list = self.config.get("business_product_names", [])
+                refinanceable_list = self._get_business_product_names()
                 refinanceable_str = ", ".join(refinanceable_list[:5]) + ("..." if len(refinanceable_list) > 5 else "")
                 
                 return {
@@ -990,8 +1016,8 @@ class BaseCalculator:
                 is_business_product = True
                 is_household_for_ok = False
             else:
-                # bank_name이 사업자 상품명 리스트에 있는지 확인
-                business_product_names = self.config.get("business_product_names", [])
+                # bank_name이 사업자 상품명 리스트(공통 목록)에 있는지 확인
+                business_product_names = self._get_business_product_names()
                 bank_name_clean = self.bank_name.replace(" ", "")
                 
                 # 사업자 상품명 확인 (현대캐피탈 가계/가계자금 제외)
@@ -1009,10 +1035,10 @@ class BaseCalculator:
                 if not is_business_product and not is_household_product:
                     is_household_product = True
             
-            # 사업자 상품인 경우: business_product_names에 있는 기관만 대환 가능
+            # 사업자 상품인 경우: business_product_names(공통 목록)에 있는 기관만 대환 가능
             if is_business_product and is_refinance:
                 # 대환할 근저당권이 business_product_names에 있는지 확인
-                business_product_names = self.config.get("business_product_names", [])
+                business_product_names = self._get_business_product_names()
                 can_refinance = False
                 refinance_institutions = []
                 
