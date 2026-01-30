@@ -37,12 +37,13 @@ if is_vercel:
 
 @dataclass
 class MortgageInfo:
-    """근저당권 설정 정보"""
+    """근저당권/전세권 설정 정보"""
     순위번호: str
     근저당권자: str
     채무자: str
     채권최고액: str
     설정일: str
+    권리종류: str = "근저당권"  # "근저당권" 또는 "전세권"
 
 
 @dataclass
@@ -835,7 +836,119 @@ class RegistryParser:
                 seen.add(key)
                 unique.append(m)
         
+        # 전세권 추출 및 통합
+        jeonse_list = self._extract_jeonse()
+        unique.extend(jeonse_list)
+        
+        # 순위번호로 정렬
+        unique.sort(key=lambda x: int(x.순위번호) if x.순위번호.isdigit() else 999)
+        
         return unique
+    
+    def _extract_jeonse(self) -> List[MortgageInfo]:
+        """전세권 추출 (근저당권과 동일한 형식으로 반환)"""
+        jeonse_list = []
+        
+        # 방법 1: 주요 등기사항 요약 섹션에서 전세권 추출
+        summary_pattern = r'\(근\)저당권\s*및\s*전세권\s*등[\s\S]*?(?=\[\s*참\s*고|출력일시|$)'
+        summary_match = re.search(summary_pattern, self.text, re.DOTALL | re.IGNORECASE)
+        
+        if summary_match:
+            summary_section = summary_match.group(0)
+            # 패턴: 순위번호 전세권설정 날짜 전세금 금XXX원 전세권자 XXX
+            jeonse_pattern = r'(\d+)\s+전세권설정\s+(\d{4})년(\d{1,2})월(\d{1,2})일[\s\S]*?전세금\s*금?\s*([\d,]+)\s*원[\s\S]*?전세권자\s+(\S+)'
+            
+            matches = re.finditer(jeonse_pattern, summary_section)
+            for match in matches:
+                rank = match.group(1)
+                year = match.group(2)
+                month = match.group(3).zfill(2)
+                day = match.group(4).zfill(2)
+                amount = match.group(5)
+                jeonse_holder = match.group(6).strip()
+                
+                # 대상소유자 찾기 (채무자 역할)
+                debtor = self._find_jeonse_target_owner(summary_section, rank)
+                
+                jeonse = MortgageInfo(
+                    순위번호=rank,
+                    근저당권자=jeonse_holder,
+                    채무자=debtor,
+                    채권최고액=f"금 {amount}원",
+                    설정일=f"{year}.{month}.{day}",
+                    권리종류="전세권"
+                )
+                jeonse_list.append(jeonse)
+        
+        # 방법 2: 을구 본문에서 추출 (요약이 없는 경우)
+        if not jeonse_list:
+            jeonse_pattern = r'(\d+)\s+전세권설정\s+(\d{4})년(\d{1,2})월(\d{1,2})일.*?전세금\s*금?\s*([\d,]+)\s*원.*?전세권자\s+(\S+)'
+            
+            matches = re.finditer(jeonse_pattern, self.text, re.DOTALL)
+            for match in matches:
+                rank = match.group(1)
+                year = match.group(2)
+                month = match.group(3).zfill(2)
+                day = match.group(4).zfill(2)
+                amount = match.group(5)
+                jeonse_holder = match.group(6).strip()
+                
+                # 대상소유자 추출 시도 (등기사항증명서에 명시된 경우)
+                debtor = self._find_jeonse_debtor(rank)
+                
+                jeonse = MortgageInfo(
+                    순위번호=rank,
+                    근저당권자=jeonse_holder,
+                    채무자=debtor,
+                    채권최고액=f"금 {amount}원",
+                    설정일=f"{year}.{month}.{day}",
+                    권리종류="전세권"
+                )
+                jeonse_list.append(jeonse)
+        
+        # 말소된 전세권 제외
+        active_jeonse = []
+        for j in jeonse_list:
+            # 말소 패턴 확인
+            cancel_patterns = [
+                rf'{j.순위번호}\s+전세권설정등기말소',
+                rf'{j.순위번호}번\s*전세권.*?말소',
+                rf'순위번호\s*{j.순위번호}[\s\S]{{0,100}}말소'
+            ]
+            
+            is_cancelled = False
+            for pattern in cancel_patterns:
+                if re.search(pattern, self.text, re.DOTALL | re.IGNORECASE):
+                    is_cancelled = True
+                    break
+            
+            if not is_cancelled:
+                active_jeonse.append(j)
+        
+        return active_jeonse
+    
+    def _find_jeonse_target_owner(self, section_text: str, rank: str) -> str:
+        """요약 섹션에서 전세권의 대상소유자 찾기"""
+        pattern = rf'{rank}\s+전세권설정[\s\S]*?전세금\s*금?\s*[\d,]+\s*원[\s\n]*([가-힣]{{2,4}}(?:\s*등)?)(?=\s*\n|제\d+호|전세권자|$)'
+        match = re.search(pattern, section_text, re.DOTALL)
+        if match:
+            name = match.group(1).strip()
+            name = re.sub(r'\s+', ' ', name)
+            if name and len(name) >= 2:
+                return name
+        return ""
+    
+    def _find_jeonse_debtor(self, rank: str) -> str:
+        """을구 본문에서 전세권의 대상소유자(임대인) 찾기"""
+        # 전세권은 대상소유자 명시가 없는 경우가 많음
+        pattern = rf'{rank}\s+전세권설정[\s\S]*?대상소유자\s+([가-힣a-zA-Z0-9\s]+?)(?=\n|$|전세권자|\d+\s+전세권)'
+        match = re.search(pattern, self.text, re.DOTALL)
+        if match:
+            debtor = match.group(1).strip()
+            debtor = re.sub(r'\s+', '', debtor)
+            if debtor:
+                return debtor
+        return ""
     
     def _find_target_owner_in_section(self, section_text: str, rank: str) -> str:
         """요약 섹션에서 해당 순위의 대상소유자(채무자 표시용) 찾기"""

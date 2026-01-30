@@ -15,6 +15,13 @@ from http.server import BaseHTTPRequestHandler
 # 프로젝트 루트를 경로에 추가
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# 원금 계산 유틸리티 임포트
+from utils.mortgage_calculator import (
+    calculate_principal,
+    extract_manual_ratios,
+    classify_financial_institution
+)
+
 # 로깅 설정
 logging.basicConfig(
     level=logging.INFO,
@@ -1060,6 +1067,10 @@ def get_application():
                 except (ValueError, TypeError):
                     pass
             
+            # 캡션에서 수동 지정된 비율 추출
+            manual_ratios = extract_manual_ratios(caption or "")
+            needs_principal_check = False  # 깔끔하지 않은 금액이 있는지 체크
+            
             # 기존 근저당권 목록 처리
             if result.근저당권목록:
                 total_amount = 0
@@ -1076,7 +1087,25 @@ def get_application():
                         amount_man = amount_won // 10000  # 만원 단위
                         total_amount += amount_won
                         mortgage_amounts.append(amount_man)
-                        amount_str = f"{amount_man:,}만원"
+                        
+                        # 원금 계산
+                        manual_ratio = manual_ratios.get(str(i))
+                        principal_won, used_ratio, is_clean = calculate_principal(
+                            amount_won, 
+                            m.근저당권자,
+                            manual_ratio
+                        )
+                        principal_man = principal_won // 10000
+                        
+                        # 깔끔하지 않으면 플래그 설정
+                        if not is_clean and not manual_ratio:
+                            needs_principal_check = True
+                        
+                        # 권리종류에 따라 표시 (전세권은 채권최고액=원금)
+                        if m.권리종류 == "전세권":
+                            amount_str = f"{amount_man:,} ({amount_man:,})만원"
+                        else:
+                            amount_str = f"{amount_man:,} ({principal_man:,})만원"
                     else:
                         amount_str = m.채권최고액
                         # 만원 단위 추출 시도
@@ -1170,6 +1199,10 @@ def get_application():
             # KB 시세 없을 때 맨 끝에 멘트 추가
             if not kb_price:
                 lines.append("KB시세 없음. 다른 시세 첨부 바랍니다.")
+            
+            # 근저당권 원금 설정이 깔끔하지 않을 때 확인 필요 멘트 추가
+            if needs_principal_check:
+                lines.append("*근저당권 원금설정 확인 필요*")
             
             return "\n".join(lines)
 
