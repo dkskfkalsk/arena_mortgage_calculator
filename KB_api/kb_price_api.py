@@ -25,15 +25,16 @@ DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 }
 
+# 도로명주소 API (행정안전부 실시간 주소정보조회)
+# https://www.data.go.kr/data/15057017/openapi.do / juso.go.kr 신청 후 confmKey 발급
+JUSO_API_URL = "https://www.juso.go.kr/addrlink/addrLinkApi.do"
+
 # 도로명 등으로 동/읍/면을 찾지 못할 때 사용하는 보조 매핑 (키워드→법정동코드)
 # (시/군 키워드, 도로명·단지 키워드) → 법정동코드. 주소에 키워드가 모두 포함되면 사용.
 _ROAD_FALLBACK_DONGCODES = [
+    # 도로명주소로만 표기된 경우 (동/읍/면 파싱 실패 케이스)
     (["김포", "양도로"], "4157025600"),   # 경기 김포시 양촌읍 (양도로, 양도마을서해아파트)
     (["김포", "양도마을"], "4157025600"),
-    (["부산", "온천동"], "2626010800"),   # 부산 동래구 온천동 (SK허브올리브 c/14094)
-    (["부산", "에스케이허브올리브"], "2626010800"),
-    (["부산", "SK허브올리브"], "2626010800"),
-    (["동래", "온천동"], "2626010800"),
 ]
 
 
@@ -44,6 +45,77 @@ def _try_road_fallback_dongcode(address: str) -> Optional[str]:
         if all(kw in addr for kw in keywords):
             return code
     return None
+
+
+def _make_juso_search_keyword(address: str) -> Optional[str]:
+    """API 검색용 키워드 생성. 도로명+번지 위주로 앞부분만 사용 (최대 50자)."""
+    if not address or not address.strip():
+        return None
+    addr = re.sub(r"\s+", " ", address.strip())
+    # 제N동, 제N층, 제N호 제거
+    addr = re.sub(r"\s+제\d+동", "", addr)
+    addr = re.sub(r"\s+제\d+층", "", addr)
+    addr = re.sub(r"\s+제\d+호", "", addr)
+    addr = re.sub(r"\s+제\d+번지", "", addr)
+    addr = addr.strip()
+    if len(addr) > 50:
+        addr = addr[:50].rstrip()
+    return addr if addr else None
+
+
+def _get_dongcode_from_juso_api(address: str) -> Optional[str]:
+    """
+    행정안전부 도로명주소 API로 주소 검색 후 행정구역코드(10자리) 반환.
+    환경변수 JUSO_API_KEY(또는 JUSO_CONFM_KEY)가 설정된 경우에만 호출.
+    """
+    key = os.environ.get("JUSO_API_KEY") or os.environ.get("JUSO_CONFM_KEY")
+    if not key or not key.strip():
+        return None
+    keyword = _make_juso_search_keyword(address)
+    if not keyword:
+        return None
+    try:
+        resp = requests.post(
+            JUSO_API_URL,
+            data={
+                "confmKey": key.strip(),
+                "keyword": keyword,
+                "resultType": "json",
+                "countPerPage": 1,
+                "currentPage": 1,
+            },
+            timeout=10,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; MortgageBot/1.0)"},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        # 응답 구조: results.juso (배열) 또는 results 내 첫 요소
+        juso_list = None
+        if isinstance(data, dict):
+            results = data.get("results") or data.get("result")
+            if isinstance(results, dict):
+                juso_list = results.get("juso")
+                if not juso_list and "common" in results:
+                    error_code = (results.get("common") or {}).get("errorCode") or ""
+                    if error_code and error_code != "0":
+                        logger.debug(f"도로명주소 API 오류: {results.get('common')}")
+                        return None
+            elif isinstance(results, list) and results:
+                first_el = results[0]
+                juso_list = first_el.get("juso") if isinstance(first_el, dict) else results
+        if not juso_list or not isinstance(juso_list, list) or len(juso_list) == 0:
+            return None
+        first = juso_list[0]
+        if not isinstance(first, dict):
+            return None
+        # 행정구역코드: admCd (10자리 법정동코드)
+        adm_cd = first.get("admCd") or first.get("행정구역코드") or ""
+        if isinstance(adm_cd, str) and re.match(r"^\d{10}$", adm_cd.strip()):
+            return adm_cd.strip()
+        return None
+    except Exception as e:
+        logger.debug(f"도로명주소 API 조회 실패: {e}")
+        return None
 
 
 # 로깅 설정
@@ -202,11 +274,13 @@ class KBPriceAPI:
         # 구/시/군 추출
         # "경기도 수원시 권선구" -> district="수원시"
         # "경기도 부천시 원미구" -> district="부천시"
+        # "서울특별시 구로구" -> district="구로구"
+        # "부산광역시 동래구" -> district="동래구"
         # 시/군을 먼저 찾고, 그 다음 구를 찾아야 함
-        # 패턴: "경기도 부천시 원미구" -> "부천시" 추출
         district_patterns = [
             r'(?:시|도)\s+([가-힣]+시)\s+[가-힣]+구',  # "경기도 부천시 원미구" -> "부천시" (우선)
             r'(?:시|도)\s+([가-힣]+시|[가-힣]+군)',  # "경기도 수원시" -> "수원시"
+            r'(?:특별시|광역시)\s+([가-힣]+구)',  # "서울특별시 구로구" -> "구로구", "부산광역시 동래구" -> "동래구"
         ]
         
         for pattern in district_patterns:
@@ -282,6 +356,10 @@ class KBPriceAPI:
             if fallback:
                 logger.info(f"도로명/키워드 보조 매핑으로 법정동코드 사용: {fallback} (동/읍/면 파싱 실패)")
                 return fallback
+            api_code = _get_dongcode_from_juso_api(address)
+            if api_code:
+                logger.info(f"도로명주소 API로 법정동코드 조회: {api_code} (동/읍/면 파싱 실패)")
+                return api_code
             logger.warning(f"주소 파싱 실패: {address} -> {parsed}")
             return None
         
@@ -372,6 +450,10 @@ class KBPriceAPI:
         if fallback:
             logger.info(f"도로명/키워드 보조 매핑으로 법정동코드 사용: {fallback} (동 데이터 없음)")
             return fallback
+        api_code = _get_dongcode_from_juso_api(address)
+        if api_code:
+            logger.info(f"도로명주소 API로 법정동코드 조회: {api_code} (동 데이터 없음)")
+            return api_code
         logger.warning(f"법정동코드를 찾을 수 없음: {region} {district} {dong}")
         return None
     

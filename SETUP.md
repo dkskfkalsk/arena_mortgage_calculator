@@ -51,6 +51,13 @@ TELEGRAM_BOT_TOKEN=your_token_here
    - **Environment**: Production, Preview, Development 모두 선택
    - **Save** 클릭
 
+9. **도로명주소 API (선택)** — 도로명만 있는 주소에서 KB 시세 조회 시 사용:
+   - **Key**: `JUSO_API_KEY` (또는 `JUSO_CONFM_KEY`)
+   - **Value**: [juso.go.kr](https://www.juso.go.kr/addrlink/openApi/apiReqst.do)에서 신청 후 발급받은 승인키(confmKey)
+   - 비워두면 도로명 주소는 하드코딩된 소수 케이스만 처리됨
+   - **Environment**: Production, Preview, Development 모두 선택
+   - **Save** 클릭
+
 ### 방법 2: 파일에 직접 입력
 
 1. **예시 파일 복사** (처음 한 번만):
