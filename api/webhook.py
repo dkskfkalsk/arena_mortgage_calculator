@@ -1253,11 +1253,13 @@ def get_application():
             print(f"[WEBHOOK] handle_message - Chat {chat_id} is allowed, processing", file=sys.stderr, flush=True)
             
             # 명령어 처리 (process_update 없이 _handle_message만 쓸 때 필요)
+            # 그룹에서 /help@ARENAHOLDINGS_bot 형태로 오면 cmd에 @뒤 봇이름까지 포함됨 → 앞부분만 비교
             cmd = (message.text or "").strip()
-            if cmd == "/start":
+            cmd_base = cmd.split("@")[0].strip() if "@" in cmd else cmd
+            if cmd_base == "/start":
                 await start_command(update, context)
                 return
-            if cmd in ("/help", "/도움말"):
+            if cmd_base in ("/help", "/도움말"):
                 await help_command(update, context)
                 return
             
