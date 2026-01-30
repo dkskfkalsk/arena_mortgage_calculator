@@ -1,0 +1,10 @@
+{
+  "name": "mortgage-calculator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "KB 시세·등기 분석 (Telegram 봇). Node Puppeteer 스크래퍼용 deps.",
+  "dependencies": {
+    "puppeteer-core": "^23.11.1",
+    "@sparticuz/chromium": "^131.0.0"
+  }
+}

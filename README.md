@@ -85,3 +85,12 @@ python main.py
 
 이 경우 가용한도가 마이너스인 LTV 단계도 결과에 포함되어, 추가로 필요한 자금 금액을 확인할 수 있습니다.
 
+### Vercel 세대수 스크래핑 (Node.js + Puppeteer)
+
+Vercel에서는 Python Playwright를 쓸 수 없어, **Node.js + Puppeteer** (`api/kb-households.js`)로 kbland.kr/c/{id} 스크래핑을 수행합니다.
+
+- **의존성**: 루트 `package.json`의 `puppeteer-core`, `@sparticuz/chromium`
+- **엔드포인트**: `GET /api/kb-households?complex_id=15385` → `{ households, buildings, error }`
+- **연동**: Python `get_complex_extra_info`가 requests 폴백으로 세대수 미확보 시, `VERCEL_URL` 기반으로 위 API를 호출해 결과를 병합합니다.
+- **로컬 테스트**: `vercel dev` 또는 배포 후 `curl`로 호출. Windows에서는 Linux 전용 Chromium이라 로컬 Puppeteer 실행 불가.
+
