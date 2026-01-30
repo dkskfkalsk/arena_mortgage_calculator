@@ -517,6 +517,7 @@ class KBPriceAPI:
                 "area": 84.93,
                 "pyeong": 25.7,
                 "type": "84A형",
+                "dongcode": "1168010100", # 법정동코드 (KB 시세 참고 링크용)
                 "redevelop_stages": [],   # 재건축 단계 (재건축여부=1이고 스크래퍼 성공 시)
                 "households": None,       # 세대수 (재건축 단지 스크래핑 시)
                 "buildings": None,        # 동수 (재건축 단지 스크래핑 시)
@@ -707,6 +708,7 @@ class KBPriceAPI:
             "area_diff": area_diff,  # 면적 차이 (m²)
             "pyeong": pyeong_str,
             "type": matched_price.get("주택형타입내용") or matched_price.get("타입", ""),
+            "dongcode": dongcode,  # 법정동코드 (KB 시세 참고 링크용)
         }
         
         # 7. 재건축·세대수: 단지 목록 → get_complex_info → /c/ 스크래퍼 순으로 세대수/동수 채우기
@@ -731,6 +733,15 @@ class KBPriceAPI:
                     break
                 except (ValueError, TypeError):
                     pass
+        # fastPriceInfo에 "50세대미만여부" 있음: "0"=50세대 이상, "1"=50세대 미만 (정확한 수는 API 미제공)
+        if result["households"] is None:
+            fifty_under = selected_complex.get("50세대미만여부")
+            if str(fifty_under) == "0":
+                result["households"] = 50  # 50세대 이상 (최소값으로 표시)
+                logger.info("✅ fastPriceInfo 50세대미만여부=0 → 세대수 50 이상으로 설정")
+            elif str(fifty_under) == "1":
+                result["households"] = 49  # 50세대 미만 (최대값으로 표시)
+                logger.info("✅ fastPriceInfo 50세대미만여부=1 → 세대수 50 미만으로 설정")
         if complex_id is not None:
             info = self.get_complex_info(str(complex_id))
             redevelop_flag = (info or {}).get("재건축여부")
