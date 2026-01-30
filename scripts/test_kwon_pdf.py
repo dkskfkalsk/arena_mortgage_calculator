@@ -26,6 +26,7 @@ if addr and area_str:
     result = get_kb_price_from_registry(addr, area_str)
     if result:
         print("KB 시세 조회 성공:", result.get("kb_price"), "만원")
+        print("세대수:", result.get("households"))
     else:
         print("KB 시세 조회 실패 (None)")
 else:

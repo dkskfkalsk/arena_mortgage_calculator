@@ -628,10 +628,12 @@ class KBPriceAPI:
         complex_id = selected_complex.get("단지기본일련번호")
         logger.debug("4단계: 매매 시세 정보 추출")
         prices = selected_complex.get("매매", []) or selected_complex.get("매매가", [])
+        prices_from_mpri = False
         if not prices and complex_id is not None:
             logger.info("   fastPriceInfo에 매매 없음 → get_complex_price 호출")
             print("[*] 단지 시세 별도 조회 중...")
             prices = self.get_complex_price(str(complex_id))
+            prices_from_mpri = True
         if not prices:
             logger.error(f"❌ 해당 단지에 매매 시세 정보가 없음: {selected_complex.get('단지명')}")
             print("[X] 해당 단지에 매매 시세 정보가 없음")
@@ -762,6 +764,14 @@ class KBPriceAPI:
                             break
                         except (ValueError, TypeError):
                             pass
+            # mpriByType( get_complex_price ) 응답에 평형별 세대수 있음 → 합산으로 총 세대수 사용
+            if result["households"] is None and complex_id is not None:
+                mpri_prices = prices if prices_from_mpri else self.get_complex_price(str(complex_id))
+                if mpri_prices:
+                    h_sum = sum(int(p.get("세대수") or 0) for p in mpri_prices)
+                    if h_sum > 0:
+                        result["households"] = h_sum
+                        logger.info(f"✅ mpriByType API 세대수 합산: {result['households']}")
             # /c/ 스크래퍼: 재건축이면 단계+세대수·동수, 일반 단지면 세대수·동수만 (아직 None일 때)
             extra = get_complex_extra_info(complex_id)
             if result["redevelop_yn"]:
