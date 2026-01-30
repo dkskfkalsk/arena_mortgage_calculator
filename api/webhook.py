@@ -1074,7 +1074,8 @@ def get_application():
             # 기존 근저당권 목록 처리
             if result.근저당권목록:
                 total_amount = 0
-                mortgage_amounts = []  # 각 근저당권의 만원 단위 금액 저장
+                mortgage_amounts = []  # 각 근저당권의 채권최고액 만원 단위 저장
+                principal_amounts = []  # 각 근저당권의 원금 만원 단위 저장
                 
                 # 신탁 금액이 있으면 기존 근저당권 순위를 1씩 증가
                 start_rank = 2 if (is_trustee and trust_amount_man) else 1
@@ -1096,6 +1097,7 @@ def get_application():
                             manual_ratio
                         )
                         principal_man = principal_won // 10000
+                        principal_amounts.append(principal_man)
                         
                         # 깔끔하지 않으면 플래그 설정
                         if not is_clean and not manual_ratio:
@@ -1111,7 +1113,9 @@ def get_application():
                         # 만원 단위 추출 시도
                         man_match = re.search(r'([\d,]+)\s*만', amount_str)
                         if man_match:
-                            mortgage_amounts.append(int(man_match.group(1).replace(',', '')))
+                            extracted_man = int(man_match.group(1).replace(',', ''))
+                            mortgage_amounts.append(extracted_man)
+                            principal_amounts.append(extracted_man)  # 원금도 동일하게 추가
                     
                     # 근저당권자 이름 간소화 (주식회사, 유한회사 등 제거)
                     creditor = m.근저당권자
@@ -1128,33 +1132,38 @@ def get_application():
                         lines.append(f"{i}순위 : {creditor}")
                     lines.append(f"           {amount_str}")
                 
-                # 신탁 금액이 있으면 mortgage_amounts에 추가
+                # 신탁 금액이 있으면 mortgage_amounts와 principal_amounts에 추가
                 if is_trustee and trust_amount_man:
                     mortgage_amounts.insert(0, trust_amount_man)
+                    principal_amounts.insert(0, trust_amount_man)  # 신탁은 채권최고액=원금
                 
-                # KB시세 대비 채권최고액 비율 계산 (LTV)
+                # KB시세 대비 LTV 계산 (채권최고액 기준 / 원금 기준)
                 if kb_price and mortgage_amounts:
                     try:
                         # KB시세 일반가를 만원 단위로 변환
                         kb_price_man = int(kb_price.replace(',', ''))
                         # 채권최고액 합계 계산 (만원 단위)
                         total_mortgage_man = sum(mortgage_amounts)
+                        # 원금 합계 계산 (만원 단위)
+                        total_principal_man = sum(principal_amounts)
                         # 비율 계산
                         if kb_price_man > 0:
-                            ratio = (total_mortgage_man / kb_price_man) * 100
-                            lines.append(f"{ratio:.2f}%")
+                            ratio_mortgage = (total_mortgage_man / kb_price_man) * 100
+                            ratio_principal = (total_principal_man / kb_price_man) * 100
+                            lines.append(f"{ratio_mortgage:.2f}% / {ratio_principal:.2f}%")
                     except (ValueError, ZeroDivisionError):
                         pass
             elif is_trustee and trust_amount_man:
                 # 신탁만 있고 다른 근저당권이 없는 경우
                 mortgage_amounts = [trust_amount_man]
+                principal_amounts = [trust_amount_man]  # 신탁은 채권최고액=원금
                 # KB시세 대비 신탁 금액 비율 계산 (LTV)
                 if kb_price:
                     try:
                         kb_price_man = int(kb_price.replace(',', ''))
                         if kb_price_man > 0:
                             ratio = (trust_amount_man / kb_price_man) * 100
-                            lines.append(f"{ratio:.2f}%")
+                            lines.append(f"{ratio:.2f}% / {ratio:.2f}%")  # 신탁은 채권최고액=원금이므로 같음
                     except (ValueError, ZeroDivisionError):
                         pass
             else:
