@@ -1,0 +1,8 @@
+{
+  "name": "kb-price-node",
+  "version": "1.0.0",
+  "description": "KB 시세 조회 (Node.js, HTTP API only)",
+  "main": "index.js",
+  "type": "commonjs",
+  "engines": { "node": ">=18" }
+}

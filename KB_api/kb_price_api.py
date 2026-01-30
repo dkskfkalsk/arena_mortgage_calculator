@@ -737,15 +737,6 @@ class KBPriceAPI:
                     break
                 except (ValueError, TypeError):
                     pass
-        # fastPriceInfo에 "50세대미만여부" 있음: "0"=50세대 이상, "1"=50세대 미만 (정확한 수는 API 미제공)
-        if result["households"] is None:
-            fifty_under = selected_complex.get("50세대미만여부")
-            if str(fifty_under) == "0":
-                result["households"] = 50  # 50세대 이상 (최소값으로 표시)
-                logger.info("✅ fastPriceInfo 50세대미만여부=0 → 세대수 50 이상으로 설정")
-            elif str(fifty_under) == "1":
-                result["households"] = 49  # 50세대 미만 (최대값으로 표시)
-                logger.info("✅ fastPriceInfo 50세대미만여부=1 → 세대수 50 미만으로 설정")
         if complex_id is not None:
             info = self.get_complex_info(str(complex_id))
             redevelop_flag = (info or {}).get("재건축여부")

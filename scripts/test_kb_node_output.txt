@@ -1,0 +1,25 @@
+﻿python : 2026-01-30 10:25:22,241 - parsers.registry_parser - DEBUG - \U0001f50d 소유자 정보 추출 시작
+위치 C:\Users\박성호\AppData\Local\Temp\ps-script-a8d24c21-ef20-4931-91d3-0297799e9a6e.ps1:7 문자:84
++ ... mortgage_calculator"; python scripts/test_kb_node_pdf.py 2>&1 | Out-F ...
++                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (2026-01-30 10:2...0d 소유자 정보 추출 시작:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+2026-01-30 10:25:22,241 - parsers.registry_parser - DEBUG - \U0001f50d 패턴 매칭 발견: '권현주' (패턴: ([가-힣]{2,4})\s*\(\s*소유자\s*\
+))
+2026-01-30 10:25:22,242 - parsers.registry_parser - INFO - \u2705 소유자 추출 성공: 권현주 (주민번호: 700110-*******)
+2026-01-30 10:25:22,243 - parsers.registry_parser - INFO - \u2705 총 1명의 소유자 추출 완료: ['권현주']
+=== 1. 등기부 PDF 파싱 (권현주 250819.pdf) ===
+부동산_주소: '경상남도 진주시 이현동 1180 이현하이클래스웰가 제105동 제23층 제2303호'
+면적: '148.01㎡'
+층수정보: '27층 중 23층 2303호'
+
+=== 2. Node KB 시세 조회 (kb-price-node) ===
+KB 시세 조회 성공
+  단지명: 이현하이클래스웰가
+  complex_id: 15385
+  KB시세 일반: 45500 만원
+  KB시세 하한: 42500 만원
+  KB 시세 참고: https://kbland.kr/c/15385
+
+=== 완료 ===
