@@ -25,6 +25,27 @@ DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 }
 
+# 도로명 등으로 동/읍/면을 찾지 못할 때 사용하는 보조 매핑 (키워드→법정동코드)
+# (시/군 키워드, 도로명·단지 키워드) → 법정동코드. 주소에 키워드가 모두 포함되면 사용.
+_ROAD_FALLBACK_DONGCODES = [
+    (["김포", "양도로"], "4157025600"),   # 경기 김포시 양촌읍 (양도로, 양도마을서해아파트)
+    (["김포", "양도마을"], "4157025600"),
+    (["부산", "온천동"], "2626010800"),   # 부산 동래구 온천동 (SK허브올리브 c/14094)
+    (["부산", "에스케이허브올리브"], "2626010800"),
+    (["부산", "SK허브올리브"], "2626010800"),
+    (["동래", "온천동"], "2626010800"),
+]
+
+
+def _try_road_fallback_dongcode(address: str) -> Optional[str]:
+    """도로명/키워드 보조 매핑으로 법정동코드 반환. 매칭 없으면 None."""
+    addr = (address or "").strip()
+    for keywords, code in _ROAD_FALLBACK_DONGCODES:
+        if all(kw in addr for kw in keywords):
+            return code
+    return None
+
+
 # 로깅 설정
 # Vercel 환경에서는 파일 로깅이 제한적이므로 stdout/stderr 사용
 # 로컬에서는 파일 로깅도 함께 사용
@@ -257,6 +278,10 @@ class KBPriceAPI:
         logger.debug(f"   파싱된 주소 정보: region={region}, district={district}, dong={dong}")
         
         if not all([region, district, dong]):
+            fallback = _try_road_fallback_dongcode(address)
+            if fallback:
+                logger.info(f"도로명/키워드 보조 매핑으로 법정동코드 사용: {fallback} (동/읍/면 파싱 실패)")
+                return fallback
             logger.warning(f"주소 파싱 실패: {address} -> {parsed}")
             return None
         
@@ -343,9 +368,12 @@ class KBPriceAPI:
         if dongcode:
             logger.info(f"법정동코드 찾음: {dongcode} ({region} {district} {dong})")
             return dongcode
-        else:
-            logger.warning(f"법정동코드를 찾을 수 없음: {region} {district} {dong}")
-            return None
+        fallback = _try_road_fallback_dongcode(address)
+        if fallback:
+            logger.info(f"도로명/키워드 보조 매핑으로 법정동코드 사용: {fallback} (동 데이터 없음)")
+            return fallback
+        logger.warning(f"법정동코드를 찾을 수 없음: {region} {district} {dong}")
+        return None
     
     def get_complex_list(self, dongcode: str) -> List[Dict[str, Any]]:
         """
