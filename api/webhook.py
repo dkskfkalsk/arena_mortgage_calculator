@@ -1011,9 +1011,8 @@ def get_application():
                                 print(f"[WEBHOOK] ✅ 캡션에서 하우스머치 시세 추출: {kb_price}만원", file=sys.stderr, flush=True)
                                 logger.info(f"캡션에서 하우스머치 시세 추출: {kb_price}만원")
             
-            # KB 시세가 없고 대체 시세도 없을 때 에러 메시지 반환 (등기부 정보 표시 전)
+            # KB 시세 없을 때도 로그만 남기고 계속 진행 (고객 정보 전부 출력 후 맨 끝에 멘트 추가)
             if not kb_price:
-                # KB API 검색을 했는지, 실패했는지, 결과가 없었는지 구분
                 if kb_api_searched:
                     if kb_api_failed:
                         print(f"[WEBHOOK] KB API 검색 실패 (예외 발생)", file=sys.stderr, flush=True)
@@ -1021,25 +1020,27 @@ def get_application():
                     elif kb_api_no_result:
                         print(f"[WEBHOOK] KB API 검색 결과 없음", file=sys.stderr, flush=True)
                         logger.warning("KB API 검색 결과 없음")
-                
-                error_message = "KB 시세가 검색되지 않으므로 다른 시세 첨부 부탁드립니다"
-                print(f"[WEBHOOK] {error_message}", file=sys.stderr, flush=True)
-                logger.warning(error_message)
-                return error_message
             
             # 세대수, 구분 표시 (KB API 결과로 업데이트된 값 사용)
             lines.append(f"세대수 : {households}")
             lines.append(f"구   분 : {property_type}")
             
-            # 시세 표시 (KB 시세인지 대체 시세인지에 따라 다르게 표시)
+            # 시세 표시 (KB 시세인지 대체 시세인지, 없음인지에 따라 다르게 표시)
             if alternative_price_type:
                 # 대체 시세 사용 시: "감정가 : 60,000만원" 형식
                 lines.append(f"{alternative_price_type} : {kb_price}만원")
-            else:
+            elif kb_price:
                 # KB 시세 사용 시: 기존 형식 유지
                 lines.append(f"KB시세 : 일반 {kb_price}만원")
                 lines.append(f"KB시세 : 하한 {kb_price_low}만원" if kb_price_low else f"KB시세 : 하한      만원")
                 # KB 시세 참고 링크 (kbland.kr/c/{단지ID})
+                if kb_complex_id:
+                    kb_price_url = f"https://kbland.kr/c/{kb_complex_id}"
+                    lines.append(f"KB시세 참고 : {kb_price_url}")
+            else:
+                # KB 시세 없음: 끌어온 정보만 표시, 참고 링크는 있으면 추가
+                lines.append("KB시세 : 없음")
+                lines.append("KB시세 : 하한      만원")
                 if kb_complex_id:
                     kb_price_url = f"https://kbland.kr/c/{kb_complex_id}"
                     lines.append(f"KB시세 참고 : {kb_price_url}")
@@ -1165,6 +1166,10 @@ def get_application():
             # 요청사항
             request_text = caption_info.get('request', '')
             lines.append(f"요청사항 : {request_text}")
+            
+            # KB 시세 없을 때 맨 끝에 멘트 추가
+            if not kb_price:
+                lines.append("KB시세 없음. 다른 시세 첨부 바랍니다.")
             
             return "\n".join(lines)
 
