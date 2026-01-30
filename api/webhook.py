@@ -702,6 +702,27 @@ def get_application():
                         info['trust_amount'] = f"{price_man:,}"
                         break
             
+            # 특이사항 추출 (캡션에서 "특이사항" 키워드 뒤의 내용)
+            # 패턴: "특이사항 : 내용" 또는 "특이사항: 내용" 또는 "특이사항 내용"
+            special_notes_match = re.search(r'특이사항\s*[:：]?\s*(.+?)(?=\n요청사항|\n\n|$)', caption, re.IGNORECASE | re.DOTALL)
+            if special_notes_match:
+                special_note_text = special_notes_match.group(1).strip()
+                # 여러 줄일 수 있으므로 줄바꿈 제거하고 공백으로 대체
+                special_note_text = re.sub(r'\s+', ' ', special_note_text).strip()
+                if special_note_text:
+                    info['special_notes'].append(special_note_text)
+            
+            # 요청사항 추출 (캡션에서 "요청사항" 키워드 뒤의 내용) - 기존 로직 덮어쓰기
+            # 패턴: "요청사항 : 내용" 또는 "요청사항: 내용" 또는 "요청사항 내용"
+            request_match = re.search(r'요청사항\s*[:：]?\s*(.+?)(?=\n특이사항|\n\n|$)', caption, re.IGNORECASE | re.DOTALL)
+            if request_match:
+                request_text = request_match.group(1).strip()
+                # 여러 줄일 수 있으므로 줄바꿈 제거하고 공백으로 대체
+                request_text = re.sub(r'\s+', ' ', request_text).strip()
+                if request_text:
+                    # 기존 requests에 추가하지 않고 덮어쓰기
+                    info['request'] = request_text
+            
             return info
 
         def extract_name_from_filename(file_name):
