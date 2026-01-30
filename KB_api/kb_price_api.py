@@ -517,7 +517,8 @@ class KBPriceAPI:
                 "area": 84.93,
                 "pyeong": 25.7,
                 "type": "84A형",
-                "dongcode": "1168010100", # 법정동코드 (KB 시세 참고 링크용)
+                "dongcode": "1168010100",
+                "complex_id": "12345",   # 단지기본일련번호 → kbland.kr/c/{id} 참고 링크용
                 "redevelop_stages": [],   # 재건축 단계 (재건축여부=1이고 스크래퍼 성공 시)
                 "households": None,       # 세대수 (재건축 단지 스크래핑 시)
                 "buildings": None,        # 동수 (재건축 단지 스크래핑 시)
@@ -573,9 +574,11 @@ class KBPriceAPI:
                 complex_name_from_api = complex.get("단지명") or complex.get("name", "")
                 complex_address_from_api = complex.get("주소", "")
                 logger.debug(f"   [{i+1}] {complex_name_from_api} (주소: {complex_address_from_api})")
+                # API 단지명 공백 제거 (ex: "천안역 우방 아이유쉘" vs "천안역우방아이유쉘")
+                api_name_nospace = (complex_name_from_api or "").replace(" ", "")
                 
-                # 정확 매칭
-                if complex_name == complex_name_from_api:
+                # 정확 매칭 (공백 무시 포함)
+                if complex_name == complex_name_from_api or (api_name_nospace and complex_name == api_name_nospace):
                     selected_complex = complex
                     logger.info(f"✅ 단지명 정확 매칭: {complex_name_from_api}")
                     print(f"[OK] 단지명 정확 매칭: {complex_name_from_api}")
@@ -584,16 +587,16 @@ class KBPriceAPI:
                 # 부분 매칭 점수 계산 (더 긴 매칭이 우선)
                 # 예: "미리내마을" in "미리내마을(롯데2)" -> True
                 score = 0
-                if complex_name in complex_name_from_api:
-                    # 매칭 비율 계산 (추출한 단지명이 API 단지명에 포함된 비율)
-                    score = len(complex_name) / len(complex_name_from_api.replace('(', '').replace(')', ''))
-                    # 괄호 안 내용이 있어도 매칭되면 점수 보정
-                    if '(' in complex_name_from_api:
-                        base_name = complex_name_from_api.split('(')[0]
-                        if complex_name == base_name or complex_name in base_name:
-                            score = 0.9  # 높은 점수 부여
-                elif complex_name_from_api in complex_name:
-                    score = len(complex_name_from_api) / len(complex_name)
+                base_api = (complex_name_from_api or "").replace(" ", "").replace("(", "").replace(")", "")
+                if complex_name in complex_name_from_api or (base_api and complex_name in base_api):
+                    denom = len(base_api) or 1
+                    score = len(complex_name) / denom
+                    if '(' in (complex_name_from_api or ""):
+                        base_name = (complex_name_from_api.split('(')[0] or "").replace(" ", "")
+                        if base_name and (complex_name == base_name or complex_name in base_name):
+                            score = 0.9
+                elif complex_name_from_api in complex_name or (base_api and base_api in complex_name):
+                    score = len(base_api or complex_name_from_api or "") / len(complex_name)
                 
                 # 번지수 매칭 보너스 (번지수가 일치하면 점수 증가)
                 if lot_number and lot_number in complex_address_from_api:
@@ -708,7 +711,8 @@ class KBPriceAPI:
             "area_diff": area_diff,  # 면적 차이 (m²)
             "pyeong": pyeong_str,
             "type": matched_price.get("주택형타입내용") or matched_price.get("타입", ""),
-            "dongcode": dongcode,  # 법정동코드 (KB 시세 참고 링크용)
+            "dongcode": dongcode,
+            "complex_id": str(complex_id) if complex_id is not None else None,  # 단지기본일련번호 → kbland.kr/c/{id}
         }
         
         # 7. 재건축·세대수: 단지 목록 → get_complex_info → /c/ 스크래퍼 순으로 세대수/동수 채우기
@@ -831,18 +835,15 @@ def get_kb_price_from_registry(address: str, area: str) -> Optional[Dict[str, An
         print(f"[!] 면적 변환 실패: {area}")
         return None
     
-    # 주소에서 단지명 추출 (예: "미리내마을", "수원하늘채더퍼스트2단지")
-    # 패턴: 주소 중간에 있는 단지명 패턴 찾기
+    # 주소에서 단지명 추출 (예: "미리내마을", "천안역우방아이유쉘")
     complex_name = None
-    # "미리내마을", "수원하늘채더퍼스트2단지" 같은 패턴 찾기
     complex_patterns = [
-        r'([가-힣]+마을)',  # "미리내마을", "꿈마을"
-        r'([가-힣]+단지)',  # "수원하늘채더퍼스트2단지"
-        r'([가-힣]+아파트)',  # "대치아이파크아파트"
-        r'([가-힣]+힐스|힐스테이트)',  # "힐스테이트중동"
-        r'([가-힣]+(?:아이파크|래미안|자이|힐스테이트|푸르지오|센트럴|팰리스|월드|뉴|더|디|엘|리|그린|보람|연화|은하|중흥|한라|포도|무지개|꿈|덕유|설악|복사골|금강|동원|대신|범양|영안|현대|형진|풍남))',  # 주요 단지명 키워드
+        r'([가-힣]+마을)',
+        r'([가-힣]+단지)',
+        r'([가-힣]+아파트)',
+        r'([가-힣]+(?:힐스|힐스테이트))',
+        r'([가-힣]+(?:아이파크|래미안|자이|힐스테이트|푸르지오|센트럴|팰리스|월드|뉴|더|디|엘|리|그린|보람|연화|은하|중흥|한라|포도|무지개|꿈|덕유|설악|복사골|금강|동원|대신|범양|영안|현대|형진|풍남|우방|아이유쉘|유쉘))',
     ]
-    
     for pattern in complex_patterns:
         match = re.search(pattern, address)
         if match:
@@ -850,16 +851,23 @@ def get_kb_price_from_registry(address: str, area: str) -> Optional[Dict[str, An
             logger.info(f"✅ 주소에서 단지명 추출: {complex_name}")
             break
     
-    # 단지명이 없으면 주소에서 번지수 앞의 단어를 단지명으로 추출 시도
-    # 예: "중동 1180-1 미리내마을" -> "미리내마을"
+    # 번지수 + 한글 단지명 (제N동/제N층/제N호 앞까지) ex: "1562 천안역우방아이유쉘 제104동"
     if not complex_name:
-        # 번지수 패턴: 숫자-숫자 또는 숫자만
+        lot_name_pattern = r'\d+(?:-\d+)?\s+([가-힣]+?)(?=\s+제\d+동|\s+제\d+층|\s+제\d+호|$)'
+        match = re.search(lot_name_pattern, address)
+        if match:
+            potential_name = match.group(1).strip()
+            if len(potential_name) >= 2 and potential_name not in ('동', '구', '시', '군', '읍', '면'):
+                complex_name = potential_name
+                logger.info(f"✅ 주소에서 단지명 추출 (번지+이름): {complex_name}")
+    
+    # 기존: 번지수 + (마을|단지|아파트) ex: "1180-1 미리내마을"
+    if not complex_name:
         lot_pattern = r'(\d+(?:-\d+)?)\s+([가-힣]+(?:마을|단지|아파트)?)'
         match = re.search(lot_pattern, address)
         if match:
             potential_name = match.group(2)
-            # 너무 짧거나 일반적인 단어는 제외
-            if len(potential_name) >= 2 and potential_name not in ['동', '구', '시', '군', '읍', '면']:
+            if len(potential_name) >= 2 and potential_name not in ('동', '구', '시', '군', '읍', '면'):
                 complex_name = potential_name
                 logger.info(f"✅ 주소에서 단지명 추출 (번지수 기준): {complex_name}")
     

@@ -899,7 +899,7 @@ def get_application():
             kb_api_searched = False
             kb_api_failed = False  # 예외 발생 시 True
             kb_api_no_result = False  # 결과 없음 시 True
-            kb_dongcode = None  # KB 시세 참고 링크(법정동)용
+            kb_complex_id = None  # KB 시세 참고 링크(kbland.kr/c/{단지ID})용
             
             # 등기부에서 주소와 면적을 추출한 경우 KB API 호출
             # 항상 등기부 주소로 KB API를 먼저 시도 (캡션에 KB시세가 있어도 등기부 주소로 정확한 시세 조회)
@@ -921,7 +921,7 @@ def get_application():
                     if kb_result:
                         kb_price_num = kb_result.get('kb_price')
                         kb_price_min_num = kb_result.get('kb_price_min')
-                        kb_dongcode = kb_result.get('dongcode')
+                        kb_complex_id = kb_result.get('complex_id')
                         
                         if kb_price_num:
                             kb_price = f"{int(kb_price_num):,}"
@@ -1039,9 +1039,9 @@ def get_application():
                 # KB 시세 사용 시: 기존 형식 유지
                 lines.append(f"KB시세 : 일반 {kb_price}만원")
                 lines.append(f"KB시세 : 하한 {kb_price_low}만원" if kb_price_low else f"KB시세 : 하한      만원")
-                # KB 시세 참고 링크 (법정동만, kbland.kr/se/c/ 짧은 링크)
-                if kb_dongcode:
-                    kb_price_url = f"https://kbland.kr/se/c/{kb_dongcode}"
+                # KB 시세 참고 링크 (kbland.kr/c/{단지ID})
+                if kb_complex_id:
+                    kb_price_url = f"https://kbland.kr/c/{kb_complex_id}"
                     lines.append(f"KB시세 참고 : {kb_price_url}")
             
             # 근저당권 설정 내역
