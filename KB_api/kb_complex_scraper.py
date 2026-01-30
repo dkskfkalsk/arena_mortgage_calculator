@@ -155,6 +155,7 @@ def _fetch_node_households(complex_id: str) -> Dict[str, Any]:
     """
     Vercel 전용. /api/kb-households (Node Puppeteer) 호출로 세대수·동수만 조회.
     """
+    import time
     import requests
     out = _empty_result(complex_id, error=None)
     out["source_url"] = f"{_BASE_URL}{complex_id}" if complex_id else None
@@ -164,29 +165,52 @@ def _fetch_node_households(complex_id: str) -> Dict[str, Any]:
     base = os.getenv("VERCEL_URL", "").strip()
     if not base:
         out["error"] = "VERCEL_URL 없음 (Node API 미호출)"
+        logger.warning("Node API 미호출: VERCEL_URL 없음")
         return out
     cid = str(complex_id).strip()
     url = f"https://{base.rstrip('/')}/api/kb-households?complex_id={cid}"
-    try:
-        r = requests.get(url, headers={"Accept": "application/json"}, timeout=30)
-        r.raise_for_status()
-        data = r.json()
-        h = data.get("households")
-        b = data.get("buildings")
-        err = data.get("error")
-        if h is not None:
-            out["households"] = int(h)
-            logger.info("✅ Node Puppeteer API에서 세대수 추출: %s", out["households"])
-        if b is not None:
-            out["buildings"] = int(b)
-            logger.info("✅ Node Puppeteer API에서 동수 추출: %s", out["buildings"])
-        if out.get("households") is not None or out.get("buildings") is not None:
-            out["error"] = None
-        elif err:
-            out["error"] = err
-    except Exception as e:
-        out["error"] = str(e)
-        logger.warning("Node kb-households API 호출 실패: %s", e)
+    logger.info("Node kb-households API 호출: complex_id=%s", cid)
+    for attempt in (1, 2):
+        try:
+            r = requests.get(url, headers={"Accept": "application/json"}, timeout=35)
+            logger.info("Node API 응답 (attempt=%s): status=%s", attempt, r.status_code)
+            r.raise_for_status()
+            data = r.json()
+            h = data.get("households")
+            b = data.get("buildings")
+            err = data.get("error")
+            if h is not None:
+                out["households"] = int(h)
+                logger.info("✅ Node Puppeteer API에서 세대수 추출: %s", out["households"])
+            if b is not None:
+                out["buildings"] = int(b)
+                logger.info("✅ Node Puppeteer API에서 동수 추출: %s", out["buildings"])
+            if out.get("households") is not None or out.get("buildings") is not None:
+                out["error"] = None
+            elif err:
+                out["error"] = err
+                logger.warning("Node API 세대수/동수 없음: %s", err)
+            else:
+                logger.warning("Node API 응답에 households/buildings 없음: %s", list(data.keys()))
+            return out
+        except requests.exceptions.HTTPError as e:
+            try:
+                body = (e.response.text or "")[:500]
+                logger.warning("Node kb-households API HTTP 에러 (attempt=%s): %s, body=%s", attempt, e, body)
+            except Exception:
+                logger.warning("Node kb-households API HTTP 에러 (attempt=%s): %s", attempt, e)
+            out["error"] = str(e)
+            if attempt == 1 and e.response is not None and e.response.status_code >= 500:
+                time.sleep(2)
+                continue
+            return out
+        except Exception as e:
+            logger.warning("Node kb-households API 호출 실패 (attempt=%s): %s", attempt, e)
+            out["error"] = str(e)
+            if attempt == 1:
+                time.sleep(2)
+                continue
+            return out
     return out
 
 

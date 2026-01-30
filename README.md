@@ -91,6 +91,10 @@ Vercel에서는 Python Playwright를 쓸 수 없어, **Node.js + Puppeteer** (`a
 
 - **의존성**: 루트 `package.json`의 `puppeteer-core`, `@sparticuz/chromium`
 - **엔드포인트**: `GET /api/kb-households?complex_id=15385` → `{ households, buildings, error }`
-- **연동**: Python `get_complex_extra_info`가 requests 폴백으로 세대수 미확보 시, `VERCEL_URL` 기반으로 위 API를 호출해 결과를 병합합니다.
+- **연동**: Python `get_complex_extra_info`가 Vercel에서 `VERCEL_URL` 기반으로 위 API만 호출해 세대수·동수 조회.
 - **로컬 테스트**: `vercel dev` 또는 배포 후 `curl`로 호출. Windows에서는 Linux 전용 Chromium이라 로컬 Puppeteer 실행 불가.
+
+**세대수 미표시 시 확인**
+1. 배포 후 `curl "https://<배포URL>/api/kb-households?complex_id=15385"` 로 Node API 직접 호출해 `households` 반환 여부 확인.
+2. Vercel 로그에서 `Node kb-households API 호출`, `Node API 응답 (attempt=...)`, `Node kb-households API HTTP 에러` 등 검색해 호출·에러 여부 확인.
 

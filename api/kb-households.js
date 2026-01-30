@@ -25,6 +25,8 @@ function parseHouseholdsBuildings(text) {
     /([\d,，\s]+)\s*세대/,
     /(\d{1,3}(?:[,，\s]\d{3})*)\s*세대/,
     /세대\s*[수:：]*\s*([\d,，]+)/,
+    /총\s*([\d,，]+)\s*세대/,
+    /아파트\s*([\d,，]+)\s*세대/,
   ];
   for (const re of patterns) {
     const m = text.match(re);
@@ -66,8 +68,11 @@ async function scrape(complexId) {
       defaultViewport: { width: 1920, height: 1080 },
     });
     const page = await browser.newPage();
-    await page.goto(url, { waitUntil: "networkidle0", timeout: 20000 });
-    await new Promise((r) => setTimeout(r, 3000));
+    await page.setUserAgent(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    );
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 });
+    await new Promise((r) => setTimeout(r, 5000));
     const bodyText = await page.evaluate(() => (document.body && document.body.innerText) || "");
     await page.close();
     await browser.close();
