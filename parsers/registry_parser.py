@@ -260,6 +260,18 @@ class RegistryParser:
     def _extract_area(self) -> str:
         """면적 추출 (전용면적) - 표제부 '전유부분의 건물의 표시'에 기재된 면적 사용"""
 
+        # 우선: "제N층 제N호" 직후 150자 이내 첫 XX㎡ (전용면적) — 블록/페이지 순서와 무관하게 호실 행 면적 확보
+        for m in re.finditer(r'제\s*\d+층\s*제\s*\d+호', self.text):
+            snippet = self.text[m.end():m.end() + 150]
+            area_m = re.search(r'(\d+\.?\d*)\s*㎡', snippet)
+            if area_m:
+                try:
+                    a = float(area_m.group(1))
+                    if 10 <= a <= 300:
+                        return f"{area_m.group(1)}㎡"
+                except ValueError:
+                    pass
+
         # 공급/전용 형태: "51㎡/37.85㎡" 또는 "51/37.85" → 두 번째(전용면적) 사용
         slash_patterns = [
             r'(\d+\.?\d*)\s*㎡\s*/\s*(\d+\.?\d*)\s*㎡',
@@ -327,6 +339,14 @@ class RegistryParser:
         )
         if m_building:
             building_section = m_building.group(1)
+        # PDF 추출 순서상 ( 전유부분의 건물의 표시 )가 표제부~갑구 구간 밖(다른 페이지)에 있을 수 있음 → 전체 텍스트에서 재탐색
+        if not building_section:
+            m_building_full = re.search(
+                r'\(\s*전유부분의\s*건물의\s*표시\s*\)\s*([\s\S]*?)(?=\(\s*[^)]*\)|【|$)',
+                self.text
+            )
+            if m_building_full:
+                building_section = m_building_full.group(1)
         if building_section:
             # 표제부 표에서 해당 호실 행의 면적 우선: "제N층 제N호" 또는 "제N동 제N호" + 건물내역(철근콘크리트/목조/철골 등) + XX㎡
             # 건물내역 문구는 다양하므로 구조 종류에 의존하지 않고, 호실 직후 ~80자 이내 첫 면적 사용
