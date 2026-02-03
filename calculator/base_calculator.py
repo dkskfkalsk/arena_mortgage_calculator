@@ -6,8 +6,10 @@
 
 import json
 import os
+import re
 import sys
 import logging
+from datetime import date
 from typing import Dict, List, Optional, Any, Union
 from utils.validators import (
     validate_kb_price, extract_lower_bound_price, extract_kb_ai_price_from_special_notes,
@@ -2062,6 +2064,33 @@ class BaseCalculator:
                         max_ltv = self._get_ok_max_ltv_by_area_grade_credit(area, grade, credit_grade_number)
                         print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 _get_ok_max_ltv_by_area_grade_credit 결과: {max_ltv}")
                         if max_ltv is not None:
+                            # LTV 100% 적용 조건 확인 (1급지, 신용 2등급 이내, 500세대 이상, 준공 10년 이내)
+                            ltv_100_conditions = self.config.get("ltv_100_conditions", {})
+                            if ltv_100_conditions:
+                                region_required = ltv_100_conditions.get("region_grade")
+                                credit_max = ltv_100_conditions.get("credit_grade_max")
+                                min_households = ltv_100_conditions.get("min_households")
+                                completion_years_max = ltv_100_conditions.get("completion_years_max")
+                                grade_num = int(grade) if str(grade).isdigit() else None
+                                household_count = property_data.get("household_count")
+                                if (region_required is not None and grade_num == region_required
+                                        and credit_max is not None and credit_grade_number <= credit_max
+                                        and min_households is not None
+                                        and household_count is not None and int(household_count) >= int(min_households)):
+                                    if completion_years_max is not None:
+                                        years_since = self._parse_ok_years_since_completion(property_data)
+                                        if years_since is not None and years_since <= completion_years_max:
+                                            max_ltv = max(max_ltv, 100)
+                                            print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 LTV 100% 조건 충족 -> max_ltv {max_ltv}%")
+                                        else:
+                                            print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 LTV 100% 미충족: 준공년도 (years_since={years_since}, max={completion_years_max})")
+                                    else:
+                                        max_ltv = max(max_ltv, 100)
+                                        print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 LTV 100% 조건 충족(준공조건 없음) -> max_ltv {max_ltv}%")
+                                elif grade_num != region_required or credit_grade_number > (credit_max or 99):
+                                    print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 LTV 100% 미충족: 급지={grade_num}(필요={region_required}), 신용등급={credit_grade_number}(이내={credit_max})")
+                                elif household_count is None or int(household_count) < int(min_households or 0):
+                                    print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 LTV 100% 미충족: 세대수 {household_count or '없음'} < {min_households}")
                             print(f"DEBUG: get_max_ltv_by_grade - OK저축은행 면적별 LTV: area={area}㎡, grade={grade}, credit_grade={credit_grade_number}등급 -> LTV {max_ltv}%")
                             # 키움저축-리테일 LTV 차감 적용
                             max_ltv = self._apply_kiwoom_ltv_adjustments(max_ltv, property_data)
@@ -2263,6 +2292,49 @@ class BaseCalculator:
                     continue
         
         print(f"DEBUG: _get_ok_credit_grade_number - credit_score: {credit_score}, no match found")
+        return None
+    
+    def _parse_ok_years_since_completion(self, property_data: Optional[Dict[str, Any]]) -> Optional[int]:
+        """
+        OK저축은행 LTV 100% 조건: 준공/사용승인 기준 경과년수 파싱.
+        property_data에서 years_since_completion(숫자), approval_date(YYYY.MM.DD), completion_date,
+        또는 special_notes/requests의 'N년차', '사용승인일 YYYY.MM.DD(N년차)' 문구로부터 산출.
+        
+        Returns:
+            준공/사용승인 후 경과년수 (int), 없으면 None
+        """
+        if not property_data:
+            return None
+        # 1) 직접 필드
+        years = property_data.get("years_since_completion")
+        if years is not None and isinstance(years, (int, float)):
+            return int(years)
+        # 2) approval_date 또는 completion_date (YYYY.MM.DD 또는 YYYY-MM-DD)
+        for key in ("approval_date", "completion_date"):
+            raw = property_data.get(key)
+            if not raw or not isinstance(raw, str):
+                continue
+            raw = raw.strip()
+            # YYYY.MM.DD / YYYY-MM-DD
+            m = re.match(r"(\d{4})[.\-](\d{1,2})[.\-](\d{1,2})", raw)
+            if m:
+                try:
+                    y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+                    d_obj = date(y, mo, d)
+                    today = date.today()
+                    years = today.year - d_obj.year
+                    if (today.month, today.day) < (d_obj.month, d_obj.day):
+                        years -= 1
+                    return max(0, years)
+                except (ValueError, TypeError):
+                    pass
+        # 3) 특이사항/요청사항에서 'N년차' 또는 '사용승인일 ... (N년차)' 추출
+        text = (property_data.get("special_notes") or "") + " " + (property_data.get("requests") or "")
+        if text:
+            # "34년차" 또는 "(34년차)" 패턴
+            m = re.search(r"\(?(\d+)\s*년\s*차\)?", text)
+            if m:
+                return int(m.group(1))
         return None
     
     def _get_ok_max_ltv_by_area_grade_credit(self, area: float, region_grade: Union[int, str], credit_grade_number: int) -> Optional[float]:

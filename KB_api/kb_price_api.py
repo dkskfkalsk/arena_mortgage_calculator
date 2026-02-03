@@ -47,6 +47,27 @@ def _try_road_fallback_dongcode(address: str) -> Optional[str]:
     return None
 
 
+def _make_attached_address(address: str) -> str:
+    """
+    1차 조회 실패 시 재시도용: 주소 일부를 붙여서 검색 (공백 제거).
+    - 안양시 동안구 → 안양시동안구
+    - 김포시 양촌읍 → 김포시양촌읍
+    법정동코드/검색 API가 붙어 있는 형태로만 인식하는 경우 대응.
+    """
+    if not address or not address.strip():
+        return address or ""
+    addr = re.sub(r"\s+", " ", address.strip())
+    # "한글시 공백 한글구" → "한글시한글구" (시+구)
+    addr = re.sub(r"([가-힣]+시)\s+([가-힣]+구)", r"\1\2", addr)
+    # "한글시 공백 한글군" → "한글시한글군" (시+군)
+    addr = re.sub(r"([가-힣]+시)\s+([가-힣]+군)", r"\1\2", addr)
+    # "한글시 공백 한글읍" → "한글시한글읍" (시+읍)
+    addr = re.sub(r"([가-힣]+시)\s+([가-힣]+읍)", r"\1\2", addr)
+    # "한글시 공백 한글면" → "한글시한글면" (시+면)
+    addr = re.sub(r"([가-힣]+시)\s+([가-힣]+면)", r"\1\2", addr)
+    return addr
+
+
 def _make_juso_search_keyword(address: str) -> Optional[str]:
     """API 검색용 키워드 생성. 도로명+번지 위주로 앞부분만 사용 (최대 50자)."""
     if not address or not address.strip():
@@ -385,9 +406,9 @@ class KBPriceAPI:
         
         if not district_data:
             logger.warning(f"⚠️ 구/시/군 데이터 없음: {district}")
-            # 유사 구/시/군명 찾기 시도
+            # 유사 구/시/군명 찾기: district가 "안양시"일 때 "안양시 동안구" 등 시작하는 키 시도
             for key in districts.keys():
-                if district in key or key in district:
+                if key.startswith(district) or district in key or key in district:
                     logger.debug(f"   유사 구/시/군 발견: {key}")
                     district_data = districts.get(key, {})
                     district = key
@@ -643,14 +664,22 @@ class KBPriceAPI:
         print(f"   주소: {address}")
         print(f"   면적: {area}m²")
         
-        # 1. 법정동코드 찾기
-        logger.debug("1단계: 법정동코드 찾기")
+        # 1. 법정동코드 찾기 (1차: 원본 주소, 없으면 2차: 주소 붙여서 재시도, 예: 안양시 동안구 → 안양시동안구)
+        logger.debug("1단계: 법정동코드 찾기 (1차: 원본 주소)")
         dongcode = self.find_dongcode(address)
+        if not dongcode:
+            address_attached = _make_attached_address(address)
+            if address_attached != address:
+                logger.info("   1차 실패 → 주소 붙여서 2차 시도: %s", address_attached[:60])
+                print("[KB] 1차 실패 → 주소 붙여서 2차 시도 (예: 안양시 동안구 → 안양시동안구)")
+                dongcode = self.find_dongcode(address_attached)
+                if dongcode:
+                    logger.info("✅ 법정동코드 찾음(붙인 주소 2차 시도): %s", dongcode)
         if not dongcode:
             logger.error("❌ 법정동코드를 찾을 수 없어 시세 조회 불가")
             print("[X] 법정동코드를 찾을 수 없어 시세 조회 불가")
             return None
-        
+
         logger.info(f"✅ 법정동코드: {dongcode}")
         
         # 2. 단지 목록 조회
