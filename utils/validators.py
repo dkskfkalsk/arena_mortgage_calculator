@@ -9,7 +9,9 @@ def validate_kb_price(kb_price):
     KB시세 검증
     시세가 없으면 None 반환 (산출 불가)
     "일반 125,000만원" 형식도 처리
+    URL(참고 링크)이 넘어오면 시세로 사용하지 않음
     """
+    import re
     if kb_price is None or kb_price == "" or kb_price == "시세없음":
         print(f"DEBUG: validate_kb_price - None or empty: {kb_price}")
         return None
@@ -19,8 +21,17 @@ def validate_kb_price(kb_price):
         price_str = str(kb_price).strip()
         print(f"DEBUG: validate_kb_price - input: {price_str}")
         
+        # URL이 넘어온 경우 시세로 사용하지 않음 (참고 링크 등에서 숫자 추출 방지)
+        if price_str and (
+            price_str.lower().startswith("http://")
+            or price_str.lower().startswith("https://")
+            or "kbland.kr" in price_str.lower()
+            or (re.match(r"^[\d./]+$", price_str) and "/" in price_str)  # /c/35317 같은 경로만 있는 경우
+        ):
+            print(f"DEBUG: validate_kb_price - URL/경로로 판단, 시세로 사용 안 함: {price_str[:50]}")
+            return None
+        
         # "일반", "하한" 같은 키워드 제거 (공백 포함)
-        import re
         price_str_clean = re.sub(r'\s*(일반|하한|상한)\s*', ' ', price_str, flags=re.IGNORECASE).strip()
         # 여러 공백을 하나로
         price_str_clean = re.sub(r'\s+', ' ', price_str_clean)

@@ -691,8 +691,14 @@ class MessageParser:
             data["property_type"] = value
         
         elif "kb시세" in key_clean or "시세" in key_clean:
+            # "KB시세 참고" + URL은 시세가 아님 → 덮어쓰지 않음 (기존 일반/하한 시세 유지)
+            if "참고" in key_clean and (
+                (value and (value.strip().lower().startswith("http://") or value.strip().lower().startswith("https://")))
+                or "kbland.kr" in (value or "").lower()
+            ):
+                print(f"DEBUG: Parsed KB price - 키가 '참고'이고 값이 URL이라 시세로 사용 안 함: key={key}, value={value[:50] if value else ''}")
+                return
             # KB시세는 여러 줄에 걸쳐 있을 수 있음 (일반, 하한 등)
-            # 첫 번째 값만 저장 (일반 가격)
             data["kb_price"] = value
             print(f"DEBUG: Parsed KB price - key: {key}, value: {value}")
     
@@ -807,6 +813,11 @@ class MessageParser:
                     if i + j < len(lines):
                         next_line = lines[i + j].strip()
                         if next_line:
+                            # URL(참고 링크)이면 시세에 포함하지 않음
+                            if next_line.lower().startswith("http") or "kbland.kr" in next_line.lower():
+                                break
+                            if "참고" in next_line and ("http" in next_line.lower() or "kbland" in next_line.lower()):
+                                break
                             # 하한, 상한, 일반 키워드가 있거나 숫자가 있으면 추가
                             if any(kw in next_line for kw in ['하한', '상한', '일반']) or re.search(r'[\d,]+', next_line):
                                 if kb_value:
@@ -874,14 +885,15 @@ class MessageParser:
                     kb_context = re.search(r'kb시세[^:]*:?\s*(.+?)(?=\n|$)', text, re.IGNORECASE | re.MULTILINE | re.DOTALL)
                     if kb_context:
                         kb_value = kb_context.group(1).strip()
-                        # 다음 줄도 포함 (하한 정보 등)
+                        # 다음 줄도 포함 (하한 정보 등). URL(참고 링크)은 제외
                         for i, line in enumerate(lines):
                             if 'kb시세' in line.lower():
                                 for j in range(1, 3):  # 다음 1-2줄 확인
                                     if i + j < len(lines):
                                         next_line = lines[i + j].strip()
-                                        if next_line and (any(kw in next_line for kw in ['하한', '상한', '일반']) or re.search(r'[\d,]+', next_line)):
-                                            kb_value += " " + next_line
+                                        if next_line and not (next_line.lower().startswith("http") or "kbland.kr" in next_line.lower() or ("참고" in next_line and "http" in next_line.lower())):
+                                            if any(kw in next_line for kw in ['하한', '상한', '일반']) or re.search(r'[\d,]+', next_line):
+                                                kb_value += " " + next_line
                                 break
                         print(f"DEBUG: KB price from pattern matching: {kb_value}")
                         return kb_value
