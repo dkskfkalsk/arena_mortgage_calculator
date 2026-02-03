@@ -807,16 +807,19 @@ class BaseCalculator:
             is_household_for_ok = product_type == "household"
         
         # 최대 LTV 확인 (1급지인 경우 A/B 그룹 구분)
-        # OK저축은행인 경우 면적과 신용점수 등급을 고려
-        # property_data에 product_type 정보 추가 (get_max_ltv_by_grade에서 사용)
-        if is_household_for_ok:
-            property_data_with_type = property_data.copy()
-            property_data_with_type["_product_type"] = "household"
-            max_ltv = self.get_max_ltv_by_grade(grade, region, property_data_with_type)
+        # OK저축은행만: 면적·신용등급 등 고려 시 product_type(가계/사업) 전달
+        # 그 외 금융사: _product_type 없이 전달 → 각 금융사 조견(max_ltv_by_grade 등)으로만 최대 LTV 계산
+        if is_ok_bank:
+            if is_household_for_ok:
+                property_data_with_type = property_data.copy()
+                property_data_with_type["_product_type"] = "household"
+                max_ltv = self.get_max_ltv_by_grade(grade, region, property_data_with_type)
+            else:
+                property_data_with_type = property_data.copy()
+                property_data_with_type["_product_type"] = "business"
+                max_ltv = self.get_max_ltv_by_grade(grade, region, property_data_with_type)
         else:
-            property_data_with_type = property_data.copy()
-            property_data_with_type["_product_type"] = "business"
-            max_ltv = self.get_max_ltv_by_grade(grade, region, property_data_with_type)
+            max_ltv = self.get_max_ltv_by_grade(grade, region, property_data)
         print(f"DEBUG: BaseCalculator.calculate - grade: {grade}, max_ltv: {max_ltv}, below_standard_ltv: {below_standard_ltv}")  # 추가
         if max_ltv is None or max_ltv == 0:
             print(f"DEBUG: BaseCalculator.calculate - max_ltv is None or 0 for grade {grade}, returning None")  # 추가
