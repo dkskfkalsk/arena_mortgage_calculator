@@ -33,6 +33,10 @@ def classify_financial_institution(name: str) -> str:
     if any(keyword in name for keyword in ['조합', '신협', '새마을']):
         return '조합'
     
+    # 1금융권 인터넷은행 (케이뱅크, 카카오뱅크, 토스뱅크) - 은행과 동일 110% 적용
+    if any(keyword in name for keyword in ['케이뱅크', '카카오뱅크', '토스뱅크', 'k뱅크', 'kbank', '카뱅']):
+        return '은행'
+    
     # 은행 체크
     if '은행' in name:
         return '은행'
