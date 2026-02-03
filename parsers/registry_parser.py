@@ -259,6 +259,23 @@ class RegistryParser:
     
     def _extract_area(self) -> str:
         """면적 추출 (전용면적) - 표제부 '전유부분의 건물의 표시'에 기재된 면적 사용"""
+        # 공급/전용 형태: "51㎡/37.85㎡" 또는 "51m²/37.85m²" → 두 번째(전용면적) 사용
+        slash_patterns = [
+            r'(\d+\.?\d*)\s*㎡\s*/\s*(\d+\.?\d*)\s*㎡',
+            r'(\d+\.?\d*)\s*m²\s*/\s*(\d+\.?\d*)\s*m²',
+            r'(\d+\.?\d*)\s*/\s*(\d+\.?\d*)\s*㎡',
+        ]
+        for pattern in slash_patterns:
+            match = re.search(pattern, self.text, re.IGNORECASE)
+            if match:
+                area_second = match.group(2)
+                try:
+                    area_float = float(area_second)
+                    if 10 <= area_float <= 300:
+                        return f"{area_second}㎡"
+                except ValueError:
+                    pass
+
         # 전유부분의 건물의 표시 섹션에서 전용면적 찾기
         # 표제부 > ( 전유부분의 건물의 표시 ) > 철근콘크리트구조 / 도면편철장 제N책 제N호 / 148.01㎡
 

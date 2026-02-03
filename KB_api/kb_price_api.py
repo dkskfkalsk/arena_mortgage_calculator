@@ -692,16 +692,29 @@ class KBPriceAPI:
         
         logger.info(f"✅ 단지 목록 조회 성공: {len(complexes)}개 단지")
         
-        # 3. 단지 선택 (단지명이 있으면 우선 매칭)
+        # 3. 단지 선택 (단지명 우선, 없으면 동+번지로 매칭 예: 관양동 1588)
         logger.debug("3단계: 단지 선택")
         selected_complex = None
         
-        # 주소에서 번지수 추출 (예: "1180-1", "1180")
+        # 주소에서 번지수 추출 (예: "1180-1", "1180", "1588")
         lot_number = None
         lot_match = re.search(r'(\d+(?:-\d+)?)', address)
         if lot_match:
             lot_number = lot_match.group(1)
             logger.debug(f"   주소에서 번지수 추출: {lot_number}")
+        
+        # 주소에서 동명 추출 (동+번지 매칭용, 예: 관양동 1588)
+        parsed_addr = self.parse_address(address)
+        dong_name = (parsed_addr.get("dong") or "").strip()
+        if dong_name and " " in dong_name:
+            # "동안구 관양동" -> "관양동"만 사용 (동 단위, API 주소에 "관양동 1588" 형태로 나옴)
+            parts = dong_name.split()
+            if parts and parts[-1][-1] in "동읍면":
+                dong_name = parts[-1]
+        if not dong_name:
+            dong_name = ""
+        if dong_name and lot_number:
+            logger.debug(f"   동+번지 매칭 키: {dong_name} {lot_number}")
         
         if complex_name:
             logger.debug(f"   단지명으로 매칭 시도: {complex_name}")
@@ -741,6 +754,11 @@ class KBPriceAPI:
                 if lot_number and lot_number in complex_address_from_api:
                     score += 0.2  # 번지수 일치 시 보너스
                     logger.debug(f"      번지수 일치 보너스: {lot_number}")
+                # 동+번지 매칭 보너스: 단지명이 비슷한 후보가 여러 개일 때,
+                # API 단지 주소에 "관양동"과 "1588"이 둘 다 들어 있으면 그 단지를 더 우선 선택
+                if dong_name and lot_number and dong_name in complex_address_from_api and lot_number in complex_address_from_api:
+                    score += 0.35
+                    logger.debug(f"      동+번지 매칭 보너스: {dong_name} {lot_number}")
                 
                 if score > best_score:
                     best_score = score
@@ -754,7 +772,17 @@ class KBPriceAPI:
                 logger.info(f"✅ 단지명 부분 매칭: {complex_name_from_api} (점수: {best_score:.2f})")
                 print(f"[OK] 단지명 부분 매칭: {complex_name_from_api}")
         
-        # 단지명 매칭 실패 시 첫 번째 단지 사용
+        # 단지명 없을 때: 동+번지로 단지 선택 (예: 관양동 1588 직접 검색)
+        if not selected_complex and dong_name and lot_number:
+            for complex in complexes:
+                complex_address_from_api = (complex.get("주소") or "").strip()
+                if dong_name in complex_address_from_api and lot_number in complex_address_from_api:
+                    selected_complex = complex
+                    logger.info(f"✅ 동+번지 매칭: {dong_name} {lot_number} → {complex.get('단지명', '')} (주소: {complex_address_from_api})")
+                    print(f"[OK] 동+번지 매칭: {dong_name} {lot_number} → {complex.get('단지명', '')}")
+                    break
+        
+        # 단지명/동+번지 매칭 실패 시 첫 번째 단지 사용
         if not selected_complex:
             selected_complex = complexes[0]
             complex_name_from_api = selected_complex.get('단지명', '알 수 없음')
@@ -786,8 +814,33 @@ class KBPriceAPI:
         logger.debug(f"5단계: 면적 매칭 (목표 면적: {area}m²)")
         logger.info(f"   사용 가능한 시세 면적: {[p.get('공급면적', 'N/A') for p in prices[:10]]}")
         matched_price = self.find_matching_price(prices, area)
-        # find_matching_price에서 이미 가장 가까운 면적을 찾아서 반환하므로
-        # 여기서는 None인 경우만 처리
+        # 면적 미제공(0)이면 해당 단지의 첫 번째 시세 타입을 폴백으로 사용
+        if not matched_price and area <= 0 and prices:
+            matched_price = prices[0]
+            logger.warning(f"⚠️ 면적 미제공(0) → 해당 단지 첫 번째 타입 적용: {matched_price.get('공급면적', 'N/A')}㎡ 등")
+            print(f"[!] 면적 미제공 → 해당 단지 첫 번째 시세 타입 적용")
+        # 정확 매칭 없으면 가장 가까운 면적 타입 사용 (예: 37.85㎡ 요청 시 51.46㎡ 등 가장 가까운 타입)
+        if not matched_price and area > 0 and prices:
+            def _area_val(p):
+                v = p.get("전용면적") or p.get("공급면적") or p.get("면적")
+                try:
+                    return float(str(v).replace(",", "").strip()) if v is not None else None
+                except (ValueError, TypeError):
+                    return None
+            nearest = None
+            min_diff = float("inf")
+            for p in prices:
+                v = _area_val(p)
+                if v is not None and 10 <= v <= 300:
+                    d = abs(v - area)
+                    if d < min_diff:
+                        min_diff = d
+                        nearest = p
+            if nearest:
+                matched_price = nearest
+                near_area = _area_val(nearest)
+                logger.warning(f"⚠️ {area}m²와 동일 타입 없음 → 가장 가까운 면적 적용: {near_area}m² (차이: {min_diff:.1f}m²)")
+                print(f"[!] {area}m² 동일 타입 없음 → 가장 가까운 면적 {near_area}m² 적용")
         if not matched_price:
             logger.error(f"❌ 면적 {area}m²에 맞는 시세를 찾을 수 없음")
             print(f"[X] 면적 {area}m²에 맞는 시세를 찾을 수 없음")
@@ -960,20 +1013,36 @@ def get_kb_price_from_registry(address: str, area: str) -> Optional[Dict[str, An
     logger.info(f"   등기부 주소: {address}")
     logger.info(f"   등기부 면적: {area}")
     
-    # 면적에서 숫자만 추출
-    area_match = re.search(r'([\d.]+)', str(area))
-    if not area_match:
+    # 면적 파싱: "51㎡/37.85㎡" 또는 "51/37.85" → 전용면적(두 번째) 사용, KB 시세는 전용면적 기준
+    area_str = str(area).strip()
+    area_float = None
+    slash_match = re.search(r'(\d+\.?\d*)\s*[㎡m²]?\s*/\s*(\d+\.?\d*)\s*[㎡m²]?', area_str, re.IGNORECASE)
+    if slash_match:
+        try:
+            first_num = float(slash_match.group(1))
+            second_num = float(slash_match.group(2))
+            # 두 번째가 전용면적(보통 더 작음), 10~300 범위면 사용
+            if 10 <= second_num <= 300:
+                area_float = second_num
+                logger.info(f"   공급/전용 면적에서 전용면적 사용: {second_num}m² (공급: {first_num}m²)")
+            elif 10 <= first_num <= 300:
+                area_float = first_num
+        except ValueError:
+            pass
+    if area_float is None:
+        area_match = re.search(r'([\d.]+)', area_str)
+        if area_match:
+            try:
+                area_float = float(area_match.group(1))
+                if not (10 <= area_float <= 300):
+                    area_float = None
+            except ValueError:
+                pass
+    if area_float is None:
         logger.error(f"⚠️ 면적 파싱 실패: {area}")
         print(f"[!] 면적 파싱 실패: {area}")
         return None
-    
-    try:
-        area_float = float(area_match.group(1))
-        logger.debug(f"   추출된 면적: {area_float}m²")
-    except ValueError:
-        logger.error(f"⚠️ 면적 변환 실패: {area}")
-        print(f"[!] 면적 변환 실패: {area}")
-        return None
+    logger.debug(f"   추출된 면적(전용): {area_float}m²")
     
     # 주소에서 단지명 추출 (예: "미리내마을", "천안역우방아이유쉘")
     complex_name = None
