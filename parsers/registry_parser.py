@@ -311,18 +311,38 @@ class RegistryParser:
                 except ValueError:
                     pass
 
-        # 전유부분의 건물의 표시 섹션에서 전용면적 찾기
-        # 표제부 > ( 전유부분의 건물의 표시 ) > 철근콘크리트구조 / 도면편철장 제N책 제N호 / 148.01㎡
+        # 표제부 구간: 【 표 제 부 】와 【 갑 구 】 사이 텍스트만 사용. 그 구간에 있는 "㎡" 앞 숫자로 면적 후보 확인
+        table_section_for_building = ""
+        m_table = re.search(
+            r'【\s*표\s*제\s*부\s*】[\s\S]*?(?=【\s*갑\s*구\s*】|【|$)',
+            self.text, re.IGNORECASE
+        )
+        if m_table:
+            table_section_for_building = m_table.group(0)
+        search_for_building = table_section_for_building if table_section_for_building else self.text
 
-        # 0. ( 전유부분의 건물의 표시 ) 블록 한정: 층별 면적(1층 61.95㎡ 등) 제외, 전용면적만 추출
-        # 예: 도면편철장 제133책 제109호 다음 줄 148.01㎡ → 148.01 사용. 1층 61.95㎡는 제외.
         building_section = ""
         m_building = re.search(
-            r'\(\s*전유부분의\s*건물의\s*표시\s*\)\s*([\s\S]*?)(?=\(\s*[^)]*\)|【|$)', self.text
+            r'\(\s*전유부분의\s*건물의\s*표시\s*\)\s*([\s\S]*?)(?=\(\s*[^)]*\)|【|$)', search_for_building
         )
         if m_building:
             building_section = m_building.group(1)
         if building_section:
+            # 표제부 표에서 해당 호실 행의 면적 우선: "제N층 제N호" 또는 "제N동 제N호" + 건물내역(철근콘크리트/목조/철골 등) + XX㎡
+            # 건물내역 문구는 다양하므로 구조 종류에 의존하지 않고, 호실 직후 ~80자 이내 첫 면적 사용
+            for row_pattern in [
+                r'제\s*\d+층\s*제\s*\d+호[\s\S]{0,80}?(\d+\.?\d*)\s*㎡',
+                r'제\s*\d+동\s*제\s*\d+호[\s\S]{0,80}?(\d+\.?\d*)\s*㎡',
+            ]:
+                match_row = re.search(row_pattern, building_section)
+                if match_row:
+                    area = match_row.group(1)
+                    try:
+                        area_float = float(area)
+                        if 10 <= area_float <= 300:
+                            return f"{area}㎡"
+                    except ValueError:
+                        pass
             # 도면편철장 제N책 제N호 뒤에 오는 면적 (같은 줄 또는 다음 줄)
             match_doyoung = re.search(r'도면편철장\s*제\d+책\s*제\d+호[\s\S]*?(\d+\.?\d*)\s*㎡', building_section)
             if match_doyoung:
@@ -374,10 +394,13 @@ class RegistryParser:
                 if 10 <= area_float <= 300:
                     return f"{area}㎡"
 
-        # 3. 표제부 전체: 【 표 제 부 】 내 면적 중 'N층 XX㎡' 제외
+        # 3. 표제부 전체: 【 표 제 부 】 ~ 【 갑 구 】 사이에서만 "㎡" 앞 숫자 사용, 'N층 XX㎡' 제외
         # 10~300 범위. 공급/전용 둘 다 있으면 작은 값(전용) 우선, 아니면 가장 큰 값
         table_section = ""
-        m = re.search(r'【\s*표\s*제\s*부\s*】[\s\S]*?(?=【|$)', self.text, re.IGNORECASE)
+        m = re.search(
+            r'【\s*표\s*제\s*부\s*】[\s\S]*?(?=【\s*갑\s*구\s*】|【|$)',
+            self.text, re.IGNORECASE
+        )
         if m:
             table_section = m.group(0)
         search_text = table_section if table_section else self.text
