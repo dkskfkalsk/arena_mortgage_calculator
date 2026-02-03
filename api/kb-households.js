@@ -21,6 +21,12 @@ function parseNumber(s) {
 function parseHouseholdsBuildings(text) {
   let households = null;
   let buildings = null;
+  // "783세대(임대165)" 형식 우선 → 기본정보 총 세대수(임대 포함)
+  const totalWithRental = text.match(/(\d{1,5})\s*세대\s*\(\s*임대\s*\d+/);
+  if (totalWithRental) {
+    const v = parseNumber(totalWithRental[1]);
+    if (v != null && v >= 1 && v <= MAX_H) households = v;
+  }
   const patterns = [
     /([\d,，\s]+)\s*세대/,
     /(\d{1,3}(?:[,，\s]\d{3})*)\s*세대/,
@@ -28,13 +34,15 @@ function parseHouseholdsBuildings(text) {
     /총\s*([\d,，]+)\s*세대/,
     /아파트\s*([\d,，]+)\s*세대/,
   ];
-  for (const re of patterns) {
-    const m = text.match(re);
-    if (m) {
-      const v = parseNumber(m[1]);
-      if (v != null && v >= 1 && v <= MAX_H) {
-        households = v;
-        break;
+  if (households == null) {
+    for (const re of patterns) {
+      const m = text.match(re);
+      if (m) {
+        const v = parseNumber(m[1]);
+        if (v != null && v >= 1 && v <= MAX_H) {
+          households = v;
+          break;
+        }
       }
     }
   }
@@ -44,6 +52,21 @@ function parseHouseholdsBuildings(text) {
     if (!isNaN(v) && v >= 1 && v <= MAX_B) buildings = v;
   }
   return { households, buildings };
+}
+
+function parseApprovalDate(text) {
+  let approval_date = null;
+  let years_since_completion = null;
+  // 사용승인일 2015.05.21(12년차) 또는 사용승인일 2015.05.21
+  const m = text.match(/사용\s*승인\s*일\s*(\d{4}\.\d{2}\.\d{2})\s*(?:\(\s*(\d+)\s*년\s*차\s*\))?/);
+  if (m) {
+    approval_date = m[1];
+    if (m[2]) {
+      const y = parseInt(m[2], 10);
+      if (!isNaN(y) && y >= 0 && y <= 100) years_since_completion = y;
+    }
+  }
+  return { approval_date, years_since_completion };
 }
 
 async function scrape(complexId) {
@@ -77,7 +100,9 @@ async function scrape(complexId) {
     await page.close();
     await browser.close();
     browser = null;
-    return parseHouseholdsBuildings(bodyText);
+    const { households, buildings } = parseHouseholdsBuildings(bodyText);
+    const { approval_date, years_since_completion } = parseApprovalDate(bodyText);
+    return { households, buildings, approval_date, years_since_completion };
   } catch (e) {
     if (browser) {
       try {
@@ -98,17 +123,21 @@ module.exports = async function handler(req, res) {
     } catch (_) {}
   }
   if (!cid || String(cid).trim() === "") {
-    res.status(400).end(JSON.stringify({ households: null, buildings: null, error: "complex_id required" }));
+    res.status(400).end(
+      JSON.stringify({ households: null, buildings: null, approval_date: null, years_since_completion: null, error: "complex_id required" })
+    );
     return;
   }
   try {
-    const { households, buildings } = await scrape(String(cid).trim());
-    res.status(200).end(JSON.stringify({ households, buildings, error: null }));
+    const out = await scrape(String(cid).trim());
+    res.status(200).end(JSON.stringify({ ...out, error: null }));
   } catch (e) {
     res.status(500).end(
       JSON.stringify({
         households: null,
         buildings: null,
+        approval_date: null,
+        years_since_completion: null,
         error: (e && (e.message || String(e))) || "scrape failed",
       })
     );

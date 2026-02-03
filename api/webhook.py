@@ -1051,6 +1051,11 @@ def get_application():
             # 세대수, 구분 표시 (KB API 결과로 업데이트된 값 사용)
             lines.append(f"세대수 : {households}")
             lines.append(f"구   분 : {property_type}")
+            # 사용승인일 (KB 기본정보에서 추출한 경우)
+            if kb_result and (kb_result.get('approval_date') or kb_result.get('years_since_completion') is not None):
+                approval_str = kb_result.get('approval_date') or ''
+                years_str = f"({kb_result.get('years_since_completion')}년차)" if kb_result.get('years_since_completion') is not None else ''
+                lines.append(f"사용승인일 : {approval_str} {years_str}".strip())
             
             # 시세 표시 (KB 시세인지 대체 시세인지, 없음인지에 따라 다르게 표시)
             if alternative_price_type:
@@ -1358,7 +1363,13 @@ def get_application():
                                     property_data["kb_price_raw"] = f"KB시세: {int(kb_price_num):,}만원"
                                     print(f"[WEBHOOK] ✅ KB 시세 조회 성공: {int(kb_price_num):,}만원", file=sys.stderr, flush=True)
                                     logger.info(f"KB 시세 조회 성공: {int(kb_price_num):,}만원")
-                                else:
+                                if kb_result.get('approval_date') is not None:
+                                    property_data["approval_date"] = kb_result["approval_date"]
+                                if kb_result.get('years_since_completion') is not None:
+                                    property_data["years_since_completion"] = kb_result["years_since_completion"]
+                                if kb_result.get('households') is not None:
+                                    property_data["household_count"] = kb_result["households"]
+                                if not kb_price_num:
                                     kb_api_no_result = True
                                     print(f"[WEBHOOK] ⚠️ KB 시세 조회 실패 (결과 없음)", file=sys.stderr, flush=True)
                                     logger.warning("KB 시세 조회 실패 (결과 없음)")

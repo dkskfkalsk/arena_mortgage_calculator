@@ -909,10 +909,12 @@ class KBPriceAPI:
             "complex_id": str(complex_id) if complex_id is not None else None,  # 단지기본일련번호 → kbland.kr/c/{id}
         }
         
-        # 7. 재건축·세대수: 단지 목록 → get_complex_info → /c/ 스크래퍼 순으로 세대수/동수 채우기
+        # 7. 재건축·세대수·사용승인일: 단지 목록 → get_complex_info → /c/ 스크래퍼 순으로 채우기
         result["redevelop_stages"] = []
         result["households"] = None
         result["buildings"] = None
+        result["approval_date"] = None   # 사용승인일 YYYY.MM.DD (기본정보)
+        result["years_since_completion"] = None  # N년차 (기본정보)
         result["redevelop_yn"] = False
         # fastPriceInfo 단지 항목에 세대수/동수 필드가 있으면 우선 사용
         for key in ("세대수", "총세대수", "총호수", "호수"):
@@ -964,8 +966,14 @@ class KBPriceAPI:
                     if h_sum > 0:
                         result["households"] = h_sum
                         logger.info(f"✅ mpriByType API 세대수 합산: {result['households']}")
-            # /c/ 스크래퍼: 재건축이면 단계+세대수·동수, 일반 단지면 세대수·동수만 (아직 None일 때)
+            # /c/ 스크래퍼: 재건축이면 단계+세대수·동수, 일반 단지면 세대수·동수·사용승인일
             extra = get_complex_extra_info(complex_id)
+            if extra.get("approval_date") is not None:
+                result["approval_date"] = extra["approval_date"]
+                logger.info(f"✅ 스크래퍼(기본정보)에서 사용승인일 추출: {result['approval_date']}")
+            if extra.get("years_since_completion") is not None:
+                result["years_since_completion"] = extra["years_since_completion"]
+                logger.info(f"✅ 스크래퍼(기본정보)에서 년차 추출: {result['years_since_completion']}년차")
             if result["redevelop_yn"]:
                 result["redevelop_stages"] = extra.get("redevelop_stages") or []
                 if extra.get("households") is not None:
@@ -975,13 +983,18 @@ class KBPriceAPI:
                 if extra.get("error"):
                     result["redevelop_error"] = extra["error"]
             else:
-                # 일반 단지: 스크래퍼에서 세대수·동수만 채우기 (API에 없을 때)
-                if result["households"] is None and extra.get("households") is not None:
+                # 일반 단지: 기본정보(스크래퍼) 세대수·동수를 API보다 우선 사용
+                # API는 분양/매매 세대만(618) 반환하는 경우가 있어, 기본정보 "783세대(임대165)" 총 세대수를 사용
+                if extra.get("households") is not None:
                     result["households"] = extra["households"]
-                    logger.info(f"✅ 스크래퍼에서 세대수 추출: {result['households']}")
-                if result["buildings"] is None and extra.get("buildings") is not None:
+                    logger.info(f"✅ 스크래퍼(기본정보)에서 세대수 추출: {result['households']}")
+                elif result["households"] is None:
+                    pass  # API에서만 채우기 (이미 위에서 시도함)
+                if extra.get("buildings") is not None:
                     result["buildings"] = extra["buildings"]
                     logger.info(f"✅ 스크래퍼에서 동수 추출: {result['buildings']}")
+                elif result["buildings"] is None:
+                    pass
         
         price_info = f"{result['kb_price']:,.0f}만원"
         if price_min_num:

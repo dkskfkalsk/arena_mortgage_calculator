@@ -27,6 +27,8 @@ def _empty_result(complex_id: Any, error: Optional[str] = None) -> Dict[str, Any
         "redevelop_stages": [],
         "households": None,
         "buildings": None,
+        "approval_date": None,       # 사용승인일 YYYY.MM.DD
+        "years_since_completion": None,  # N년차 (숫자)
         "redevelop_yn": False,
         "complex_name": None,
         "source_url": f"{_BASE_URL}{complex_id}" if complex_id is not None else None,
@@ -47,18 +49,25 @@ def _parse_households_buildings(text: str) -> Tuple[Optional[int], Optional[int]
         except ValueError:
             return None
 
-    # 세대: 여러 패턴 시도 (쉼표/공백/전각 포함)
-    for pattern in [
-        r"([\d,，\s]+)\s*세대",   # 1,268세대 / 1 268 세대
-        r"(\d{1,3}(?:[,，\s]\d{3})*)\s*세대",
-        r"세대\s*[수:：]*\s*([\d,，]+)",
-    ]:
-        m = re.search(pattern, text)
-        if m:
-            val = _parse_number(m.group(1))
-            if val is not None and 1 <= val <= 100000:
-                households = val
-                break
+    # 세대: "783세대(임대165)" 형식(총 세대수 명시) 우선 → 기본정보에서 총 세대수(임대 포함) 확보
+    m = re.search(r"(\d{1,5})\s*세대\s*\(\s*임대\s*\d+", text)
+    if m:
+        val = _parse_number(m.group(1))
+        if val is not None and 1 <= val <= 100000:
+            households = val
+    # 그 외: 여러 패턴 시도 (쉼표/공백/전각 포함)
+    if households is None:
+        for pattern in [
+            r"([\d,，\s]+)\s*세대",   # 1,268세대 / 1 268 세대
+            r"(\d{1,3}(?:[,，\s]\d{3})*)\s*세대",
+            r"세대\s*[수:：]*\s*([\d,，]+)",
+        ]:
+            m = re.search(pattern, text)
+            if m:
+                val = _parse_number(m.group(1))
+                if val is not None and 1 <= val <= 100000:
+                    households = val
+                    break
 
     m = re.search(r"(\d+)\s*개동", text)
     if m:
@@ -67,6 +76,21 @@ def _parse_households_buildings(text: str) -> Tuple[Optional[int], Optional[int]
         except ValueError:
             pass
     return households, buildings
+
+
+def _parse_approval_date(text: str) -> Tuple[Optional[str], Optional[int]]:
+    """기본정보에서 사용승인일 추출. 예: '사용승인일 2015.05.21(12년차)' → ('2015.05.21', 12)."""
+    approval_date, years_since = None, None
+    # 사용승인일 YYYY.MM.DD(N년차) 또는 사용승인일 YYYY.MM.DD
+    m = re.search(r"사용\s*승인\s*일\s*(\d{4}\.\d{2}\.\d{2})\s*(?:\(\s*(\d+)\s*년\s*차\s*\))?", text)
+    if m:
+        approval_date = m.group(1)  # 2015.05.21
+        if m.lastindex >= 2 and m.group(2):
+            try:
+                years_since = int(m.group(2))
+            except ValueError:
+                pass
+    return approval_date, years_since
 
 
 def _parse_redevelop_stages_from_text(text: str) -> List[Dict[str, Any]]:
@@ -136,6 +160,11 @@ class KBComplexScraper:
                 out["households"] = households
                 out["buildings"] = buildings
 
+                # 2-1) 사용승인일 (기본정보)
+                approval_date, years_since = _parse_approval_date(body_text)
+                out["approval_date"] = approval_date
+                out["years_since_completion"] = years_since
+
                 # 3) 단지명 (선택: 페이지 제목 등에서 추출 시도)
                 title = page.title() or ""
                 if "|" in title:
@@ -178,6 +207,8 @@ def _fetch_node_households(complex_id: str) -> Dict[str, Any]:
             data = r.json()
             h = data.get("households")
             b = data.get("buildings")
+            approval_date = data.get("approval_date")
+            years_since = data.get("years_since_completion")
             err = data.get("error")
             if h is not None:
                 out["households"] = int(h)
@@ -185,7 +216,13 @@ def _fetch_node_households(complex_id: str) -> Dict[str, Any]:
             if b is not None:
                 out["buildings"] = int(b)
                 logger.info("✅ Node Puppeteer API에서 동수 추출: %s", out["buildings"])
-            if out.get("households") is not None or out.get("buildings") is not None:
+            if approval_date is not None:
+                out["approval_date"] = approval_date
+                logger.info("✅ Node Puppeteer API에서 사용승인일 추출: %s", approval_date)
+            if years_since is not None:
+                out["years_since_completion"] = years_since
+                logger.info("✅ Node Puppeteer API에서 년차 추출: %s년차", years_since)
+            if out.get("households") is not None or out.get("buildings") is not None or out.get("approval_date") is not None:
                 out["error"] = None
             elif err:
                 out["error"] = err
