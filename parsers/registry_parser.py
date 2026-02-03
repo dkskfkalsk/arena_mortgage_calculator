@@ -259,11 +259,13 @@ class RegistryParser:
     
     def _extract_area(self) -> str:
         """면적 추출 (전용면적) - 표제부 '전유부분의 건물의 표시'에 기재된 면적 사용"""
-        # 공급/전용 형태: "51㎡/37.85㎡" 또는 "51m²/37.85m²" → 두 번째(전용면적) 사용
+
+        # 공급/전용 형태: "51㎡/37.85㎡" 또는 "51/37.85" → 두 번째(전용면적) 사용
         slash_patterns = [
             r'(\d+\.?\d*)\s*㎡\s*/\s*(\d+\.?\d*)\s*㎡',
             r'(\d+\.?\d*)\s*m²\s*/\s*(\d+\.?\d*)\s*m²',
             r'(\d+\.?\d*)\s*/\s*(\d+\.?\d*)\s*㎡',
+            r'(\d+\.?\d*)\s*/\s*(\d+\.?\d*)\s*(?:㎡|m²)',
         ]
         for pattern in slash_patterns:
             match = re.search(pattern, self.text, re.IGNORECASE)
@@ -273,6 +275,39 @@ class RegistryParser:
                     area_float = float(area_second)
                     if 10 <= area_float <= 300:
                         return f"{area_second}㎡"
+                except ValueError:
+                    pass
+
+        # 공급 37.85 형태: "51㎡ 37.85㎡" 또는 "51 37.85 ㎡" (공백 구분) → 두 번째(전용) 사용
+        space_pair_patterns = [
+            r'(\d+\.?\d*)\s*㎡\s+(\d+\.?\d*)\s*㎡',
+            r'(\d+\.?\d*)\s+(\d+\.?\d*)\s*㎡',
+            r'(\d+\.?\d*)\s+(\d+\.?\d*)\s*[㎡m²]',
+        ]
+        for pattern in space_pair_patterns:
+            match = re.search(pattern, self.text)
+            if match:
+                first_num = float(match.group(1))
+                second_num = float(match.group(2))
+                # 전용이 보통 더 작음: 두 번째가 10~300이면 사용
+                if 10 <= second_num <= 300:
+                    return f"{match.group(2)}㎡"
+                if 10 <= first_num <= 300:
+                    return f"{match.group(1)}㎡"
+
+        # "전용면적 37.85" / "전용 37.85㎡" 등 명시적 전용 키워드
+        dedicated_patterns = [
+            r'전용\s*면적\s*[:\s]*(\d+\.?\d*)\s*[㎡m²]?',
+            r'전용\s*[:\s]*(\d+\.?\d*)\s*[㎡m²]',
+            r'\(?\s*전용\s*\)?\s*(\d+\.?\d*)\s*[㎡m²]',
+        ]
+        for pattern in dedicated_patterns:
+            match = re.search(pattern, self.text, re.IGNORECASE)
+            if match:
+                try:
+                    area_float = float(match.group(1))
+                    if 10 <= area_float <= 300:
+                        return f"{match.group(1)}㎡"
                 except ValueError:
                     pass
 
@@ -339,23 +374,24 @@ class RegistryParser:
                 if 10 <= area_float <= 300:
                     return f"{area}㎡"
 
-        # 3. 표제부 전체: 【 표 제 부 】 내 면적 중 'N층 XX㎡' 제외 후 가장 큰 값 사용
-        # (층별 면적이 작고, 전용면적이 더 크므로)
+        # 3. 표제부 전체: 【 표 제 부 】 내 면적 중 'N층 XX㎡' 제외
+        # 10~300 범위. 공급/전용 둘 다 있으면 작은 값(전용) 우선, 아니면 가장 큰 값
         table_section = ""
         m = re.search(r'【\s*표\s*제\s*부\s*】[\s\S]*?(?=【|$)', self.text, re.IGNORECASE)
         if m:
             table_section = m.group(0)
         search_text = table_section if table_section else self.text
 
-        area_matches = list(re.finditer(r'(\d+\.?\d*)\s*㎡', search_text))
+        # ㎡ 외 m², m2 등도 매칭
+        area_matches = list(re.finditer(r'(\d+\.?\d*)\s*(?:㎡|m²|m2)', search_text, re.IGNORECASE))
         valid_areas = []
         for ma in area_matches:
             try:
                 area_float = float(ma.group(1))
-                if not (20 <= area_float <= 300):
+                if not (10 <= area_float <= 300):
                     continue
                 start = max(0, ma.start() - 12)
-                prefix = search_text[start:ma.start()]
+                prefix = search_text[max(0, ma.start() - 20):ma.start()]
                 if re.search(r'\d+층\s*$', prefix):
                     continue
                 valid_areas.append((area_float, ma.group(1)))
@@ -363,6 +399,14 @@ class RegistryParser:
                 continue
 
         if valid_areas:
+            # 공급/전용 쌍(비율 약 1.2~1.5)이 있으면 작은 값(전용) 사용
+            sorted_areas = sorted(valid_areas, key=lambda x: x[0])
+            for i, (a_val, a_str) in enumerate(sorted_areas):
+                for b_val, b_str in sorted_areas[i + 1:]:
+                    ratio = b_val / a_val if a_val > 0 else 0
+                    if 1.2 <= ratio <= 1.5 and 10 <= a_val <= 80:
+                        return f"{a_str}㎡"
+            # 쌍 없으면 기존처럼 가장 큰 값 (단일 면적인 경우)
             valid_areas.sort(key=lambda x: x[0], reverse=True)
             return f"{valid_areas[0][1]}㎡"
 

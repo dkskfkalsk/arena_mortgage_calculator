@@ -909,7 +909,7 @@ def get_application():
             kb_price = caption_info['kb_price']
             kb_price_low = caption_info['kb_price_low']
             
-            # 면적에서 숫자 추출 (64.08㎡ -> 64.08)
+            # 면적에서 숫자 추출 (64.08㎡ -> 64.08, "51㎡/37.85㎡" -> 37.85 전용 사용은 get_kb_price_from_registry 내부에서)
             area_value = None
             if area:
                 import re as area_re
@@ -917,7 +917,7 @@ def get_application():
                 if area_match:
                     try:
                         area_value = float(area_match.group(1))
-                    except:
+                    except Exception:
                         pass
             
             # KB API 검색 상태 추적 (실패/결과없음 구분용)
@@ -926,22 +926,24 @@ def get_application():
             kb_api_no_result = False  # 결과 없음 시 True
             kb_complex_id = None  # KB 시세 참고 링크(kbland.kr/c/{단지ID})용
             
-            # 등기부에서 주소와 면적을 추출한 경우 KB API 호출
+            # 등기부에서 주소와 면적을 추출한 경우 KB API 호출 (면적은 문자열 그대로 전달해 51/37.85 등 전용 추출)
             # 항상 등기부 주소로 KB API를 먼저 시도 (캡션에 KB시세가 있어도 등기부 주소로 정확한 시세 조회)
+            has_area = bool(area and str(area).strip()) or (area_value is not None and area_value > 0)
             should_call_kb_api = (
-                address and address != "확인불가" and area_value and area_value > 0
+                address and address != "확인불가" and has_area
             )
             
             if should_call_kb_api:
                 kb_api_searched = True
                 print(f"[WEBHOOK] KB API 호출 조건 충족 - KB시세: {kb_price or '없음'}, 세대수: {households or '없음'}, 구분: {property_type or '없음'}", file=sys.stderr, flush=True)
                 try:
-                    print(f"[WEBHOOK] KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area_value}m²", file=sys.stderr, flush=True)
-                    logger.info(f"KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area_value}m²")
+                    # 면적 문자열 그대로 전달 (51㎡/37.85㎡ → API에서 전용 37.85 사용)
+                    area_for_kb = str(area).strip() if area else str(area_value or 0)
+                    print(f"[WEBHOOK] KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area_for_kb}", file=sys.stderr, flush=True)
+                    logger.info(f"KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area_for_kb}")
                     
                     from KB_api.kb_price_api import get_kb_price_from_registry
-                    # 면적을 문자열로 변환 (get_kb_price_from_registry는 문자열을 받음)
-                    kb_result = get_kb_price_from_registry(address, str(area_value))
+                    kb_result = get_kb_price_from_registry(address, area_for_kb)
                     
                     if kb_result:
                         kb_price_num = kb_result.get('kb_price')
@@ -1327,29 +1329,27 @@ def get_application():
                     address = property_data.get("address", "")
                     area = property_data.get("area")
                     
-                    # 면적이 문자열이면 숫자로 변환 시도
-                    area_value = None
-                    if area:
-                        try:
-                            if isinstance(area, str):
-                                import re
-                                area_match = re.search(r'([\d.]+)', str(area))
-                                if area_match:
-                                    area_value = float(area_match.group(1))
-                            else:
-                                area_value = float(area)
-                        except (ValueError, TypeError):
-                            pass
+                    # 면적: 문자열 그대로 KB API에 전달 (51㎡/37.85㎡ → API에서 전용 37.85 사용)
+                    has_area = False
+                    if area is not None:
+                        if isinstance(area, str) and area.strip():
+                            has_area = True
+                        else:
+                            try:
+                                has_area = float(area) > 0
+                            except (ValueError, TypeError):
+                                pass
                     
-                    # 주소와 면적이 있으면 KB API 검색 시도
-                    if address and address != "확인불가" and area_value and area_value > 0:
+                    # 주소와 면적이 있으면 KB API 검색 시도 (면적 문자열 그대로 전달)
+                    if address and address != "확인불가" and has_area:
                         kb_api_searched = True
                         try:
-                            print(f"[WEBHOOK] KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area_value}m²", file=sys.stderr, flush=True)
-                            logger.info(f"KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area_value}m²")
+                            area_for_kb = str(area).strip() if area else "0"
+                            print(f"[WEBHOOK] KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area_for_kb}", file=sys.stderr, flush=True)
+                            logger.info(f"KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area_for_kb}")
                             
                             from KB_api.kb_price_api import get_kb_price_from_registry
-                            kb_result = get_kb_price_from_registry(address, str(area_value))
+                            kb_result = get_kb_price_from_registry(address, area_for_kb)
                             
                             if kb_result:
                                 kb_price_num = kb_result.get('kb_price')
