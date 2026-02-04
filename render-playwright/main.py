@@ -110,9 +110,10 @@ def _scrape(complex_id: str) -> Dict[str, Any]:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page()
-            page.goto(url, wait_until="networkidle", timeout=20000)
-            # Vue SPA 렌더링 대기 (사용승인일 등 기본정보 노출)
-            page.wait_for_timeout(5000)
+            # networkidle은 SPA에서 타임아웃 발생 → load 사용
+            page.goto(url, wait_until="load", timeout=15000)
+            # Vue SPA 렌더링 대기 (사용승인일·세대수 등 기본정보 노출)
+            page.wait_for_timeout(8000)
             body_text = page.inner_text("body") or ""
 
             households, buildings = _parse_households_buildings(body_text)
