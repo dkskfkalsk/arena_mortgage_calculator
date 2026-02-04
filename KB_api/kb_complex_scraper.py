@@ -100,14 +100,22 @@ def _parse_redevelop_stages_from_text(text: str) -> List[Dict[str, Any]]:
     """
     stages = []
     seen_steps = set()
-    # 패턴: "N단계한글이름\n'YYYY.MM.DD" 또는 "N단계한글이름 'YYYY.MM.DD"
-    # apostrophe: ' (straight) 또는 ' (curly), 선택사항
-    # \s*는 공백/개행 포함
-    for m in re.finditer(r"(\d+)단계([가-힣]+)\s*['']?\s*(\d{4}\.\d{2}\.\d{2})", text):
+    
+    logger.info(f"[DEBUG] 재건축 파싱 시작, text 길이: {len(text)}")
+    
+    # 패턴: "N단계한글이름\n'YYYY.MM.DD" (개행 뒤 아무 문자 1자 + 날짜)
+    # . = 개행 제외 1글자 (straight/curly apostrophe 등 모두 매칭)
+    pattern = r"(\d+)단계([가-힣]+)\n.(\d{4}\.\d{2}\.\d{2})"
+    for m in re.finditer(pattern, text):
         step = int(m.group(1))
+        name = m.group(2)
+        date = m.group(3)
+        logger.info(f"[DEBUG] 재건축 매칭: {step}단계{name} '{date}")
         if step not in seen_steps:
             seen_steps.add(step)
-            stages.append({"step": step, "name": m.group(2), "date": m.group(3)})
+            stages.append({"step": step, "name": name, "date": date})
+    
+    logger.info(f"[DEBUG] 재건축 파싱 완료: {len(stages)}개 단계 추출")
     stages.sort(key=lambda x: x["step"])
     return stages
 
@@ -163,23 +171,34 @@ class KBComplexScraper:
                     viewport={"width": 1280, "height": 720},
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
                 )
-                # Render와 동일한 전략: domcontentloaded + 스크롤 + 대기 (최적화: 6초)
+                # 로컬: 충분한 대기 시간으로 모든 탭 로딩 보장
                 page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                # Vue SPA API 호출·렌더링 대기
-                page.wait_for_timeout(3000)
+                # Vue SPA API 호출·렌더링 대기 (재건축 정보 탭 로드 포함)
+                page.wait_for_timeout(5000)
                 # 페이지 스크롤로 추가 컨텐츠 로드 유도 (재건축 정보 등)
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                page.wait_for_timeout(2000)
+                page.wait_for_timeout(3000)
                 # 다시 맨 위로 (전체 컨텐츠 확보)
                 page.evaluate("window.scrollTo(0, 0)")
-                page.wait_for_timeout(1000)
+                page.wait_for_timeout(2000)
                 body_text = page.inner_text("body") or ""
                 
                 # 디버그: body_text 샘플 및 재건축 텍스트 확인
                 logger.info(f"[LOCAL] body_text 길이: {len(body_text)}, 샘플: {body_text[:200] if body_text else '(empty)'}")
                 if "4단계" in body_text:
                     idx = body_text.find("4단계")
-                    logger.info(f"[LOCAL] '4단계' 발견! 주변: ...{body_text[max(0, idx-30):idx+100]}...")
+                    sample = body_text[max(0, idx-30):idx+100]
+                    logger.info(f"[LOCAL] '4단계' 발견! 주변: ...{sample}...")
+                    # 디버그: 재건축 부분을 파일로 저장
+                    try:
+                        with open("debug_redevelop_text.txt", "w", encoding="utf-8") as f:
+                            f.write(f"전체 길이: {len(body_text)}\n")
+                            f.write(f"4단계 위치: {idx}\n")
+                            f.write(f"샘플 (repr): {repr(sample)}\n\n")
+                            f.write(f"전체 텍스트:\n{body_text}")
+                        logger.info(f"[LOCAL] 디버그 텍스트 저장: debug_redevelop_text.txt")
+                    except Exception as e:
+                        logger.warning(f"[LOCAL] 디버그 파일 저장 실패: {e}")
 
                 # 1) 재건축 단계
                 stages = _parse_redevelop_stages_from_text(body_text)

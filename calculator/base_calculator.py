@@ -447,8 +447,11 @@ class BaseCalculator:
                 # product_type이 없으면 기본적으로 가계자금 설정 사용
                 property_types_config = self.config.get("household_property_types", self.config.get("property_types", {}))
         else:
-            # 일반 금융사: 기본 property_types 사용
-            property_types_config = self.config.get("property_types", {})
+            # 일반 금융사: 사업자금 상품은 business_property_types 우선, 없으면 property_types (하위 호환)
+            if product_type == "business":
+                property_types_config = self.config.get("business_property_types", self.config.get("property_types", {}))
+            else:
+                property_types_config = self.config.get("property_types", {})
         
         if property_type and property_types_config:
             # 대지권 미등기 여부 확인

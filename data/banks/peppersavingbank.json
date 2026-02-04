@@ -378,8 +378,8 @@
     "housematch_price": 0,
     "_comment_housematch_price": "하우스머치 시세"
   },
-  "property_types": {
-    "_comment": "취급 물건 타입 설정 (1: 취급, 0: 취급안함)",
+  "business_property_types": {
+    "_comment": "사업자금 상품 취급 물건 타입 설정 (1: 취급, 0: 취급안함)",
     "apartment": 1,
     "apartment_no_land_registry": 1,
     "_comment_apartment_no_land_registry": "아파트 (대지권 미등기)",

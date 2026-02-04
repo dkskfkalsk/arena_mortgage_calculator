@@ -1064,14 +1064,26 @@ def get_application():
                 approval_str = kb_result.get('approval_date') or ''
                 years_str = f"({kb_result.get('years_since_completion')}년차)" if kb_result.get('years_since_completion') is not None else ''
                 lines.append(f"사용승인일 : {approval_str} {years_str}".strip())
-            # 재건축 정보 (재건축 중인 단지인 경우)
+            # 재건축 정보 (날짜 있는 단계 중 가장 최근 날짜 1개만 출력)
             if kb_result and kb_result.get('redevelop_yn') and kb_result.get('redevelop_stages'):
-                for stage in kb_result.get('redevelop_stages', []):
-                    step = stage.get('step')
-                    name = stage.get('name', '')
-                    date_val = stage.get('date', '')
-                    if step and name and date_val:
-                        lines.append(f"재건축 : {step}단계{name}'{date_val}")
+                stages_with_date = [
+                    s for s in kb_result.get('redevelop_stages', [])
+                    if s.get('step') and s.get('name') and s.get('date')
+                ]
+                if stages_with_date:
+                    def _parse_redevelop_date(d):
+                        try:
+                            parts = (d or '').split('.')
+                            if len(parts) == 3:
+                                return (int(parts[0]), int(parts[1]), int(parts[2]))
+                        except (ValueError, AttributeError):
+                            pass
+                        return (0, 0, 0)
+                    latest = max(stages_with_date, key=lambda s: _parse_redevelop_date(s.get('date', '')))
+                    step = latest.get('step')
+                    name = latest.get('name', '')
+                    date_val = latest.get('date', '')
+                    lines.append(f"재건축 : {step}단계{name}'{date_val}")
             
             # 시세 표시 (KB 시세인지 대체 시세인지, 없음인지에 따라 다르게 표시)
             if alternative_price_type:

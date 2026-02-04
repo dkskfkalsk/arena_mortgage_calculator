@@ -959,14 +959,7 @@ class KBPriceAPI:
                             break
                         except (ValueError, TypeError):
                             pass
-            # mpriByType( get_complex_price ) 응답에 평형별 세대수 있음 → 합산으로 총 세대수 사용
-            if result["households"] is None and complex_id is not None:
-                mpri_prices = prices if prices_from_mpri else self.get_complex_price(str(complex_id))
-                if mpri_prices:
-                    h_sum = sum(int(p.get("세대수") or 0) for p in mpri_prices)
-                    if h_sum > 0:
-                        result["households"] = h_sum
-                        logger.info(f"✅ mpriByType API 세대수 합산: {result['households']}")
+            # 세대수는 스크래핑에서 우선 가져오기 (API는 fallback)
             # /c/ 스크래퍼: 재건축이면 단계+세대수·동수, 일반 단지면 세대수·동수·사용승인일
             extra = get_complex_extra_info(complex_id)
             if extra.get("approval_date") is not None:
@@ -982,12 +975,26 @@ class KBPriceAPI:
             # 스크래퍼에서 재건축 단계를 찾으면 재건축으로 간주 (API 재건축여부 없어도)
             if extra.get("redevelop_yn") or (extra.get("redevelop_stages") and len(extra["redevelop_stages"]) > 0):
                 result["redevelop_yn"] = True
+            # 세대수/동수는 스크래핑 우선 (API는 fallback)
+            if extra.get("households") is not None:
+                result["households"] = extra["households"]
+                logger.info(f"✅ 스크래퍼에서 세대수 추출: {result['households']}세대")
+            elif result["households"] is None and complex_id is not None:
+                # 스크래핑 실패 시 API fallback
+                mpri_prices = prices if prices_from_mpri else self.get_complex_price(str(complex_id))
+                if mpri_prices:
+                    h_sum = sum(int(p.get("세대수") or 0) for p in mpri_prices)
+                    if h_sum > 0:
+                        result["households"] = h_sum
+                        logger.info(f"✅ mpriByType API 세대수 합산 (fallback): {result['households']}")
+            
+            if extra.get("buildings") is not None:
+                result["buildings"] = extra["buildings"]
+                logger.info(f"✅ 스크래퍼에서 동수 추출: {result['buildings']}개동")
+            
             if result["redevelop_yn"]:
                 result["redevelop_stages"] = extra.get("redevelop_stages") or []
-                if extra.get("households") is not None:
-                    result["households"] = extra["households"]
-                if extra.get("buildings") is not None:
-                    result["buildings"] = extra["buildings"]
+                logger.info(f"✅ 재건축 단계: {len(result['redevelop_stages'])}개")
                 if extra.get("error"):
                     result["redevelop_error"] = extra["error"]
             else:
