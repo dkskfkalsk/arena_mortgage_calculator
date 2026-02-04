@@ -183,6 +183,48 @@ class KBComplexScraper:
         return out
 
 
+def _fetch_render_playwright(complex_id: str) -> Dict[str, Any]:
+    """
+    Vercel 전용. Render Playwright API 호출 (사용승인일·재건축·세대수).
+    """
+    import requests
+    out = _empty_result(complex_id, error=None)
+    out["source_url"] = f"{_BASE_URL}{complex_id}" if complex_id else None
+    if not complex_id or str(complex_id).strip() == "":
+        out["error"] = "complex_id 필요"
+        return out
+
+    base = (os.getenv("PLAYWRIGHT_SCRAPER_URL") or "").strip().rstrip("/")
+    if not base:
+        out["error"] = "PLAYWRIGHT_SCRAPER_URL 미설정"
+        return out
+
+    cid = str(complex_id).strip()
+    url = f"{base}/scrape?complex_id={cid}"
+    token = (os.getenv("PLAYWRIGHT_SCRAPER_TOKEN") or "").strip()
+    headers = {"Accept": "application/json"}
+    if token:
+        headers["X-Internal-Token"] = token
+
+    try:
+        r = requests.get(url, headers=headers, timeout=45)
+        r.raise_for_status()
+        data = r.json()
+        out["households"] = data.get("households")
+        out["buildings"] = data.get("buildings")
+        out["approval_date"] = data.get("approval_date")
+        out["years_since_completion"] = data.get("years_since_completion")
+        out["redevelop_stages"] = data.get("redevelop_stages") or []
+        out["redevelop_yn"] = bool(out["redevelop_stages"])
+        out["error"] = data.get("error")
+        if out.get("approval_date") or out.get("households"):
+            logger.info("✅ Render Playwright API 성공: approval=%s households=%s", out["approval_date"], out["households"])
+    except Exception as e:
+        out["error"] = str(e)
+        logger.warning("Render Playwright API 실패: %s", e)
+    return out
+
+
 def _fetch_node_households(complex_id: str) -> Dict[str, Any]:
     """
     Vercel 전용. /api/kb-households (Node Puppeteer) 호출로 세대수·동수만 조회.
@@ -261,25 +303,20 @@ def _fetch_node_households(complex_id: str) -> Dict[str, Any]:
 
 def get_complex_extra_info(complex_id: int | str) -> Dict[str, Any]:
     """
-    단지기본일련번호로 /c/ 스크래핑 후 재건축·세대수·동수 반환.
+    단지기본일련번호로 /c/ 스크래핑 후 재건축·세대수·동수·사용승인일 반환.
 
-    Args:
-        complex_id: 단지기본일련번호 (get_complex_list / get_kb_price 의 단지 항목과 동일)
+    - 로컬: Playwright 사용
+    - Vercel: PLAYWRIGHT_SCRAPER_URL 있으면 Render API, 없으면 Node API (fallback)
 
     Returns:
-        {
-            "redevelop_stages": [{"step":5,"name":"조합설립인가","date":"2017.06.01"}, ...],
-            "households": 1584,
-            "buildings": 24,
-            "redevelop_yn": True,
-            "complex_name": "시범",
-            "source_url": "https://kbland.kr/c/2171",
-            "error": None,
-        }
+        { redevelop_stages, households, buildings, approval_date, ... }
     """
     if _SCRAPER_DISABLED:
+        cid = str(complex_id).strip() if complex_id else ""
+        if os.getenv("PLAYWRIGHT_SCRAPER_URL"):
+            return _fetch_render_playwright(cid)
         if os.getenv("VERCEL_URL"):
-            return _fetch_node_households(str(complex_id).strip())
-        return _empty_result(complex_id, error="VERCEL_URL 없음 (Node API 미호출)")
+            return _fetch_node_households(cid)
+        return _empty_result(complex_id, error="PLAYWRIGHT_SCRAPER_URL 또는 VERCEL_URL 없음")
     s = KBComplexScraper()
     return s.scrape(complex_id)
