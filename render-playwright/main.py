@@ -129,9 +129,15 @@ def _scrape(complex_id: str) -> Dict[str, Any]:
                 viewport={"width": 1280, "height": 720},
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
             )
-            page.goto(url, wait_until="domcontentloaded", timeout=25000)
+            page.goto(url, wait_until="domcontentloaded", timeout=30000)
             # Vue SPA API 호출·렌더링 대기
-            page.wait_for_timeout(10000)
+            page.wait_for_timeout(5000)
+            # 페이지 스크롤로 추가 컨텐츠 로드 유도 (재건축 정보 등)
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            page.wait_for_timeout(3000)
+            # 다시 맨 위로 (전체 컨텐츠 확보)
+            page.evaluate("window.scrollTo(0, 0)")
+            page.wait_for_timeout(2000)
             body_text = page.inner_text("body") or ""
             
             # 디버그: body_text 샘플 로깅 (Render 동작 확인용)
