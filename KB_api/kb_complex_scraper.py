@@ -187,6 +187,7 @@ def _fetch_render_playwright(complex_id: str) -> Dict[str, Any]:
     """
     Vercel 전용. Render Playwright API 호출 (사용승인일·재건축·세대수).
     """
+    import time
     import requests
     out = _empty_result(complex_id, error=None)
     out["source_url"] = f"{_BASE_URL}{complex_id}" if complex_id else None
@@ -206,22 +207,32 @@ def _fetch_render_playwright(complex_id: str) -> Dict[str, Any]:
     if token:
         headers["X-Internal-Token"] = token
 
-    try:
-        r = requests.get(url, headers=headers, timeout=45)
-        r.raise_for_status()
-        data = r.json()
-        out["households"] = data.get("households")
-        out["buildings"] = data.get("buildings")
-        out["approval_date"] = data.get("approval_date")
-        out["years_since_completion"] = data.get("years_since_completion")
-        out["redevelop_stages"] = data.get("redevelop_stages") or []
-        out["redevelop_yn"] = bool(out["redevelop_stages"])
-        out["error"] = data.get("error")
-        if out.get("approval_date") or out.get("households"):
-            logger.info("✅ Render Playwright API 성공: approval=%s households=%s", out["approval_date"], out["households"])
-    except Exception as e:
-        out["error"] = str(e)
-        logger.warning("Render Playwright API 실패: %s", e)
+    for attempt in (1, 2):
+        try:
+            r = requests.get(url, headers=headers, timeout=50)
+            r.raise_for_status()
+            data = r.json()
+            out["households"] = data.get("households")
+            out["buildings"] = data.get("buildings")
+            out["approval_date"] = data.get("approval_date")
+            out["years_since_completion"] = data.get("years_since_completion")
+            out["redevelop_stages"] = data.get("redevelop_stages") or []
+            out["redevelop_yn"] = bool(out["redevelop_stages"])
+            out["error"] = data.get("error")
+            if out.get("approval_date") or out.get("households"):
+                logger.info("✅ Render Playwright API 성공: approval=%s households=%s", out["approval_date"], out["households"])
+                return out
+            if out.get("error") and attempt == 1:
+                logger.warning("Render API attempt 1 실패 (%s), 재시도...", out.get("error"))
+                time.sleep(3)
+                continue
+        except Exception as e:
+            out["error"] = str(e)
+            logger.warning("Render Playwright API 실패 (attempt=%s): %s", attempt, e)
+            if attempt == 1:
+                time.sleep(3)
+                continue
+        break
     return out
 
 

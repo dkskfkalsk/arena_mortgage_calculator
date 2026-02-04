@@ -1,6 +1,9 @@
 {
   "version": 2,
   "functions": {
+    "api/webhook.py": {
+      "maxDuration": 60
+    },
     "api/kb-households.js": {
       "memory": 1024,
       "maxDuration": 60
