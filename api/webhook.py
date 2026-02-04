@@ -925,6 +925,7 @@ def get_application():
             kb_api_failed = False  # 예외 발생 시 True
             kb_api_no_result = False  # 결과 없음 시 True
             kb_complex_id = None  # KB 시세 참고 링크(kbland.kr/c/{단지ID})용
+            kb_result = None  # KB API 전체 결과 (사용승인일·재건축 정보 포함)
             
             # 등기부에서 주소와 면적을 추출한 경우 KB API 호출 (면적은 문자열 그대로 전달해 51/37.85 등 전용 추출)
             # 항상 등기부 주소로 KB API를 먼저 시도 (캡션에 KB시세가 있어도 등기부 주소로 정확한 시세 조회)
@@ -1056,6 +1057,14 @@ def get_application():
                 approval_str = kb_result.get('approval_date') or ''
                 years_str = f"({kb_result.get('years_since_completion')}년차)" if kb_result.get('years_since_completion') is not None else ''
                 lines.append(f"사용승인일 : {approval_str} {years_str}".strip())
+            # 재건축 정보 (재건축 중인 단지인 경우)
+            if kb_result and kb_result.get('redevelop_yn') and kb_result.get('redevelop_stages'):
+                for stage in kb_result.get('redevelop_stages', []):
+                    step = stage.get('step')
+                    name = stage.get('name', '')
+                    date_val = stage.get('date', '')
+                    if step and name and date_val:
+                        lines.append(f"재건축 : {step}단계{name}'{date_val}")
             
             # 시세 표시 (KB 시세인지 대체 시세인지, 없음인지에 따라 다르게 표시)
             if alternative_price_type:

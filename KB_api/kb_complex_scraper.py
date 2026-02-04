@@ -94,15 +94,18 @@ def _parse_approval_date(text: str) -> Tuple[Optional[str], Optional[int]]:
 
 
 def _parse_redevelop_stages_from_text(text: str) -> List[Dict[str, Any]]:
-    """'N단계 단계명 YYYY.MM.DD' 패턴 추출."""
+    """'N단계 단계명 YYYY.MM.DD' 패턴 추출.
+    지원 형식: "5단계 조합설립인가 2017.06.01", "4단계추진위원회승인'2025.08.18"
+    """
     stages = []
-    # 예: "5단계 조합설립인가 2017.06.01", "6단계 사업시행인가 2019.03.15"
-    for m in re.finditer(r"(\d+)단계\s*([가-힣]+)\s*(\d{4}\.\d{2}\.\d{2})", text):
-        stages.append({
-            "step": int(m.group(1)),
-            "name": m.group(2),
-            "date": m.group(3),
-        })
+    seen_steps = set()
+    # 통합 패턴: N단계 + 단계명(공백 있을 수 있음) + ' 또는 공백 + YYYY.MM.DD
+    for m in re.finditer(r"(\d+)단계\s*([가-힣]+)['\s]*(\d{4}\.\d{2}\.\d{2})", text):
+        step = int(m.group(1))
+        if step not in seen_steps:
+            seen_steps.add(step)
+            stages.append({"step": step, "name": m.group(2), "date": m.group(3)})
+    stages.sort(key=lambda x: x["step"])
     return stages
 
 
@@ -222,7 +225,12 @@ def _fetch_node_households(complex_id: str) -> Dict[str, Any]:
             if years_since is not None:
                 out["years_since_completion"] = years_since
                 logger.info("✅ Node Puppeteer API에서 년차 추출: %s년차", years_since)
-            if out.get("households") is not None or out.get("buildings") is not None or out.get("approval_date") is not None:
+            redevelop_stages = data.get("redevelop_stages") or []
+            if redevelop_stages:
+                out["redevelop_stages"] = redevelop_stages
+                out["redevelop_yn"] = True
+                logger.info("✅ Node Puppeteer API에서 재건축 단계 추출: %s", redevelop_stages)
+            if out.get("households") is not None or out.get("buildings") is not None or out.get("approval_date") is not None or out.get("redevelop_stages"):
                 out["error"] = None
             elif err:
                 out["error"] = err

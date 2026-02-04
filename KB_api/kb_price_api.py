@@ -974,6 +974,9 @@ class KBPriceAPI:
             if extra.get("years_since_completion") is not None:
                 result["years_since_completion"] = extra["years_since_completion"]
                 logger.info(f"✅ 스크래퍼(기본정보)에서 년차 추출: {result['years_since_completion']}년차")
+            # 스크래퍼에서 재건축 단계를 찾으면 재건축으로 간주 (API 재건축여부 없어도)
+            if extra.get("redevelop_yn") or (extra.get("redevelop_stages") and len(extra["redevelop_stages"]) > 0):
+                result["redevelop_yn"] = True
             if result["redevelop_yn"]:
                 result["redevelop_stages"] = extra.get("redevelop_stages") or []
                 if extra.get("households") is not None:

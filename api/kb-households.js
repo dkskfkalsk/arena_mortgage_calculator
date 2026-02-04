@@ -69,6 +69,23 @@ function parseApprovalDate(text) {
   return { approval_date, years_since_completion };
 }
 
+function parseRedevelopStages(text) {
+  const stages = [];
+  const seen = new Set();
+  // N단계 + 단계명 + ' 또는 공백 + YYYY.MM.DD (예: 4단계추진위원회승인'2025.08.18)
+  const re = /(\d+)단계\s*([가-힣]+)['\s]*(\d{4}\.\d{2}\.\d{2})/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const step = parseInt(m[1], 10);
+    if (!seen.has(step)) {
+      seen.add(step);
+      stages.push({ step, name: m[2], date: m[3] });
+    }
+  }
+  stages.sort((a, b) => a.step - b.step);
+  return stages;
+}
+
 async function scrape(complexId) {
   const url = `${BASE}/${complexId}`;
   let browser;
@@ -102,7 +119,8 @@ async function scrape(complexId) {
     browser = null;
     const { households, buildings } = parseHouseholdsBuildings(bodyText);
     const { approval_date, years_since_completion } = parseApprovalDate(bodyText);
-    return { households, buildings, approval_date, years_since_completion };
+    const redevelop_stages = parseRedevelopStages(bodyText);
+    return { households, buildings, approval_date, years_since_completion, redevelop_stages };
   } catch (e) {
     if (browser) {
       try {
@@ -124,7 +142,7 @@ module.exports = async function handler(req, res) {
   }
   if (!cid || String(cid).trim() === "") {
     res.status(400).end(
-      JSON.stringify({ households: null, buildings: null, approval_date: null, years_since_completion: null, error: "complex_id required" })
+      JSON.stringify({ households: null, buildings: null, approval_date: null, years_since_completion: null, redevelop_stages: [], error: "complex_id required" })
     );
     return;
   }
@@ -138,6 +156,7 @@ module.exports = async function handler(req, res) {
         buildings: null,
         approval_date: null,
         years_since_completion: null,
+        redevelop_stages: [],
         error: (e && (e.message || String(e))) || "scrape failed",
       })
     );
