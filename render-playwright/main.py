@@ -6,6 +6,7 @@ kbland.kr/c/{complex_id} 에서 사용승인일·재건축·세대수 추출
 import os
 import re
 import logging
+import time
 from pathlib import Path
 
 # Render: 빌드 시 프로젝트 내 ./browsers 에 설치. 배포 시 경로 지정
@@ -23,6 +24,10 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="KB 단지 스크래퍼 API", version="1.0")
 
 _BASE_URL = "https://kbland.kr/c/"
+
+# 메모리 캐시 (complex_id -> (결과, 캐시 시간))
+_CACHE = {}
+_CACHE_TTL = 3600  # 1시간
 
 
 def _parse_households_buildings(text: str) -> Tuple[Optional[int], Optional[int]]:
@@ -105,6 +110,13 @@ def _parse_complex_type(text: str) -> Optional[str]:
 
 
 def _scrape(complex_id: str) -> Dict[str, Any]:
+    # 캐시 확인
+    if complex_id in _CACHE:
+        cached_data, cached_time = _CACHE[complex_id]
+        if time.time() - cached_time < _CACHE_TTL:
+            logger.info(f"✅ 캐시 히트: {complex_id} (나이: {int(time.time() - cached_time)}초)")
+            return cached_data.copy()
+    
     out = {
         "households": None,
         "buildings": None,
@@ -130,14 +142,14 @@ def _scrape(complex_id: str) -> Dict[str, Any]:
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
             )
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            # Vue SPA API 호출·렌더링 대기
-            page.wait_for_timeout(5000)
+            # Vue SPA API 호출·렌더링 대기 (최적화: 6초)
+            page.wait_for_timeout(3000)
             # 페이지 스크롤로 추가 컨텐츠 로드 유도 (재건축 정보 등)
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            page.wait_for_timeout(3000)
+            page.wait_for_timeout(2000)
             # 다시 맨 위로 (전체 컨텐츠 확보)
             page.evaluate("window.scrollTo(0, 0)")
-            page.wait_for_timeout(2000)
+            page.wait_for_timeout(1000)
             body_text = page.inner_text("body") or ""
             
             # 디버그: body_text 샘플 로깅 (Render 동작 확인용)
@@ -164,6 +176,11 @@ def _scrape(complex_id: str) -> Dict[str, Any]:
 
             browser.close()
         logger.info("scrape ok: complex_id=%s approval=%s households=%s redevelop=%s type=%s", complex_id, out["approval_date"], out["households"], len(stages), out["complex_type"])
+        
+        # 캐시 저장 (에러가 없고 최소한의 데이터가 있을 때만)
+        if not out["error"] and (out["approval_date"] or out["households"]):
+            _CACHE[complex_id] = (out.copy(), time.time())
+            logger.info(f"💾 캐시 저장: {complex_id}")
     except Exception as e:
         out["error"] = str(e)
         logger.warning("scrape fail: %s", e)

@@ -163,16 +163,16 @@ class KBComplexScraper:
                     viewport={"width": 1280, "height": 720},
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
                 )
-                # Render와 동일한 전략: domcontentloaded + 스크롤 + 대기
+                # Render와 동일한 전략: domcontentloaded + 스크롤 + 대기 (최적화: 6초)
                 page.goto(url, wait_until="domcontentloaded", timeout=30000)
                 # Vue SPA API 호출·렌더링 대기
-                page.wait_for_timeout(5000)
+                page.wait_for_timeout(3000)
                 # 페이지 스크롤로 추가 컨텐츠 로드 유도 (재건축 정보 등)
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                page.wait_for_timeout(3000)
+                page.wait_for_timeout(2000)
                 # 다시 맨 위로 (전체 컨텐츠 확보)
                 page.evaluate("window.scrollTo(0, 0)")
-                page.wait_for_timeout(2000)
+                page.wait_for_timeout(1000)
                 body_text = page.inner_text("body") or ""
                 
                 # 디버그: body_text 샘플 및 재건축 텍스트 확인
