@@ -1053,8 +1053,11 @@ def get_application():
                         print(f"[WEBHOOK] KB API 검색 결과 없음", file=sys.stderr, flush=True)
                         logger.warning("KB API 검색 결과 없음")
             
-            # 세대수, 구분 표시 (KB API 결과로 업데이트된 값 사용)
-            lines.append(f"세대수 : {households}")
+            # 세대수 / 동수, 구분 표시 (KB API 결과로 업데이트된 값 사용)
+            buildings = ""
+            if kb_result and kb_result.get('buildings') is not None:
+                buildings = f" / {kb_result.get('buildings')}개동"
+            lines.append(f"세대수 : {households}{buildings}")
             lines.append(f"구   분 : {property_type}")
             # 사용승인일 (KB 기본정보에서 추출한 경우)
             if kb_result and (kb_result.get('approval_date') or kb_result.get('years_since_completion') is not None):

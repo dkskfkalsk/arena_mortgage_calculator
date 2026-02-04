@@ -96,12 +96,14 @@ def _parse_approval_date(text: str) -> Tuple[Optional[str], Optional[int]]:
 
 def _parse_redevelop_stages_from_text(text: str) -> List[Dict[str, Any]]:
     """'N단계 단계명 YYYY.MM.DD' 패턴 추출.
-    지원 형식: "5단계 조합설립인가 2017.06.01", "4단계추진위원회승인'2025.08.18"
+    지원 형식: "5단계 조합설립인가 2017.06.01", "4단계추진위원회승인\n'2025.08.18"
     """
     stages = []
     seen_steps = set()
-    # apostrophe: ' (straight) 또는 ' (curly) 모두 지원
-    for m in re.finditer(r"(\d+)단계\s*([가-힣]+)[''\s]*(\d{4}\.\d{2}\.\d{2})", text):
+    # 패턴: "N단계한글이름\n'YYYY.MM.DD" 또는 "N단계한글이름 'YYYY.MM.DD"
+    # apostrophe: ' (straight) 또는 ' (curly), 선택사항
+    # \s*는 공백/개행 포함
+    for m in re.finditer(r"(\d+)단계([가-힣]+)\s*['']?\s*(\d{4}\.\d{2}\.\d{2})", text):
         step = int(m.group(1))
         if step not in seen_steps:
             seen_steps.add(step)
@@ -157,14 +159,21 @@ class KBComplexScraper:
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=self.headless)
-                page = browser.new_page()
-                page.goto(url, wait_until="networkidle", timeout=self.timeout_ms)
-                # SPA 렌더링 대기 (세대수 등 기본정보가 늦게 뜨는 경우 대비)
-                try:
-                    page.wait_for_timeout(3000)
-                except Exception:
-                    pass
+                page = browser.new_page(
+                    viewport={"width": 1280, "height": 720},
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+                )
+                # Render와 동일한 전략: domcontentloaded + 10초 대기
+                page.goto(url, wait_until="domcontentloaded", timeout=25000)
+                # Vue SPA API 호출·렌더링 대기 (재건축 정보 포함)
+                page.wait_for_timeout(10000)
                 body_text = page.inner_text("body") or ""
+                
+                # 디버그: body_text 샘플 및 재건축 텍스트 확인
+                logger.info(f"[LOCAL] body_text 길이: {len(body_text)}, 샘플: {body_text[:200] if body_text else '(empty)'}")
+                if "4단계" in body_text:
+                    idx = body_text.find("4단계")
+                    logger.info(f"[LOCAL] '4단계' 발견! 주변: ...{body_text[max(0, idx-30):idx+100]}...")
 
                 # 1) 재건축 단계
                 stages = _parse_redevelop_stages_from_text(body_text)

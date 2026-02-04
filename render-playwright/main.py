@@ -80,8 +80,10 @@ def _parse_approval_date(text: str) -> Tuple[Optional[str], Optional[int]]:
 def _parse_redevelop_stages(text: str) -> List[Dict[str, Any]]:
     stages = []
     seen_steps = set()
-    # apostrophe: ' (U+0027) 또는 ' (U+2019 curly)
-    for m in re.finditer(r"(\d+)단계\s*([가-힣]+)[''\s]*(\d{4}\.\d{2}\.\d{2})", text):
+    # 패턴: "N단계한글이름\n'YYYY.MM.DD" 또는 "N단계한글이름 'YYYY.MM.DD"
+    # apostrophe: ' (U+0027) 또는 ' (U+2019 curly), 선택사항
+    # \s*는 공백/개행 포함
+    for m in re.finditer(r"(\d+)단계([가-힣]+)\s*['']?\s*(\d{4}\.\d{2}\.\d{2})", text):
         step = int(m.group(1))
         if step not in seen_steps:
             seen_steps.add(step)
