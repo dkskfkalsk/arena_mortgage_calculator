@@ -6,6 +6,13 @@ kbland.kr/c/{complex_id} 에서 사용승인일·재건축·세대수 추출
 import os
 import re
 import logging
+from pathlib import Path
+
+# Render: 빌드 시 프로젝트 내 ./browsers 에 설치. 배포 시 경로 지정
+if not os.environ.get("PLAYWRIGHT_BROWSERS_PATH"):
+    _browsers_dir = Path(__file__).parent / "browsers"
+    if _browsers_dir.exists():
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(_browsers_dir.resolve())
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import FastAPI, Header, HTTPException, Query

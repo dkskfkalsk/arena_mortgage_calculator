@@ -1,15 +1,8 @@
 # Render Playwright 스크래퍼
 
-## Render Build Command (필수)
+## Render 설정
 
-```
-pip install -r requirements.txt && playwright install-deps && playwright install chromium
-```
+- **Build Command**: `bash build.sh`
+- **Start Command**: `uvicorn main:app --host 0.0.0.0 --port $PORT`
 
-`playwright install-deps` 는 Chromium에 필요한 시스템 라이브러리를 설치합니다.
-
-## Start Command
-
-```
-uvicorn main:app --host 0.0.0.0 --port $PORT
-```
+build.sh가 Chromium을 프로젝트 내 `browsers/` 폴더에 설치해 배포에 포함시킵니다.
