@@ -31,6 +31,7 @@ def _empty_result(complex_id: Any, error: Optional[str] = None) -> Dict[str, Any
         "years_since_completion": None,  # N년차 (숫자)
         "redevelop_yn": False,
         "complex_name": None,
+        "complex_type": None,  # 주상복합, 아파트, 오피스텔 등
         "source_url": f"{_BASE_URL}{complex_id}" if complex_id is not None else None,
         "error": error,
     }
@@ -99,14 +100,26 @@ def _parse_redevelop_stages_from_text(text: str) -> List[Dict[str, Any]]:
     """
     stages = []
     seen_steps = set()
-    # 통합 패턴: N단계 + 단계명(공백 있을 수 있음) + ' 또는 공백 + YYYY.MM.DD
-    for m in re.finditer(r"(\d+)단계\s*([가-힣]+)['\s]*(\d{4}\.\d{2}\.\d{2})", text):
+    # apostrophe: ' (straight) 또는 ' (curly) 모두 지원
+    for m in re.finditer(r"(\d+)단계\s*([가-힣]+)[''\s]*(\d{4}\.\d{2}\.\d{2})", text):
         step = int(m.group(1))
         if step not in seen_steps:
             seen_steps.add(step)
             stages.append({"step": step, "name": m.group(2), "date": m.group(3)})
     stages.sort(key=lambda x: x["step"])
     return stages
+
+
+def _parse_complex_type(text: str) -> Optional[str]:
+    """단지 유형 추출: 주상복합, 아파트, 오피스텔 등"""
+    # 우선순위: 주상복합 > 오피스텔 > 아파트
+    if re.search(r"주상\s*복합", text):
+        return "주상복합"
+    if re.search(r"오피스\s*텔", text):
+        return "오피스텔"
+    if re.search(r"아파트", text):
+        return "아파트"
+    return None
 
 
 class KBComplexScraper:
@@ -168,6 +181,10 @@ class KBComplexScraper:
                 out["approval_date"] = approval_date
                 out["years_since_completion"] = years_since
 
+                # 2-2) 단지유형 (주상복합, 아파트, 오피스텔 등)
+                complex_type = _parse_complex_type(body_text)
+                out["complex_type"] = complex_type
+
                 # 3) 단지명 (선택: 페이지 제목 등에서 추출 시도)
                 title = page.title() or ""
                 if "|" in title:
@@ -218,9 +235,10 @@ def _fetch_render_playwright(complex_id: str) -> Dict[str, Any]:
             out["years_since_completion"] = data.get("years_since_completion")
             out["redevelop_stages"] = data.get("redevelop_stages") or []
             out["redevelop_yn"] = bool(out["redevelop_stages"])
+            out["complex_type"] = data.get("complex_type")
             out["error"] = data.get("error")
             if out.get("approval_date") or out.get("households"):
-                logger.info("✅ Render Playwright API 성공: approval=%s households=%s", out["approval_date"], out["households"])
+                logger.info("✅ Render Playwright API 성공: approval=%s households=%s type=%s", out["approval_date"], out["households"], out["complex_type"])
                 return out
             if out.get("error") and attempt == 1:
                 logger.warning("Render API attempt 1 실패 (%s), 재시도...", out.get("error"))

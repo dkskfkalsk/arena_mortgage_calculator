@@ -974,14 +974,18 @@ def get_application():
                         # KB API 결과에서 구분 정보 가져오기 (캡션에 없을 경우)
                         kb_type = kb_result.get('type')
                         kb_complex_name = kb_result.get('complex_name', '')
+                        kb_complex_type = kb_result.get('complex_type')  # 스크래핑에서 추출한 단지유형
                         if not property_type:
-                            # KB API의 type이 "84A형" 같은 형식이므로, 주택 타입으로 변환
-                            # 아파트는 보통 면적+타입 형식이므로 "아파트"로 설정
-                            # 단지명이나 타입 정보를 보고 판단
-                            if kb_type or kb_complex_name:
-                                property_type = "아파트"  # 기본값
-                                print(f"[WEBHOOK] ✅ KB API에서 구분 추출: {property_type}", file=sys.stderr, flush=True)
-                                logger.info(f"KB API에서 구분 추출: {property_type}")
+                            # 스크래핑에서 추출한 단지유형 우선 사용 (주상복합, 아파트, 오피스텔)
+                            if kb_complex_type:
+                                property_type = kb_complex_type
+                                print(f"[WEBHOOK] ✅ KB 스크래핑에서 구분 추출: {property_type}", file=sys.stderr, flush=True)
+                                logger.info(f"KB 스크래핑에서 구분 추출: {property_type}")
+                            # 스크래핑 실패 시 기본값 "아파트"
+                            elif kb_type or kb_complex_name:
+                                property_type = "아파트"
+                                print(f"[WEBHOOK] ✅ KB API에서 구분 추출(기본값): {property_type}", file=sys.stderr, flush=True)
+                                logger.info(f"KB API에서 구분 추출(기본값): {property_type}")
                         else:
                             print(f"[WEBHOOK] 구분은 캡션에서 이미 제공됨: {property_type}", file=sys.stderr, flush=True)
                     else:

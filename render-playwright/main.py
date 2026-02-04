@@ -80,13 +80,26 @@ def _parse_approval_date(text: str) -> Tuple[Optional[str], Optional[int]]:
 def _parse_redevelop_stages(text: str) -> List[Dict[str, Any]]:
     stages = []
     seen_steps = set()
-    for m in re.finditer(r"(\d+)단계\s*([가-힣]+)['\s]*(\d{4}\.\d{2}\.\d{2})", text):
+    # apostrophe: ' (U+0027) 또는 ' (U+2019 curly)
+    for m in re.finditer(r"(\d+)단계\s*([가-힣]+)[''\s]*(\d{4}\.\d{2}\.\d{2})", text):
         step = int(m.group(1))
         if step not in seen_steps:
             seen_steps.add(step)
             stages.append({"step": step, "name": m.group(2), "date": m.group(3)})
     stages.sort(key=lambda x: x["step"])
     return stages
+
+
+def _parse_complex_type(text: str) -> Optional[str]:
+    """단지 유형 추출: 주상복합, 아파트, 오피스텔 등"""
+    # 우선순위: 주상복합 > 오피스텔 > 아파트
+    if re.search(r"주상\s*복합", text):
+        return "주상복합"
+    if re.search(r"오피스\s*텔", text):
+        return "오피스텔"
+    if re.search(r"아파트", text):
+        return "아파트"
+    return None
 
 
 def _scrape(complex_id: str) -> Dict[str, Any]:
@@ -97,6 +110,7 @@ def _scrape(complex_id: str) -> Dict[str, Any]:
         "years_since_completion": None,
         "redevelop_stages": [],
         "redevelop_yn": False,
+        "complex_type": None,  # 주상복합, 아파트, 오피스텔 등
         "error": None,
     }
     try:
@@ -132,9 +146,16 @@ def _scrape(complex_id: str) -> Dict[str, Any]:
             stages = _parse_redevelop_stages(body_text)
             out["redevelop_stages"] = stages
             out["redevelop_yn"] = len(stages) > 0
+            if stages:
+                logger.info("재건축 단계 발견: %s", stages)
+
+            complex_type = _parse_complex_type(body_text)
+            out["complex_type"] = complex_type
+            if complex_type:
+                logger.info("단지유형 발견: %s", complex_type)
 
             browser.close()
-        logger.info("scrape ok: complex_id=%s approval=%s households=%s", complex_id, out["approval_date"], out["households"])
+        logger.info("scrape ok: complex_id=%s approval=%s households=%s redevelop=%s type=%s", complex_id, out["approval_date"], out["households"], len(stages), out["complex_type"])
     except Exception as e:
         out["error"] = str(e)
         logger.warning("scrape fail: %s", e)

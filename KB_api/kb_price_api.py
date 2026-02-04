@@ -915,6 +915,7 @@ class KBPriceAPI:
         result["buildings"] = None
         result["approval_date"] = None   # 사용승인일 YYYY.MM.DD (기본정보)
         result["years_since_completion"] = None  # N년차 (기본정보)
+        result["complex_type"] = None  # 주상복합, 아파트, 오피스텔 등
         result["redevelop_yn"] = False
         # fastPriceInfo 단지 항목에 세대수/동수 필드가 있으면 우선 사용
         for key in ("세대수", "총세대수", "총호수", "호수"):
@@ -974,6 +975,10 @@ class KBPriceAPI:
             if extra.get("years_since_completion") is not None:
                 result["years_since_completion"] = extra["years_since_completion"]
                 logger.info(f"✅ 스크래퍼(기본정보)에서 년차 추출: {result['years_since_completion']}년차")
+            # 단지유형 (주상복합, 아파트, 오피스텔 등)
+            if extra.get("complex_type") is not None:
+                result["complex_type"] = extra["complex_type"]
+                logger.info(f"✅ 스크래퍼에서 단지유형 추출: {result['complex_type']}")
             # 스크래퍼에서 재건축 단계를 찾으면 재건축으로 간주 (API 재건축여부 없어도)
             if extra.get("redevelop_yn") or (extra.get("redevelop_stages") and len(extra["redevelop_stages"]) > 0):
                 result["redevelop_yn"] = True
