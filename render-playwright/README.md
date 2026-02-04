@@ -1,15 +1,15 @@
-# Render Playwright 스크래퍼 API
+# Render Playwright 스크래퍼
 
-kbland.kr/c/{complex_id} 에서 사용승인일·재건축·세대수 추출
+## Render Build Command (필수)
 
-## Render 설정
+```
+pip install -r requirements.txt && playwright install-deps && playwright install chromium
+```
 
-- **Root Directory**: `render-playwright`
-- **Build Command**: `pip install -r requirements.txt && playwright install chromium`
-- **Start Command**: `uvicorn main:app --host 0.0.0.0 --port $PORT`
-- **환경변수**: `PLAYWRIGHT_SCRAPER_TOKEN` (Vercel 호출 시 인증용, 선택)
+`playwright install-deps` 는 Chromium에 필요한 시스템 라이브러리를 설치합니다.
 
-## API
+## Start Command
 
-- `GET /scrape?complex_id=4024`  
-  - Header: `X-Internal-Token: <PLAYWRIGHT_SCRAPER_TOKEN>` (토큰 설정 시)
+```
+uvicorn main:app --host 0.0.0.0 --port $PORT
+```
