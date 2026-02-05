@@ -83,16 +83,18 @@ def _parse_approval_date(text: str) -> Tuple[Optional[str], Optional[int]]:
 
 
 def _parse_redevelop_stages(text: str) -> List[Dict[str, Any]]:
+    """로컬 kb_complex_scraper와 동일: 'N단계 단계명 YYYY.MM.DD' 패턴 (개행+1자+날짜)."""
     stages = []
     seen_steps = set()
-    # 패턴: "N단계한글이름\n'YYYY.MM.DD" 또는 "N단계한글이름 'YYYY.MM.DD"
-    # apostrophe: ' (U+0027) 또는 ' (U+2019 curly), 선택사항
-    # \s*는 공백/개행 포함
-    for m in re.finditer(r"(\d+)단계([가-힣]+)\s*['']?\s*(\d{4}\.\d{2}\.\d{2})", text):
+    # 로컬과 동일: "N단계한글이름\n'YYYY.MM.DD" (개행 뒤 아무 문자 1자 + 날짜)
+    pattern = r"(\d+)단계([가-힣]+)\n.(\d{4}\.\d{2}\.\d{2})"
+    for m in re.finditer(pattern, text):
         step = int(m.group(1))
+        name = m.group(2)
+        date = m.group(3)
         if step not in seen_steps:
             seen_steps.add(step)
-            stages.append({"step": step, "name": m.group(2), "date": m.group(3)})
+            stages.append({"step": step, "name": name, "date": date})
     stages.sort(key=lambda x: x["step"])
     return stages
 
@@ -125,6 +127,7 @@ def _scrape(complex_id: str) -> Dict[str, Any]:
         "redevelop_stages": [],
         "redevelop_yn": False,
         "complex_type": None,  # 주상복합, 아파트, 오피스텔 등
+        "complex_name": None,
         "error": None,
     }
     try:
@@ -141,38 +144,49 @@ def _scrape(complex_id: str) -> Dict[str, Any]:
                 viewport={"width": 1280, "height": 720},
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
             )
+            # 로컬과 동일: kbland.kr/c/{id} 접속 후 대기·스크롤로 기본정보 로드
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            # Vue SPA API 호출·렌더링 대기 (최적화: 6초)
-            page.wait_for_timeout(3000)
+            # Vue SPA API 호출·렌더링 대기 (재건축 정보 탭 로드 포함) - 로컬과 동일 5초
+            page.wait_for_timeout(5000)
             # 페이지 스크롤로 추가 컨텐츠 로드 유도 (재건축 정보 등)
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            page.wait_for_timeout(2000)
+            page.wait_for_timeout(3000)
             # 다시 맨 위로 (전체 컨텐츠 확보)
             page.evaluate("window.scrollTo(0, 0)")
-            page.wait_for_timeout(1000)
+            page.wait_for_timeout(2000)
             body_text = page.inner_text("body") or ""
-            
-            # 디버그: body_text 샘플 로깅 (Render 동작 확인용)
+
             logger.info("body_text 길이: %d, 샘플: %s", len(body_text), body_text[:200] if body_text else "(empty)")
 
-            households, buildings = _parse_households_buildings(body_text)
-            out["households"] = households
-            out["buildings"] = buildings
-
-            approval_date, years_since = _parse_approval_date(body_text)
-            out["approval_date"] = approval_date
-            out["years_since_completion"] = years_since
-
+            # 1) 재건축 단계 (로컬과 동일 순서)
             stages = _parse_redevelop_stages(body_text)
             out["redevelop_stages"] = stages
             out["redevelop_yn"] = len(stages) > 0
             if stages:
                 logger.info("재건축 단계 발견: %s", stages)
 
+            # 2) 세대수·동수 (기본정보 블록)
+            households, buildings = _parse_households_buildings(body_text)
+            out["households"] = households
+            out["buildings"] = buildings
+
+            # 2-1) 사용승인일 (기본정보)
+            approval_date, years_since = _parse_approval_date(body_text)
+            out["approval_date"] = approval_date
+            out["years_since_completion"] = years_since
+
+            # 2-2) 단지유형
             complex_type = _parse_complex_type(body_text)
             out["complex_type"] = complex_type
             if complex_type:
                 logger.info("단지유형 발견: %s", complex_type)
+
+            # 3) 단지명 (페이지 제목에서 추출 - 로컬과 동일)
+            title = page.title() or ""
+            if "|" in title:
+                out["complex_name"] = title.split("|")[0].strip().strip("'\" ")
+            else:
+                out["complex_name"] = None
 
             browser.close()
         logger.info("scrape ok: complex_id=%s approval=%s households=%s redevelop=%s type=%s", complex_id, out["approval_date"], out["households"], len(stages), out["complex_type"])

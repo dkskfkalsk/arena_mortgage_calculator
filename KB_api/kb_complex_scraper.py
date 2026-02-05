@@ -270,6 +270,7 @@ def _fetch_render_playwright(complex_id: str) -> Dict[str, Any]:
             out["redevelop_stages"] = data.get("redevelop_stages") or []
             out["redevelop_yn"] = bool(out["redevelop_stages"])
             out["complex_type"] = data.get("complex_type")
+            out["complex_name"] = data.get("complex_name")
             out["error"] = data.get("error")
             if out.get("approval_date") or out.get("households"):
                 logger.info("✅ Render Playwright API 성공: approval=%s households=%s type=%s", out["approval_date"], out["households"], out["complex_type"])
