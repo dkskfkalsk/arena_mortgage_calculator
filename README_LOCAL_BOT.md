@@ -98,7 +98,7 @@ python local_pdf_bot.py
 
 ## 봇 정보
 
-**봇 토큰:** `7829144358:AAF0zZy-cEM0bYZX03X9-oigqWB3DTEoBO4`
+**봇 토큰:** `.env.local`의 `TELEGRAM_PDF_BOT_TOKEN`에 설정 (문서에 토큰 직접 기재 금지)
 
 **처리 기능:**
 - PDF 파싱
