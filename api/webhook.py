@@ -1668,11 +1668,6 @@ class handler(BaseHTTPRequestHandler):
 
             print(f"[WEBHOOK] Chat {chat_id} is allowed, processing message", file=sys.stderr, flush=True)
 
-            # banks_2에서 "일어나"면 회신이 꼭 가야 하므로 처리 완료까지 대기 후 200 전송
-            msg_node = body.get("message") or body.get("channel_post") or {}
-            msg_text = (msg_node.get("text") or "").strip()
-            is_wake_up_banks2 = (msg_text == "일어나") and (chat_id in allowed_chat_ids_banks_2)
-
             async def process():
                 try:
                     print("[WEBHOOK] Starting async process", file=sys.stderr, flush=True)
@@ -1693,24 +1688,16 @@ class handler(BaseHTTPRequestHandler):
                     import traceback
                     traceback.print_exc()
 
-            def run_process_in_thread():
-                global _global_loop
-                try:
-                    if _global_loop is None or _global_loop.is_closed():
-                        _global_loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(_global_loop)
-                    _global_loop.run_until_complete(process())
-                except Exception as e:
-                    print(f"[WEBHOOK] Thread error - reply NOT sent: {str(e)}", file=sys.stderr, flush=True)
-                    logger.error(f"Thread error: {str(e)}", exc_info=True)
-
-            import threading
-            thread = threading.Thread(target=run_process_in_thread, daemon=False)
-            thread.start()
-
-            if is_wake_up_banks2:
-                thread.join(timeout=15)
-                print("[WEBHOOK] 일어나(banks_2) 처리 완료, 200 전송", file=sys.stderr, flush=True)
+            # 스레드 사용 시 Vercel에서 "This event loop is already running" 발생 → 메인에서 run_until_complete만 사용
+            global _global_loop
+            if _global_loop is None or _global_loop.is_closed():
+                _global_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(_global_loop)
+            try:
+                _global_loop.run_until_complete(process())
+            except Exception as e:
+                print(f"[WEBHOOK] run_until_complete error: {str(e)}", file=sys.stderr, flush=True)
+                logger.error(f"run_until_complete error: {str(e)}", exc_info=True)
 
             try:
                 global _last_request_time
