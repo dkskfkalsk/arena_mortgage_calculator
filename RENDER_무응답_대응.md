@@ -9,6 +9,9 @@
 2. **처리 중 예외**  
    PDF 파싱, KB 시세, Telegram API 호출 등에서 예외가 나면 로그에는 남지만 사용자에게는 회신이 가지 않습니다.
 
+3. **Render 웹훅 + KB 시세**  
+   Render에서 웹훅 서버를 돌릴 때, KB 시세 조회가 in-process Playwright를 쓰지 않도록 `KB_api/kb_complex_scraper.py`에서 `RENDER=true`이면 스크래퍼를 비활성화합니다. 이때 `PLAYWRIGHT_SCRAPER_URL`(별도 Render Playwright 서비스)을 두면 세대수·동수 등 추가 정보를 가져옵니다. 없으면 해당 정보만 비고 회신은 정상 나갑니다.
+
 ---
 
 ## Render 로그로 확인

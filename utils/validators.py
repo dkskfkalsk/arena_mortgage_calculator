@@ -19,17 +19,34 @@ def validate_kb_price(kb_price):
     try:
         # 문자열로 변환
         price_str = str(kb_price).strip()
-        print(f"DEBUG: validate_kb_price - input: {price_str}")
+        print(f"DEBUG: validate_kb_price - input: {price_str[:80]}")
         
-        # URL이 넘어온 경우 시세로 사용하지 않음 (참고 링크 등에서 숫자 추출 방지)
+        # 문자열 전체가 URL/경로만 있으면 시세로 사용하지 않음
         if price_str and (
             price_str.lower().startswith("http://")
             or price_str.lower().startswith("https://")
-            or "kbland.kr" in price_str.lower()
             or (re.match(r"^[\d./]+$", price_str) and "/" in price_str)  # /c/35317 같은 경로만 있는 경우
         ):
-            print(f"DEBUG: validate_kb_price - URL/경로로 판단, 시세로 사용 안 함: {price_str[:50]}")
+            print(f"DEBUG: validate_kb_price - URL/경로만 있어 시세로 사용 안 함: {price_str[:50]}")
             return None
+        
+        # "KB시세 참고 : https://..." 등 URL이 뒤에 붙어 있는 경우 → URL 앞부분만 사용 (일반/하한 시세 추출)
+        if price_str and ("https://" in price_str.lower() or "http://" in price_str.lower() or "kbland.kr" in price_str.lower()):
+            low = price_str.lower()
+            cut = len(price_str)
+            for sep in ("https://", "http://", "kbland.kr"):
+                i = low.find(sep)
+                if i != -1 and i < cut:
+                    cut = i
+            # "참고" 단어 앞까지 자르면 "KB시세 참고 : URL" 전체 제거됨
+            i_ref = price_str.find("참고")
+            if i_ref != -1 and i_ref < cut:
+                cut = i_ref
+            if cut < len(price_str):
+                price_str = price_str[:cut].strip()
+                print(f"DEBUG: validate_kb_price - URL 앞부분만 사용: {price_str[:60]}")
+            if not price_str:
+                return None
         
         # "일반", "하한" 같은 키워드 제거 (공백 포함)
         price_str_clean = re.sub(r'\s*(일반|하한|상한)\s*', ' ', price_str, flags=re.IGNORECASE).strip()

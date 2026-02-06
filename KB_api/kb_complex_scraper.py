@@ -13,8 +13,9 @@ from typing import Dict, List, Optional, Tuple, Any
 
 logger = logging.getLogger(__name__)
 
-# Vercel 등 Playwright 미지원 환경
-if os.getenv("VERCEL") == "1" or os.getenv("VERCEL_ENV"):
+# Vercel·Render 등 Playwright 미지원/미사용 환경 → 외부 API(PLAYWRIGHT_SCRAPER_URL/VERCEL_URL)만 사용
+# Render에서 웹훅이 돌 때 in-process Playwright를 쓰면 실패·타임아웃으로 한도 회신이 안 나갈 수 있음
+if os.getenv("VERCEL") == "1" or os.getenv("VERCEL_ENV") or os.getenv("RENDER") == "true":
     _SCRAPER_DISABLED = True
 else:
     _SCRAPER_DISABLED = False
@@ -370,7 +371,7 @@ def get_complex_extra_info(complex_id: int | str) -> Dict[str, Any]:
     단지기본일련번호로 /c/ 스크래핑 후 재건축·세대수·동수·사용승인일 반환.
 
     - 로컬: Playwright 사용
-    - Vercel: PLAYWRIGHT_SCRAPER_URL 있으면 Render API, 없으면 Node API (fallback)
+    - Vercel/Render: PLAYWRIGHT_SCRAPER_URL 있으면 해당 API, Vercel일 때만 VERCEL_URL(Node API) fallback
 
     Returns:
         { redevelop_stages, households, buildings, approval_date, ... }
