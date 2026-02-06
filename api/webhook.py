@@ -1666,7 +1666,11 @@ class handler(BaseHTTPRequestHandler):
 
             print(f"[WEBHOOK] Chat {chat_id} is allowed, processing message", file=sys.stderr, flush=True)
 
-            # 비동기 처리 함수 (백그라운드에서 실행, 완료될 때까지 대기하지 않음)
+            # banks_2에서 "일어나"면 회신이 꼭 가야 하므로 처리 완료까지 대기 후 200 전송
+            msg_node = body.get("message") or body.get("channel_post") or {}
+            msg_text = (msg_node.get("text") or "").strip()
+            is_wake_up_banks2 = (msg_text == "일어나") and (chat_id in allowed_chat_ids_banks_2)
+
             async def process():
                 try:
                     print("[WEBHOOK] Starting async process", file=sys.stderr, flush=True)
@@ -1701,13 +1705,17 @@ class handler(BaseHTTPRequestHandler):
             import threading
             thread = threading.Thread(target=run_process_in_thread, daemon=False)
             thread.start()
-            # 200을 즉시 보내서 Telegram 재전송(1분마다) 방지. PDF 처리는 백그라운드 스레드에서 계속 진행.
+
+            if is_wake_up_banks2:
+                thread.join(timeout=15)
+                print("[WEBHOOK] 일어나(banks_2) 처리 완료, 200 전송", file=sys.stderr, flush=True)
+
             try:
                 global _last_request_time
                 _last_request_time = time.time()
             except Exception:
                 pass
-            print("[WEBHOOK] Sending 200 OK immediately (processing in background)", file=sys.stderr, flush=True)
+            print("[WEBHOOK] Sending 200 OK response", file=sys.stderr, flush=True)
             self._send_response(200, {"ok": True})
 
         except json.JSONDecodeError:
