@@ -1307,15 +1307,16 @@ def get_application():
                 await help_command(update, context)
                 return
             
-            # Render 등 서버 슬립 깨우기: "일어나" 입력 시 즉시 회신 후 종료
+            # Render 등 서버 슬립 깨우기: "일어나" → banks_2(PDF 방)에서만 회신
             if (message.text or "").strip() == "일어나":
-                global _last_request_time
-                # 방금 깨어난 경우(첫 요청이거나 10분 이상 요청 없음) vs 이미 깨어있는 경우
-                if _last_request_time == 0 or (time.time() - _last_request_time) > 600:
-                    await message.reply_text("(벌떡) 깜빡 잠들었습니다. 다시 일하겠습니다.")
-                else:
-                    await message.reply_text("네, 이미 깨어있습니다!")
-                return
+                if chat_id in allowed_chat_ids_banks_2:
+                    global _last_request_time
+                    if _last_request_time == 0 or (time.time() - _last_request_time) > 600:
+                        await message.reply_text("(벌떡) 깜빡 잠들었습니다. 다시 일하겠습니다.")
+                    else:
+                        await message.reply_text("네, 이미 깨어있습니다!")
+                    return
+                # banks_2가 아니면 "일어나"는 무시
             
             # 채팅방 타입 확인 (banks, loan, 또는 banks_2)
             chat_type = get_chat_type(chat_id)
