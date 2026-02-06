@@ -18,6 +18,8 @@ from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
+from utils.mortgage_calculator import calculate_principal, extract_manual_ratios
+
 # .env.local 로드
 load_dotenv('.env.local')
 
@@ -44,14 +46,58 @@ TEMP_DIR = Path(__file__).parent / 'temp'
 TEMP_DIR.mkdir(exist_ok=True)
 
 
+def parse_complex_amount(text):
+    """복합 금액 파싱 → 만원 단위 정수 (웹훅과 동일)"""
+    if not text:
+        return None
+    text_clean = text.replace(',', '').replace('，', '')
+    text_no_space = text_clean.replace(' ', '').replace('　', '')
+    # 억+천만
+    m = re.search(r'(\d+)\s*억\s*(\d+)\s*천\s*만\s*원?', text_clean) or re.search(r'(\d+)억(\d+)천만원?', text_no_space)
+    if m:
+        return int(m.group(1)) * 10000 + int(m.group(2)) * 1000
+    # 억+만
+    m = re.search(r'(\d+)\s*억\s*(\d+)\s*만\s*원?', text_clean) or re.search(r'(\d+)억(\d+)만원?', text_no_space)
+    if m:
+        return int(m.group(1)) * 10000 + int(m.group(2))
+    # 억+원
+    m = re.search(r'(\d+)\s*억\s*(\d+)\s*원', text_clean)
+    if m:
+        return int(m.group(1)) * 10000 + int(m.group(2)) // 10000
+    # 억
+    m = re.search(r'(\d+)\s*억\s*원?', text_clean)
+    if m:
+        return int(m.group(1)) * 10000
+    # 천만
+    m = re.search(r'(\d+)\s*천\s*만\s*원?', text_clean)
+    if m:
+        return int(m.group(1)) * 1000
+    # 만
+    m = re.search(r'(\d+)\s*만\s*원?', text_clean)
+    if m:
+        return int(m.group(1))
+    # 원
+    m = re.search(r'(\d+)\s*원', text_clean)
+    if m:
+        return int(m.group(1)) // 10000
+    # 숫자만
+    m = re.search(r'^(\d+)$', text_clean)
+    if m:
+        return int(m.group(1))
+    return None
+
+
 def parse_caption_info(caption):
-    """캡션에서 고객 정보 추출 (간소화 버전)"""
+    """캡션에서 고객 정보 추출 (웹훅과 동일 항목: trust_amount, special_notes 포함)"""
     info = {
         'job': '',
         'credit_score': '',
         'residence': '',
         'borrower_name': '',
         'collateral_provider': '',
+        'request': '',
+        'trust_amount': '',   # 신탁 금액 (만원 단위 문자열)
+        'special_notes': [],  # 특이사항
     }
     
     if not caption:
@@ -105,7 +151,35 @@ def parse_caption_info(caption):
         info['residence'] = '거주'
     elif re.search(r'비거주|임대|전세', caption):
         info['residence'] = '비거주'
-    
+
+    # 신탁 금액 추출 (신탁금액, 신탁원금, 신탁대환, 신탁 뒤에 금액) - 웹훅과 동일
+    trust_patterns = [
+        r'신탁\s*금액\s*[:：]?\s*([\d,\s억천만원]+)',
+        r'신탁\s*원금\s*[:：]?\s*([\d,\s억천만원]+)',
+        r'신탁\s*대환\s*[:：]?\s*([\d,\s억천만원]+)',
+        r'신탁\s*[:：]?\s*([\d,\s억천만원]+)',
+    ]
+    for pattern in trust_patterns:
+        match = re.search(pattern, caption, re.IGNORECASE)
+        if match:
+            price_text = match.group(1).strip()
+            price_man = parse_complex_amount(price_text)
+            if price_man is not None:
+                info['trust_amount'] = f"{price_man:,}"
+                break
+
+    # 특이사항 추출 (캡션)
+    special_notes_match = re.search(r'특이사항\s*[:：]?\s*(.+?)(?=\n요청사항|\n\n|$)', caption, re.IGNORECASE | re.DOTALL)
+    if special_notes_match:
+        special_note_text = re.sub(r'\s+', ' ', special_notes_match.group(1).strip()).strip()
+        if special_note_text:
+            info['special_notes'].append(special_note_text)
+
+    # 요청사항 추출 (웹훅과 동일)
+    request_match = re.search(r'요청사항\s*[:：]?\s*(.+?)(?=\n특이사항|\n\n|$)', caption, re.IGNORECASE | re.DOTALL)
+    if request_match:
+        info['request'] = re.sub(r'\s+', ' ', request_match.group(1).strip())
+
     return info
 
 
@@ -118,15 +192,6 @@ def extract_name_from_filename(file_name):
     if match:
         return match.group(1).strip()
     return ""
-
-
-def calculate_principal(amount_won, creditor, manual_ratio=None):
-    """원금 계산 (간소화 버전)"""
-    if manual_ratio:
-        return int(amount_won * manual_ratio), manual_ratio, True
-    
-    # 기본 120% 비율 (0.833)
-    return int(amount_won * 0.833), 0.833, True
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -182,9 +247,10 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         logger.info(f"✅ PDF 파싱 완료: {parsed_doc.부동산_주소}")
         
-        # 캡션 정보 추출
+        # 캡션 정보 추출 (1순위 120%, 2순위 130% 등 수동 비율 포함)
         caption = message.caption or ""
         caption_info = parse_caption_info(caption)
+        caption_info['manual_ratios'] = extract_manual_ratios(caption)
         file_name = document.file_name
         
         # 결과 포맷팅
@@ -435,45 +501,57 @@ async def format_registry_result(result, caption_info, file_name):
         lines.append("KB시세 : 없음")
         lines.append("KB시세 : 하한      만원")
     
-    # 근저당권 설정 내역
+    # 근저당권 설정 내역 (캡션의 1순위 120%, 2순위 130% 등 수동 비율 적용)
     lines.append(f"=========설정내역=========")
-    
+    trust_amount = caption_info.get('trust_amount', '')
+    trust_amount_man = None
+    if is_trustee and trust_amount:
+        try:
+            trust_amount_man = int(trust_amount.replace(',', ''))
+            lines.append(f"1순위 : 신탁")
+            lines.append(f"           {trust_amount_man:,}만원")
+        except (ValueError, TypeError):
+            pass
+
+    manual_ratios = caption_info.get('manual_ratios', {})
+    needs_principal_check = False
+    start_rank = 2 if (is_trustee and trust_amount_man) else 1
+
     if result.근저당권목록:
         mortgage_amounts = []
         principal_amounts = []
-        
-        for i, m in enumerate(result.근저당권목록, start=1):
-            # 금액을 만원 단위로 변환
-            # "금 121,000,000원" 또는 "121,000,000원" 형식 파싱
+
+        for i, m in enumerate(result.근저당권목록, start=start_rank):
+            manual_ratio = manual_ratios.get(str(i))
             amount_match = re.search(r'금?\s*([\d,]+)\s*원', m.채권최고액)
             if amount_match:
                 amount_won = int(amount_match.group(1).replace(',', ''))
                 amount_man = amount_won // 10000
                 mortgage_amounts.append(amount_man)
-                
-                # 원금 계산
-                principal_won, used_ratio, is_clean = calculate_principal(amount_won, m.근저당권자)
+
+                principal_won, used_ratio, is_clean = calculate_principal(
+                    amount_won, m.근저당권자, manual_ratio
+                )
                 principal_man = principal_won // 10000
                 principal_amounts.append(principal_man)
-                
-                # 전세권은 채권최고액=원금
+                if not is_clean and not manual_ratio:
+                    needs_principal_check = True
+
                 if hasattr(m, '권리종류') and m.권리종류 == "전세권":
-                    amount_str = f"{amount_man:,} ({amount_man:,})만원"
+                    amount_str = f"{amount_man:,} ({amount_man:,})만원(100%)"
                 else:
-                    amount_str = f"{amount_man:,} ({principal_man:,})만원"
+                    amount_str = f"{amount_man:,} ({principal_man:,})만원({used_ratio}%)"
             else:
-                # 만원 단위로 이미 표시된 경우
                 man_match = re.search(r'([\d,]+)\s*만', m.채권최고액)
                 if man_match:
                     amount_man = int(man_match.group(1).replace(',', ''))
                     mortgage_amounts.append(amount_man)
                     principal_man = int(amount_man * 0.833)
                     principal_amounts.append(principal_man)
-                    amount_str = f"{amount_man:,} ({principal_man:,})만원"
+                    amount_str = f"{amount_man:,} ({principal_man:,})만원(120%)"
                 else:
                     amount_str = m.채권최고액
-            
-            # 근저당권자 이름 간소화 (주식회사/유한회사/사단법인 제거)
+
             creditor = m.근저당권자
             creditor = re.sub(r'주식회사', '', creditor)
             creditor = re.sub(r'유한회사', '', creditor)
@@ -488,6 +566,9 @@ async def format_registry_result(result, caption_info, file_name):
                 lines.append(f"{i}순위 : {creditor}")
             lines.append(f"           {amount_str}")
         
+        if is_trustee and trust_amount_man:
+            mortgage_amounts.insert(0, trust_amount_man)
+            principal_amounts.insert(0, trust_amount_man)
         # LTV 계산
         if kb_price and mortgage_amounts:
             try:
@@ -498,35 +579,59 @@ async def format_registry_result(result, caption_info, file_name):
                     ratio_mortgage = (total_mortgage_man / kb_price_man) * 100
                     ratio_principal = (total_principal_man / kb_price_man) * 100
                     lines.append(f"{ratio_mortgage:.2f}% / {ratio_principal:.2f}%")
-            except:
+            except Exception:
+                pass
+    elif is_trustee and trust_amount_man:
+        mortgage_amounts = [trust_amount_man]
+        principal_amounts = [trust_amount_man]
+        if kb_price:
+            try:
+                kb_price_man = int(kb_price.replace(',', ''))
+                if kb_price_man > 0:
+                    ratio = (trust_amount_man / kb_price_man) * 100
+                    lines.append(f"{ratio:.2f}% / {ratio:.2f}%")
+            except (ValueError, ZeroDivisionError):
                 pass
     else:
         lines.append("설정된 근저당권 없음")
     
     lines.append(f"========================")
     
-    # 압류/가압류 정보
+    # 압류/가압류 정보 (캡션 특이사항 먼저)
     special_notes = []
+    if caption_info.get('special_notes'):
+        special_notes.extend(caption_info['special_notes'])
     if result.압류목록:
         seizure_info = []
         for s in result.압류목록:
             seizure_info.append(f"{s.종류}({s.권리자})")
         special_notes.append("압류: " + ", ".join(seizure_info))
     
-    # 경매 정보
+    # 경매 정보 (웹훅과 동일: 종류(채권자))
     if result.경매목록:
         auction_info = []
         for a in result.경매목록:
-            auction_info.append(f"경매({a.법원})")
-        special_notes.append(" / ".join(auction_info))
-    
-    # 별도등기
-    if result.별도등기:
-        special_notes.append("별도등기 존재")
-    
+            auction_info.append(f"{getattr(a, '종류', '경매')}({getattr(a, '채권자', '')})")
+        special_notes.append("경매: " + ", ".join(auction_info))
+
+    # 환매특약/전매제한 (웹훅과 동일)
+    if hasattr(result, '환매특약') and result.환매특약:
+        special_notes.append(result.환매특약)
+
+    # 별도등기 (웹훅과 동일 문구)
+    if hasattr(result, '별도등기') and result.별도등기:
+        special_notes.append("별도등기 있음")
+
     lines.append(f"특이사항 : {' / '.join(special_notes) if special_notes else ''}")
-    lines.append(f"요청사항 : ")
-    
+    lines.append(f"요청사항 : {caption_info.get('request', '')}")
+
+    if not kb_price:
+        lines.append("KB시세 없음. 다른 시세 첨부 바랍니다.")
+    if needs_principal_check:
+        lines.append("*근저당권 원금설정 확인 필요*")
+    if is_trustee and not trust_amount:
+        lines.append("신탁 금액 기재 바랍니다.")
+
     return '\n'.join(lines)
 
 

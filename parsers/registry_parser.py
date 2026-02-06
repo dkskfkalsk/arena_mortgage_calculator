@@ -1224,18 +1224,17 @@ class RegistryParser:
             special_conditions.append("전매제한")
         
         # 금지사항 (소유권 제한) - 줄바꿈 허용
-        # 단, 신탁등기가 말소된 경우는 제외 (소유권 제한이 해소된 경우)
+        # 단, 신탁등기가 말소된 경우 또는 소유권 이전이 있으면 제외 (소유권 제한이 해소된 경우)
         if re.search(r'금지\s*사항.*?소유권.*?제한', self.text, re.DOTALL):
             # 신탁등기 말소 여부 확인 (갑구에서 확인)
-            # 신탁등기 말소가 있으면 소유권 제한이 해소된 것으로 봄
-            trust_cancelled = re.search(r'신탁\s*등\s*기\s*말\s*소', self.text, re.DOTALL | re.IGNORECASE)
-            
-            # 소유권 이전이 있는지 확인 (신탁등기 말소 후 소유권 이전이 있으면 확실히 해소됨)
+            trust_cancelled = re.search(
+                r'신탁\s*등\s*기\s*말\s*소|신탁\s*등기\s*의?\s*말소',
+                self.text, re.DOTALL | re.IGNORECASE
+            )
+            # 소유권 이전이 있으면 해소된 것으로 봄 (신탁등기 말소 후 소유권 이전이 있는 경우가 많음)
             ownership_transfer_exists = re.search(r'소유권\s*이전', self.text, re.DOTALL)
-            
-            # 신탁등기 말소가 있거나, 소유권 이전이 있으면 소유권 제한으로 표시하지 않음
-            # (신탁등기 말소 = 소유권 제한 해소)
-            if not trust_cancelled:
+            # 신탁등기 말소 또는 소유권 이전이 있으면 소유권 제한으로 표시하지 않음
+            if not trust_cancelled and not ownership_transfer_exists:
                 special_conditions.append("소유권제한")
         
         return ", ".join(special_conditions) if special_conditions else ""

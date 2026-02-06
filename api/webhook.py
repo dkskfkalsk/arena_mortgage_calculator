@@ -684,11 +684,12 @@ def get_application():
             
             info['request'] = ' / '.join(requests) if requests else ''
             
-            # 신탁 금액 추출 (신탁 금액, 신탁원금, 신탁대환) - 복합 단위 지원
+            # 신탁 금액 추출 (신탁금액, 신탁원금, 신탁대환, 신탁 뒤에 금액) - 복합 단위 지원
             trust_patterns = [
                 r'신탁\s*금액\s*[:：]?\s*([\d,\s억천만원]+)',  # 신탁 금액 1억5천만원
                 r'신탁\s*원금\s*[:：]?\s*([\d,\s억천만원]+)',  # 신탁원금 1억5천만원
                 r'신탁\s*대환\s*[:：]?\s*([\d,\s억천만원]+)',  # 신탁대환 1억5천만원
+                r'신탁\s*[:：]?\s*([\d,\s억천만원]+)',        # 신탁 1억5천만원, 신탁: 15000
             ]
             for pattern in trust_patterns:
                 match = re.search(pattern, caption, re.IGNORECASE)
@@ -1156,11 +1157,11 @@ def get_application():
                         if not is_clean and not manual_ratio:
                             needs_principal_check = True
                         
-                        # 권리종류에 따라 표시 (전세권은 채권최고액=원금)
+                        # 권리종류에 따라 표시 (전세권은 채권최고액=원금), 원금 계산에 쓴 비율(%) 표시
                         if m.권리종류 == "전세권":
-                            amount_str = f"{amount_man:,} ({amount_man:,})만원"
+                            amount_str = f"{amount_man:,} ({amount_man:,})만원(100%)"
                         else:
-                            amount_str = f"{amount_man:,} ({principal_man:,})만원"
+                            amount_str = f"{amount_man:,} ({principal_man:,})만원({used_ratio}%)"
                     else:
                         amount_str = m.채권최고액
                         # 만원 단위 추출 시도
@@ -1265,6 +1266,10 @@ def get_application():
             # 근저당권 원금 설정이 깔끔하지 않을 때 확인 필요 멘트 추가
             if needs_principal_check:
                 lines.append("*근저당권 원금설정 확인 필요*")
+            
+            # 수탁자인데 신탁 금액 미기재 시 맨 아래 안내
+            if is_trustee and not trust_amount:
+                lines.append("신탁 금액 기재 바랍니다.")
             
             return "\n".join(lines)
 
