@@ -297,7 +297,9 @@ def get_application():
                         return
                     
                     # 결과 반환
+                    print("[WEBHOOK] Sending PDF result to user", file=sys.stderr, flush=True)
                     await message.reply_text(response)
+                    print("[WEBHOOK] PDF result sent successfully", file=sys.stderr, flush=True)
                     
                     # banks_2 채팅방에서는 등기부 정보만 표시하고 계산 결과는 표시하지 않음
                     # (계산은 다른 채팅방에서 텍스트 메시지로 처리)
@@ -1686,7 +1688,7 @@ class handler(BaseHTTPRequestHandler):
                     print("[WEBHOOK] Message processing completed", file=sys.stderr, flush=True)
                     logger.info("Message processing completed")
                 except Exception as e:
-                    print(f"[WEBHOOK] Error in process(): {str(e)}", file=sys.stderr, flush=True)
+                    print(f"[WEBHOOK] Error in process() - reply NOT sent: {str(e)}", file=sys.stderr, flush=True)
                     logger.error(f"Error in process(): {str(e)}", exc_info=True)
                     import traceback
                     traceback.print_exc()
@@ -1699,7 +1701,7 @@ class handler(BaseHTTPRequestHandler):
                         asyncio.set_event_loop(_global_loop)
                     _global_loop.run_until_complete(process())
                 except Exception as e:
-                    print(f"[WEBHOOK] Thread error: {str(e)}", file=sys.stderr, flush=True)
+                    print(f"[WEBHOOK] Thread error - reply NOT sent: {str(e)}", file=sys.stderr, flush=True)
                     logger.error(f"Thread error: {str(e)}", exc_info=True)
 
             import threading
