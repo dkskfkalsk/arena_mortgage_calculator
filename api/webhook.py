@@ -1665,99 +1665,48 @@ class handler(BaseHTTPRequestHandler):
 
             print(f"[WEBHOOK] Chat {chat_id} is allowed, processing message", file=sys.stderr, flush=True)
 
-            # 비동기 처리 함수
+            # 비동기 처리 함수 (백그라운드에서 실행, 완료될 때까지 대기하지 않음)
             async def process():
                 try:
                     print("[WEBHOOK] Starting async process", file=sys.stderr, flush=True)
-                    
-                    # 초기화되지 않았으면 초기화
                     if not app._initialized:
                         print("[WEBHOOK] Initializing application", file=sys.stderr, flush=True)
                         await app.initialize()
-                    
-                    # 모든 업데이트를 _handle_message로 직접 처리 (process_update 우회)
-                    # API·스크래핑 혼합 후 서버리스에서 process_update가 문서 업데이트를 제대로
-                    # dispatch하지 않는 경우 방지
                     if hasattr(app, '_handle_message'):
                         print("[WEBHOOK] Processing update with _handle_message", file=sys.stderr, flush=True)
                         await app._handle_message(update, None)
                     else:
                         logger.warning("_handle_message not found, using process_update")
                         await app.process_update(update)
-                    
                     print("[WEBHOOK] Message processing completed", file=sys.stderr, flush=True)
                     logger.info("Message processing completed")
-                    
                 except Exception as e:
                     print(f"[WEBHOOK] Error in process(): {str(e)}", file=sys.stderr, flush=True)
                     logger.error(f"Error in process(): {str(e)}", exc_info=True)
                     import traceback
                     traceback.print_exc()
 
-            # 이벤트 루프 실행
-            global _global_loop
-            
-            try:
-                # 기존 루프 확인
+            def run_process_in_thread():
+                global _global_loop
                 try:
-                    loop = asyncio.get_running_loop()
-                    print("[WEBHOOK] Event loop already running, using thread", file=sys.stderr, flush=True)
-                    logger.info("Event loop already running, using thread")
-                    import threading
-                    
-                    def run_in_new_thread():
-                        global _global_loop
-                        try:
-                            if _global_loop is None or _global_loop.is_closed():
-                                new_loop = asyncio.new_event_loop()
-                                asyncio.set_event_loop(new_loop)
-                            else:
-                                new_loop = _global_loop
-                                asyncio.set_event_loop(new_loop)
-                            
-                            new_loop.run_until_complete(process())
-                            
-                            if not new_loop.is_closed():
-                                _global_loop = new_loop
-                        except Exception as e:
-                            print(f"[WEBHOOK] Thread error: {str(e)}", file=sys.stderr, flush=True)
-                            logger.error(f"Thread error: {str(e)}", exc_info=True)
-                    
-                    thread = threading.Thread(target=run_in_new_thread, daemon=False)
-                    thread.start()
-                    thread.join(timeout=25)
-                    
-                    if thread.is_alive():
-                        print("[WEBHOOK] Thread timeout", file=sys.stderr, flush=True)
-                        logger.error("Thread timeout after 25 seconds")
-                        
-                except RuntimeError:
-                    print("[WEBHOOK] No running loop, creating new one", file=sys.stderr, flush=True)
-                    logger.info("No running loop, creating new one")
-                    
                     if _global_loop is None or _global_loop.is_closed():
                         _global_loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(_global_loop)
-                    
-                    try:
-                        _global_loop.run_until_complete(process())
-                    except Exception as e:
-                        print(f"[WEBHOOK] Error in process: {str(e)}", file=sys.stderr, flush=True)
-                        logger.error(f"Error in process: {str(e)}", exc_info=True)
-                    
-            except Exception as e:
-                print(f"[WEBHOOK] Event loop error: {str(e)}", file=sys.stderr, flush=True)
-                logger.error(f"Event loop error: {str(e)}", exc_info=True)
-                import traceback
-                traceback.print_exc()
+                    _global_loop.run_until_complete(process())
+                except Exception as e:
+                    print(f"[WEBHOOK] Thread error: {str(e)}", file=sys.stderr, flush=True)
+                    logger.error(f"Thread error: {str(e)}", exc_info=True)
 
-            # 요청 처리 완료 시각 기록 ("일어나" 시 이미 깨어있는지 판단용)
+            import threading
+            thread = threading.Thread(target=run_process_in_thread, daemon=False)
+            thread.start()
+            # 200을 즉시 보내서 Telegram 재전송(1분마다) 방지. PDF 처리는 백그라운드 스레드에서 계속 진행.
             try:
                 global _last_request_time
                 _last_request_time = time.time()
             except Exception:
                 pass
-            print("[WEBHOOK] Sending 200 OK response", file=sys.stderr, flush=True)
+            print("[WEBHOOK] Sending 200 OK immediately (processing in background)", file=sys.stderr, flush=True)
             self._send_response(200, {"ok": True})
 
         except json.JSONDecodeError:
