@@ -261,7 +261,7 @@ def _fetch_render_playwright(complex_id: str) -> Dict[str, Any]:
 
     for attempt in (1, 2):
         try:
-            r = requests.get(url, headers=headers, timeout=50)
+            r = requests.get(url, headers=headers, timeout=20)
             r.raise_for_status()
             data = r.json()
             out["households"] = data.get("households")
@@ -278,13 +278,13 @@ def _fetch_render_playwright(complex_id: str) -> Dict[str, Any]:
                 return out
             if out.get("error") and attempt == 1:
                 logger.warning("Render API attempt 1 실패 (%s), 재시도...", out.get("error"))
-                time.sleep(3)
+                time.sleep(1)
                 continue
         except Exception as e:
             out["error"] = str(e)
             logger.warning("Render Playwright API 실패 (attempt=%s): %s", attempt, e)
             if attempt == 1:
-                time.sleep(3)
+                time.sleep(1)
                 continue
         break
     return out
@@ -311,7 +311,7 @@ def _fetch_node_households(complex_id: str) -> Dict[str, Any]:
     logger.info("Node kb-households API 호출: complex_id=%s", cid)
     for attempt in (1, 2):
         try:
-            r = requests.get(url, headers={"Accept": "application/json"}, timeout=35)
+            r = requests.get(url, headers={"Accept": "application/json"}, timeout=25)
             logger.info("Node API 응답 (attempt=%s): status=%s", attempt, r.status_code)
             r.raise_for_status()
             data = r.json()
@@ -353,14 +353,14 @@ def _fetch_node_households(complex_id: str) -> Dict[str, Any]:
                 logger.warning("Node kb-households API HTTP 에러 (attempt=%s): %s", attempt, e)
             out["error"] = str(e)
             if attempt == 1 and e.response is not None and e.response.status_code >= 500:
-                time.sleep(2)
+                time.sleep(1)
                 continue
             return out
         except Exception as e:
             logger.warning("Node kb-households API 호출 실패 (attempt=%s): %s", attempt, e)
             out["error"] = str(e)
             if attempt == 1:
-                time.sleep(2)
+                time.sleep(1)
                 continue
             return out
     return out

@@ -1688,16 +1688,19 @@ class handler(BaseHTTPRequestHandler):
                     import traceback
                     traceback.print_exc()
 
-            # 스레드 사용 시 Vercel에서 "This event loop is already running" 발생 → 메인에서 run_until_complete만 사용
-            global _global_loop
-            if _global_loop is None or _global_loop.is_closed():
-                _global_loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(_global_loop)
+            # 요청마다 새 이벤트 루프 사용 (재사용 시 첫 요청 타임아웃 후 텔레그램 재시도에서 "This event loop is already running" 발생)
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             try:
-                _global_loop.run_until_complete(process())
+                loop.run_until_complete(process())
             except Exception as e:
                 print(f"[WEBHOOK] run_until_complete error: {str(e)}", file=sys.stderr, flush=True)
                 logger.error(f"run_until_complete error: {str(e)}", exc_info=True)
+            finally:
+                try:
+                    loop.close()
+                except Exception:
+                    pass
 
             try:
                 global _last_request_time
