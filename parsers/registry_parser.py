@@ -245,15 +245,27 @@ class RegistryParser:
         match = re.search(pattern, self.text)
         if match:
             addr = match.group(1).strip()
-            # 불필요한 부분 제거
             addr = re.sub(r'\s+', ' ', addr)
-            return addr
+            if len(addr) > 5:
+                return addr
         
-        # 대안 패턴
+        # 소재지 / 소재지번 다음 줄
         pattern = r'소재지번[^\n]*\n\s*(.+?)(?:\n|$)'
         match = re.search(pattern, self.text)
         if match:
-            return match.group(1).strip()
+            addr = match.group(1).strip()
+            addr = re.sub(r'\s+', ' ', addr)
+            if len(addr) > 5:
+                return addr
+        
+        # 소재지 : 주소 (한 줄)
+        pattern = r'소재지\s*[:：]\s*(.+?)(?:\n|$)'
+        match = re.search(pattern, self.text)
+        if match:
+            addr = match.group(1).strip()
+            addr = re.sub(r'\s+', ' ', addr)
+            if len(addr) > 5:
+                return addr
         
         return ""
     
