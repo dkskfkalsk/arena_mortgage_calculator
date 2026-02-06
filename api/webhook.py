@@ -10,6 +10,7 @@ import json
 import os
 import asyncio
 import logging
+import time
 from http.server import BaseHTTPRequestHandler
 
 # 프로젝트 루트를 경로에 추가
@@ -47,6 +48,9 @@ application = None
 
 # 전역 이벤트 루프
 _global_loop = None
+
+# 마지막 요청 처리 시각 (0 = 아직 요청 없음 / 방금 깨어남)
+_last_request_time = 0
 
 
 def get_application():
@@ -1303,6 +1307,16 @@ def get_application():
                 await help_command(update, context)
                 return
             
+            # Render 등 서버 슬립 깨우기: "일어나" 입력 시 즉시 회신 후 종료
+            if (message.text or "").strip() == "일어나":
+                global _last_request_time
+                # 방금 깨어난 경우(첫 요청이거나 10분 이상 요청 없음) vs 이미 깨어있는 경우
+                if _last_request_time == 0 or (time.time() - _last_request_time) > 600:
+                    await message.reply_text("(벌떡) 깜빡 잠들었습니다. 다시 일하겠습니다.")
+                else:
+                    await message.reply_text("네, 이미 깨어있습니다!")
+                return
+            
             # 채팅방 타입 확인 (banks, loan, 또는 banks_2)
             chat_type = get_chat_type(chat_id)
             print(f"[WEBHOOK] Chat type: {chat_type}", file=sys.stderr, flush=True)
@@ -1737,6 +1751,12 @@ class handler(BaseHTTPRequestHandler):
                 import traceback
                 traceback.print_exc()
 
+            # 요청 처리 완료 시각 기록 ("일어나" 시 이미 깨어있는지 판단용)
+            try:
+                global _last_request_time
+                _last_request_time = time.time()
+            except Exception:
+                pass
             print("[WEBHOOK] Sending 200 OK response", file=sys.stderr, flush=True)
             self._send_response(200, {"ok": True})
 

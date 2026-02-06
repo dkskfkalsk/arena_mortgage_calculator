@@ -286,30 +286,35 @@ class MessageParser:
             validated_score = validate_credit_score(data["credit_score"])
             data["credit_score"] = validated_score
         
-        # 필요자금 추출 (요청사항에서)
+        # 필요자금/필요금액/필금 추출 (요청사항에서) - 계산기 한도 산출 시 적용
+        _req_keywords = r'필요자금|필요금액|필금'
         if data["requests"]:
             print(f"DEBUG: Parsing required_amount from requests: {data['requests']}")
-            
-            # "필요자금 1억" 또는 "필요자금 10000만원" 패턴 찾기
+            req_text = data["requests"]
             # 1. 억 단위 패턴
-            required_match = re.search(r'필요자금[:\s]*(\d+(?:[.,]\d+)?)\s*억', data["requests"])
+            required_match = re.search(rf'(?:{_req_keywords})[:\s]*(\d+(?:[.,]\d+)?)\s*억', req_text)
             if required_match:
-                # 억 단위를 만원으로 변환
                 amount_eok = float(required_match.group(1).replace(",", "").replace(".", ""))
-                data["required_amount"] = amount_eok * 10000  # 1억 = 10,000만원
+                data["required_amount"] = amount_eok * 10000
                 print(f"DEBUG: Parsed required_amount from 억: {data['required_amount']}만원")
             else:
-                # 2. 만원 단위 패턴
-                required_match = re.search(r'필요자금[:\s]*(\d+(?:,\d+)*)\s*만', data["requests"])
+                # 2. 천만 단위 패턴
+                required_match = re.search(rf'(?:{_req_keywords})[:\s]*(\d+)\s*천만', req_text)
                 if required_match:
-                    data["required_amount"] = float(required_match.group(1).replace(",", ""))
-                    print(f"DEBUG: Parsed required_amount from 만원: {data['required_amount']}만원")
+                    data["required_amount"] = float(required_match.group(1).replace(",", "")) * 1000
+                    print(f"DEBUG: Parsed required_amount from 천만: {data['required_amount']}만원")
                 else:
-                    # 3. 단위 없이 숫자만 있는 경우 (만원으로 가정)
-                    required_match = re.search(r'필요자금[:\s]*(\d+(?:,\d+)*)', data["requests"])
+                    # 3. 만원 단위 패턴
+                    required_match = re.search(rf'(?:{_req_keywords})[:\s]*(\d+(?:,\d+)*)\s*만', req_text)
                     if required_match:
                         data["required_amount"] = float(required_match.group(1).replace(",", ""))
-                        print(f"DEBUG: Parsed required_amount (no unit, assuming 만원): {data['required_amount']}만원")
+                        print(f"DEBUG: Parsed required_amount from 만원: {data['required_amount']}만원")
+                    else:
+                        # 4. 단위 없이 숫자만 (만원으로 가정)
+                        required_match = re.search(rf'(?:{_req_keywords})[:\s]*(\d+(?:,\d+)*)', req_text)
+                        if required_match:
+                            data["required_amount"] = float(required_match.group(1).replace(",", ""))
+                            print(f"DEBUG: Parsed required_amount (no unit, assuming 만원): {data['required_amount']}만원")
         
         # 대환 정보 추출 (요청사항에서)
         # 먼저 모든 근저당권의 is_refinance를 False로 초기화 (명시적으로 지정된 것만 True로 설정)
@@ -1007,46 +1012,29 @@ class MessageParser:
     
     def _extract_required_amount(self, requests_text: str) -> Optional[float]:
         """
-        요청사항에서 필요자금 추출
-        예: "필요자금 1억" -> 10000.0 (만원 단위)
-        예: "필요자금 5천만" -> 5000.0
+        요청사항에서 필요자금/필요금액/필금 추출
+        예: "필요자금 1억", "필요금액 6000만", "필금 5천만" -> 만원 단위 반환
         """
         if not requests_text:
             return None
-        
-        # "필요자금" 키워드 찾기
-        if "필요자금" not in requests_text:
+        req_keywords = r'필요자금|필요금액|필금'
+        if not re.search(req_keywords, requests_text):
             return None
-        
-        # 필요자금 뒤의 숫자 추출
-        # 패턴: "필요자금" + 공백 + 숫자 + (억/천만/만원 등)
-        import re
-        
-        # 다양한 패턴 시도
         patterns = [
-            r'필요자금\s*[:\s]*(\d+)\s*억',  # "필요자금 1억"
-            r'필요자금\s*[:\s]*(\d+)\s*천만',  # "필요자금 5천만"
-            r'필요자금\s*[:\s]*([\d,]+)\s*만원?',  # "필요자금 10,000만원"
-            r'필요자금\s*[:\s]*([\d,]+)',  # "필요자금 10000"
+            (rf'(?:{req_keywords})\s*[:\s]*(\d+)\s*억', 10000),
+            (rf'(?:{req_keywords})\s*[:\s]*(\d+)\s*천만', 1000),
+            (rf'(?:{req_keywords})\s*[:\s]*([\d,]+)\s*만원?', 1),
+            (rf'(?:{req_keywords})\s*[:\s]*([\d,]+)', 1),
         ]
-        
-        for pattern in patterns:
+        for pattern, multiplier in patterns:
             match = re.search(pattern, requests_text, re.IGNORECASE)
             if match:
                 amount_str = match.group(1).replace(",", "").strip()
                 try:
-                    amount = float(amount_str)
-                    # "억" 단위인 경우 만원으로 변환
-                    if "억" in pattern:
-                        amount = amount * 10000
-                    # "천만" 단위인 경우 만원으로 변환
-                    elif "천만" in pattern:
-                        amount = amount * 1000
-                    print(f"DEBUG: _extract_required_amount - found: {amount}만원 (from pattern: {pattern})")
+                    amount = float(amount_str) * multiplier
+                    print(f"DEBUG: _extract_required_amount - found: {amount}만원")
                     return amount
                 except ValueError:
                     continue
-        
-        print(f"DEBUG: _extract_required_amount - no amount found in: {requests_text}")
         return None
 
