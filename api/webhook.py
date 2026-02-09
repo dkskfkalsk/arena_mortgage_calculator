@@ -53,11 +53,11 @@ _global_loop = None
 _last_request_time = 0
 
 
-def get_application():
-    """텔레그램 애플리케이션 인스턴스 가져오기 (싱글톤)"""
+def get_application(force_new=False):
+    """텔레그램 애플리케이션 인스턴스 가져오기. force_new=True면 요청 전용 새 인스턴스 반환(캐시 안 함)."""
     global application
 
-    if application is None:
+    def _build():
         from telegram.ext import (
             Application, MessageHandler, CommandHandler, filters
         )
@@ -119,7 +119,7 @@ def get_application():
         print(f"[WEBHOOK] Application initializing - allowed_chat_ids_banks: {allowed_chat_ids_banks}, allowed_chat_ids_loan: {allowed_chat_ids_loan}, allowed_chat_ids_banks_2: {allowed_chat_ids_banks_2}", file=sys.stderr, flush=True)
         logger.info(f"Application initialized - allowed_chat_ids_banks: {allowed_chat_ids_banks}, allowed_chat_ids_loan: {allowed_chat_ids_loan}, allowed_chat_ids_banks_2: {allowed_chat_ids_banks_2}")
 
-        application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+        app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
         print("[WEBHOOK] Application initialized successfully", file=sys.stderr, flush=True)
 
         def get_chat_id(update):
@@ -266,7 +266,7 @@ def get_application():
                 file = await document.get_file()
                 file_bytes = await file.download_as_bytearray()
                 
-                # PDF 분석
+                # PDF 분석 (무거운 동기 작업은 스레드 풀에서 실행해 이벤트 루프 블로킹 방지)
                 import tempfile
                 from parsers.registry_parser import analyze_pdf
                 
@@ -275,14 +275,13 @@ def get_application():
                     tmp_file.write(file_bytes)
                     tmp_path = tmp_file.name
                 
+                caption = message.caption or ""
                 try:
-                    result = analyze_pdf(tmp_path)
-                    
-                    # 메시지에 함께 온 텍스트 (캡션) 확인
-                    caption = message.caption or ""
-                    
-                    # 결과 포맷팅
-                    response = format_registry_result(result, caption, file_name)
+                    def _blocking_pdf_work():
+                        result = analyze_pdf(tmp_path)
+                        return format_registry_result(result, caption, file_name)
+                    loop = asyncio.get_event_loop()
+                    response = await loop.run_in_executor(None, _blocking_pdf_work)
                     
                     # "분석 중" 메시지 삭제
                     if processing_msg:
@@ -1514,14 +1513,20 @@ def get_application():
                     logger.error(f"Failed to send error message: {str(reply_error)}", exc_info=True)
 
         # 핸들러 등록
-        application.add_handler(CommandHandler("start", start_command))
-        application.add_handler(CommandHandler("help", help_command))
+        app.add_handler(CommandHandler("start", start_command))
+        app.add_handler(CommandHandler("help", help_command))
         # '도움말'은 BotFather에 등록되지 않으면 PTB가 ValueError를 던지므로, handle_message에서만 처리
-        application.add_handler(MessageHandler(~filters.COMMAND, handle_message))
+        app.add_handler(MessageHandler(~filters.COMMAND, handle_message))
         
         # handle_message를 전역에서 접근 가능하도록 저장
-        application._handle_message = handle_message
+        app._handle_message = handle_message
 
+        return app
+
+    if force_new:
+        return _build()
+    if application is None:
+        application = _build()
     return application
 
 
@@ -1585,11 +1590,13 @@ class handler(BaseHTTPRequestHandler):
                 self._send_response(200, {"ok": True, "skipped": "not telegram update"})
                 return
 
-            # 텔레그램 업데이트 처리
-            print("[WEBHOOK] Processing telegram update...", file=sys.stderr, flush=True)
+            # 텔레그램 업데이트 처리: 요청마다 새 루프 + 이번 요청 전용 Application (Event loop is closed 방지)
             from telegram import Update
-            app = get_application()
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            app = get_application(force_new=True)
             update = Update.de_json(body, app.bot)
+            print("[WEBHOOK] Processing telegram update...", file=sys.stderr, flush=True)
             print(f"[WEBHOOK] Update ID: {update.update_id}", file=sys.stderr, flush=True)
             logger.info(f"Received update - update_id: {update.update_id}")
 
@@ -1688,9 +1695,7 @@ class handler(BaseHTTPRequestHandler):
                     import traceback
                     traceback.print_exc()
 
-            # 요청마다 새 이벤트 루프 사용 (재사용 시 첫 요청 타임아웃 후 텔레그램 재시도에서 "This event loop is already running" 발생)
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+            # 위에서 이미 생성한 루프로 process 실행
             try:
                 loop.run_until_complete(process())
             except Exception as e:
