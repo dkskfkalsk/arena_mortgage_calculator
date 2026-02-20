@@ -398,6 +398,8 @@
     "5": 0.50
   },
   "non_apartment_additional_rate": 1.0,
+  "bank_appraisal_additional_rate": 1.0,
+  "_comment_bank_appraisal_additional_rate": "탁감가(감정건) 시 가산금리 1%p",
   "min_amount": 3000,
   "min_kb_price": 0,
   "price_sources": {
