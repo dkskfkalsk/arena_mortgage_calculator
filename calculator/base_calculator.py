@@ -3286,8 +3286,8 @@ class BaseCalculator:
         
         calculators = []
         
-        # 모든 JSON 파일 찾기 및 계산기 생성
-        for filename in os.listdir(banks_dir):
+        # 모든 JSON 파일 찾기 및 계산기 생성 (파일명 정렬로 1_, 2_, 3_... 순서 유지)
+        for filename in sorted(os.listdir(banks_dir)):
             if filename.endswith("_config.json") or filename.endswith(".json"):
                 config_path = os.path.join(banks_dir, filename)
                 try:
