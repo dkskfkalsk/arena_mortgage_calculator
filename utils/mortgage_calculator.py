@@ -145,17 +145,17 @@ def calculate_principal(
 
 def is_clean_amount(amount: int) -> bool:
     """
-    금액이 만원 단위로 깔끔하게 떨어지는지 확인
+    금액이 십만원 단위로 깔끔하게 떨어지는지 확인
+    
+    일의 자리(1만원)까지 계산하지 않고, 십의 자리(10만원) 단위까지만 본다.
     
     Args:
         amount: 금액 (원 단위)
     
     Returns:
-        True이면 만원 단위로 깔끔함 (소수점 0.01 미만)
+        True이면 십만원 단위로 깔끔함 (10만원으로 나누어떨어짐)
     """
-    amount_in_man = amount / 10000
-    # 소수점 이하가 0.01 미만이면 깔끔한 것으로 판정
-    return abs(amount_in_man - round(amount_in_man)) < 0.01
+    return amount % 100000 == 0
 
 
 def extract_manual_ratios(message: str) -> Dict[str, int]:

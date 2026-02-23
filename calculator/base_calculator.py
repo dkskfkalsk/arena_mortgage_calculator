@@ -16,6 +16,7 @@ from utils.validators import (
     extract_bank_appraisal_price_from_special_notes, extract_realestatetech_price_from_special_notes,
     extract_korea_realestate_price_from_special_notes, extract_housematch_price_from_special_notes
 )
+from utils.mortgage_calculator import classify_financial_institution
 
 # Vercel 로그 출력을 위한 강력한 헬퍼 함수
 def log_print(*args, **kwargs):
@@ -3231,6 +3232,32 @@ class BaseCalculator:
             "fixed_rate_comment": None
         }
     
+    @staticmethod
+    def _has_personal_mortgage(property_data: Dict[str, Any]) -> bool:
+        """
+        근저당권 설정 중 개인설정이 있으면 True.
+        - 특이사항에 '개인설정' 문구가 있거나
+        - 설정내역 중 기관명이 금융기관이 아닌 경우(개인명으로 판단)
+        """
+        if not property_data:
+            return False
+        special_notes = (property_data.get("special_notes") or "").strip()
+        if "개인설정" in special_notes:
+            return True
+        # 기관명이 금융기관이 아닌 순위가 하나라도 있으면 개인설정
+        exclude_keywords = ("신탁", "물상담보", "전세입자", "전세권")
+        for m in property_data.get("mortgages") or []:
+            institution = (m.get("institution") or "").strip()
+            if not institution:
+                continue
+            inst_type = classify_financial_institution(institution)
+            if inst_type != "기타":
+                continue
+            if any(kw in institution for kw in exclude_keywords):
+                continue
+            return True
+        return False
+    
     @classmethod
     def calculate_all_banks(cls, property_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
@@ -3242,6 +3269,14 @@ class BaseCalculator:
         Returns:
             계산 결과 리스트 (에러 메시지가 있는 경우도 포함)
         """
+        # 개인설정이 있으면 후순위/대환 취급 불가 → 한도 산출 안 함
+        if cls._has_personal_mortgage(property_data):
+            return [{
+                "bank_name": "",
+                "results": [],
+                "errors": ["개인설정 후순위는 취급 불가"],
+                "personal_mortgage_ineligible": True
+            }]
         # data/banks 폴더 경로
         current_dir = os.path.dirname(os.path.abspath(__file__))
         banks_dir = os.path.join(current_dir, "..", "data", "banks")
@@ -3305,6 +3340,14 @@ class BaseCalculator:
         Returns:
             계산 결과 리스트 (에러 메시지가 있는 경우도 포함)
         """
+        # 개인설정이 있으면 후순위/대환 취급 불가 → 한도 산출 안 함
+        if cls._has_personal_mortgage(property_data):
+            return [{
+                "bank_name": "",
+                "results": [],
+                "errors": ["개인설정 후순위는 취급 불가"],
+                "personal_mortgage_ineligible": True
+            }]
         current_dir = os.path.dirname(os.path.abspath(__file__))
         loan_base_dir = os.path.join(current_dir, "..", "data", "loan")
         
