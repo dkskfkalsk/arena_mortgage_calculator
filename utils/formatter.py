@@ -279,9 +279,18 @@ def format_all_results(
                     price_str = price_match.group(1)
                     appraisal_price_info = f"탁감가 {price_str}만"
     
-    # 대환/후순위 그룹별로 금융사 묶기 (중복 제거)
-    refinance_banks = list(dict.fromkeys(all_refinance_results))  # 순서 유지하며 중복 제거
-    subordinate_banks = list(dict.fromkeys(all_subordinate_results))
+    # 대환/후순위 그룹별로 금융사 묶기 (bank_name 기준 중복 제거, dict는 hash 불가라 fromkeys 사용 불가)
+    def _dedupe_by_name(bank_list):
+        seen = set()
+        out = []
+        for br in bank_list:
+            name = br.get("bank_name", "")
+            if name not in seen:
+                seen.add(name)
+                out.append(br)
+        return out
+    refinance_banks = _dedupe_by_name(all_refinance_results)
+    subordinate_banks = _dedupe_by_name(all_subordinate_results)
     
     # 헤더 텍스트 생성 (대환/후순위 각각)
     def make_refinance_header():
