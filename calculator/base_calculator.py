@@ -1271,7 +1271,7 @@ class BaseCalculator:
                     "credit_grade": rate_info.get("credit_grade"),
                     "below_standard_ltv": is_below_standard,
                     "taxi_limit_applied": True,  # 택시 한도 제한 적용 플래그
-                    "refinance_institutions": refinance_institutions if is_household_for_ok and is_refinance else None  # 가계자금 대환 시 대환하는 금융사 이름
+                    "refinance_institutions": (refinance_institutions if is_household_for_ok else all_refinance_institutions) if is_refinance else None  # 대환 시 대환하는 금융사 이름 (헤더 표시용)
                 }
                 
                 results = [result]  # 하나의 결과만 반환
@@ -1370,7 +1370,7 @@ class BaseCalculator:
                     "below_standard_ltv": is_below_standard,  # 기준 LTV 이하 지역 여부
                     "taxi_limit_applied": taxi_limit_applied,  # 택시 한도 제한 적용 플래그
                     "fixed_rate_comment": rate_info.get("fixed_rate_comment"),  # 고정금리 코멘트
-                    "refinance_institutions": refinance_institutions if is_household_for_ok and is_refinance else None  # 가계자금 대환 시 대환하는 금융사 이름
+                    "refinance_institutions": (refinance_institutions if is_household_for_ok else all_refinance_institutions) if is_refinance else None  # 대환 시 대환하는 금융사 이름 (헤더 표시용)
                 }
                 
                 results = [result]  # 하나의 결과만 반환
@@ -1490,7 +1490,7 @@ class BaseCalculator:
                             "credit_grade": rate_info.get("credit_grade"),
                             "below_standard_ltv": is_below_standard,
                             "fixed_rate_comment": rate_info.get("fixed_rate_comment"),
-                            "refinance_institutions": refinance_institutions if is_household_for_ok else None
+                            "refinance_institutions": refinance_institutions if is_household_for_ok else all_refinance_institutions
                         }
                         results.append(result)
                         calculated_ltvs.add(calculated_max_ltv)
@@ -1554,7 +1554,7 @@ class BaseCalculator:
                             "credit_grade": rate_info.get("credit_grade"),
                             "below_standard_ltv": is_below_standard,
                             "fixed_rate_comment": rate_info.get("fixed_rate_comment"),
-                            "refinance_institutions": refinance_institutions if is_household_for_ok else None
+                            "refinance_institutions": refinance_institutions if is_household_for_ok else all_refinance_institutions
                         }
                         results.append(result)
                         calculated_ltvs.add(ltv)
@@ -1655,7 +1655,7 @@ class BaseCalculator:
                         "credit_grade": rate_info.get("credit_grade"),
                         "below_standard_ltv": is_below_standard,  # 기준 LTV 이하 지역 여부
                         "fixed_rate_comment": rate_info.get("fixed_rate_comment"),  # 고정금리 코멘트
-                        "refinance_institutions": refinance_institutions if is_household_for_ok and is_refinance else None  # 가계자금 대환 시 대환하는 금융사 이름
+                        "refinance_institutions": (refinance_institutions if is_household_for_ok else all_refinance_institutions) if is_refinance else None  # 대환 시 대환하는 금융사 이름 (헤더 표시용)
                     }
                     
                     results.append(result)
