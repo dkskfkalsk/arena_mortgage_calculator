@@ -272,11 +272,55 @@ class RegistryParser:
     def _extract_area(self) -> str:
         """면적 추출 (전용면적) - 표제부 '전유부분의 건물의 표시'에 기재된 면적 사용"""
 
-        # 우선: "제N층 제N호" 직후 150자 이내 첫 XX㎡ (전용면적) — 블록/페이지 순서와 무관하게 호실 행 면적 확보
+        # 1순위: ( 전유부분의 건물의 표시 ) 블록에서 추출 (층별 면적 240㎡ 등과 구분)
+        building_section = ""
+        m_building_full = re.search(
+            r'\(\s*전유부분의\s*건물의\s*표시\s*\)\s*([\s\S]*?)(?=\(\s*[^)]*\)|【|$)',
+            self.text
+        )
+        if m_building_full:
+            building_section = m_building_full.group(1)
+        if building_section:
+            for row_pattern in [
+                r'제\s*\d+층\s*제\s*\d+호[\s\S]{0,120}?(\d+\.?\d*)\s*㎡',
+                r'제\s*\d+동\s*제\s*\d+호[\s\S]{0,120}?(\d+\.?\d*)\s*㎡',
+            ]:
+                match_row = re.search(row_pattern, building_section)
+                if match_row:
+                    area = match_row.group(1)
+                    try:
+                        area_float = float(area)
+                        if 10 <= area_float <= 300:
+                            return f"{area}㎡"
+                    except ValueError:
+                        pass
+            area_matches = list(re.finditer(r'(\d+\.?\d*)\s*㎡', building_section))
+            non_floor_areas = []
+            for ma in area_matches:
+                try:
+                    area_float = float(ma.group(1))
+                except ValueError:
+                    continue
+                if not (10 <= area_float <= 300):
+                    continue
+                start = max(0, ma.start() - 12)
+                prefix = building_section[start:ma.start()]
+                if re.search(r'\d+층\s*$', prefix):
+                    continue
+                non_floor_areas.append((area_float, ma.group(1)))
+            if non_floor_areas:
+                non_floor_areas.sort(key=lambda x: x[0], reverse=True)
+                return f"{non_floor_areas[0][1]}㎡"
+
+        # 2순위: "제N층 제N호" 직후 150자 이내 첫 XX㎡ (층별 면적 "N층 XX㎡" 제외)
         for m in re.finditer(r'제\s*\d+층\s*제\s*\d+호', self.text):
             snippet = self.text[m.end():m.end() + 150]
             area_m = re.search(r'(\d+\.?\d*)\s*㎡', snippet)
             if area_m:
+                start = max(0, area_m.start() - 15)
+                prefix = snippet[start:area_m.start()]
+                if re.search(r'\d+층\s*$', prefix):
+                    continue
                 try:
                     a = float(area_m.group(1))
                     if 10 <= a <= 300:
