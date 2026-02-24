@@ -122,17 +122,11 @@ def format_result(bank_result: Dict[str, Any]) -> str:
         else:
             ltv_str = f"{int(ltv)}%"
         
-        # 대환인 경우 전체 금액과 가용한도 표시
+        # 대환인 경우 전체 금액과 가용한도 표시 (대환 금융사는 맨 위 헤더에만 표시)
         if is_refinance:
             total_amount = result.get("total_amount", 0)
             available_amount = result.get("available_amount", 0)
-            refinance_institutions = result.get("refinance_institutions")
-            if refinance_institutions:
-                # 가계자금 대환 시 대환하는 금융사 이름 표시
-                institutions_str = ", ".join(refinance_institutions)
-                line = f"{result_type} {ltv_str} {format_amount(total_amount)} / {rate_str} / 가용 {format_amount(available_amount)} ({institutions_str} 대환)"
-            else:
-                line = f"{result_type} {ltv_str} {format_amount(total_amount)} / {rate_str} / 가용 {format_amount(available_amount)}"
+            line = f"{result_type} {ltv_str} {format_amount(total_amount)} / {rate_str} / 가용 {format_amount(available_amount)}"
         else:
             line = f"{result_type} {ltv_str} {amount_str} / {rate_str}"
         
@@ -285,65 +279,53 @@ def format_all_results(
                     price_str = price_match.group(1)
                     appraisal_price_info = f"탁감가 {price_str}만"
     
-    # 전체 진행 여부 판단
-    header_lines = []
-    if all_refinance_results and not all_subordinate_results:
-        # 모든 결과가 대환인 경우
+    # 대환/후순위 그룹별로 금융사 묶기 (중복 제거)
+    refinance_banks = list(dict.fromkeys(all_refinance_results))  # 순서 유지하며 중복 제거
+    subordinate_banks = list(dict.fromkeys(all_subordinate_results))
+    
+    # 헤더 텍스트 생성 (대환/후순위 각각)
+    def make_refinance_header():
         if all_refinance_institutions_set:
             institutions_str = ", ".join(sorted(all_refinance_institutions_set))
             if priority_text:
-                header_text = f"※ 대환 진행 ({institutions_str}) - {priority_text} 진행"
+                t = f"※ 대환 진행 ({institutions_str}) - {priority_text} 진행"
             else:
-                header_text = f"※ 대환 진행 ({institutions_str})"
+                t = f"※ 대환 진행 ({institutions_str})"
         else:
-            if priority_text:
-                header_text = f"※ 대환 진행 - {priority_text} 진행"
-            else:
-                header_text = "※ 대환 진행"
-        
-        # 탁감가 정보가 있으면 추가
-        if appraisal_price_info:
-            header_text += f" / {appraisal_price_info}"
-        header_lines.append(header_text)
-    elif all_subordinate_results and not all_refinance_results:
-        # 모든 결과가 후순위인 경우
-        if priority_text:
-            header_text = f"※ 후순위 진행 - {priority_text} 진행"
-        else:
-            header_text = "※ 후순위 진행"
-        
-        # 탁감가 정보가 있으면 추가
-        if appraisal_price_info:
-            header_text += f" / {appraisal_price_info}"
-        header_lines.append(header_text)
-    elif all_refinance_results and all_subordinate_results:
-        # 혼합된 경우
-        if all_refinance_institutions_set:
-            institutions_str = ", ".join(sorted(all_refinance_institutions_set))
-            if priority_text:
-                header_text = f"※ 대환/후순위 혼합 진행 (대환: {institutions_str}) - {priority_text} 진행"
-            else:
-                header_text = f"※ 대환/후순위 혼합 진행 (대환: {institutions_str})"
-        else:
-            if priority_text:
-                header_text = f"※ 대환/후순위 혼합 진행 - {priority_text} 진행"
-            else:
-                header_text = "※ 대환/후순위 혼합 진행"
-        
-        # 탁감가 정보가 있으면 추가
-        if appraisal_price_info:
-            header_text += f" / {appraisal_price_info}"
-        header_lines.append(header_text)
+            t = f"※ 대환 진행 - {priority_text} 진행" if priority_text else "※ 대환 진행"
+        return t + (f" / {appraisal_price_info}" if appraisal_price_info else "")
     
-    formatted_results = []
+    def make_subordinate_header():
+        t = f"※ 후순위 진행 - {priority_text} 진행" if priority_text else "※ 후순위 진행"
+        return t + (f" / {appraisal_price_info}" if appraisal_price_info else "")
     
-    for bank_result in all_results:
-        formatted = format_result(bank_result)
-        formatted_results.append(formatted)
+    # 그룹별로 정렬하여 출력: 대환 먼저, 후순위 나중
+    output_parts = []
     
-    # 헤더가 있으면 맨 위에 추가
-    if header_lines:
-        return "\n".join(header_lines) + "\n\n" + "\n\n".join(formatted_results)
-    else:
-        return "\n\n".join(formatted_results)
+    if refinance_banks and subordinate_banks:
+        # 혼합: 대환 섹션 → 후순위 섹션 (각 그룹 맨 위에 헤더 한 번만)
+        refinance_names = {br.get("bank_name") for br in refinance_banks}
+        subordinate_only = [br for br in subordinate_banks if br.get("bank_name") not in refinance_names]
+        output_parts.append(make_refinance_header())
+        output_parts.extend(format_result(br) for br in refinance_banks)
+        if subordinate_only:
+            output_parts.append(make_subordinate_header())
+            output_parts.extend(format_result(br) for br in subordinate_only)
+    elif refinance_banks:
+        # 대환만
+        output_parts.append(make_refinance_header())
+        output_parts.extend(format_result(br) for br in refinance_banks)
+    elif subordinate_banks:
+        # 후순위만
+        output_parts.append(make_subordinate_header())
+        output_parts.extend(format_result(br) for br in subordinate_banks)
+    
+    if output_parts:
+        # 첫 줄은 헤더, 나머지는 금융사별 결과 (각 블록 사이 \n\n)
+        header = output_parts[0]
+        body_parts = output_parts[1:]
+        # 빈 문자열은 섹션 구분이므로 \n\n\n으로 연결, 나머지는 \n\n
+        body_str = "\n\n".join(p for p in body_parts if p != "")
+        return f"{header}\n\n{body_str}" if body_str else header
+    return "\n\n".join(format_result(br) for br in all_results)
 
