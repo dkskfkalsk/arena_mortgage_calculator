@@ -3,7 +3,90 @@
 결과 포맷팅 유틸리티
 """
 
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple, Set
+
+
+def _parse_grade_range(credit_grade: str) -> Set[int]:
+    """credit_grade 문자열(예: '1~2', '1~5', '5')을 등급 번호 집합으로 변환"""
+    if not credit_grade:
+        return set()
+    s = str(credit_grade).strip()
+    if "~" in s:
+        parts = s.split("~", 1)
+        try:
+            start, end = int(parts[0]), int(parts[1])
+            return set(range(start, end + 1))
+        except (ValueError, IndexError):
+            return set()
+    try:
+        return {int(s)}
+    except ValueError:
+        return set()
+
+
+def _grades_fully_covered(credit_grade: str, grades_with_limit: Set[int]) -> bool:
+    """해당 등급 구간의 모든 등급이 한도가 나온 등급에 포함되는지"""
+    grades_in_range = _parse_grade_range(credit_grade)
+    return bool(grades_in_range) and grades_in_range <= grades_with_limit
+
+
+def _format_grade_range(grades: Set[int]) -> str:
+    """등급 번호 집합을 '1~6등급' 형식으로 포맷"""
+    if not grades:
+        return ""
+    min_g, max_g = min(grades), max(grades)
+    return f"{min_g}~{max_g}" if min_g != max_g else str(min_g)
+
+
+def _compress_grade_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    등급별 산출 결과를 LTV별로 압축.
+    동일 LTV·동일 유형끼리 묶어 금리 구간(최저~최고)과 등급 구간으로 표시.
+    """
+    from collections import defaultdict
+    groups: Dict[tuple, List[Dict]] = defaultdict(list)
+    for r in results:
+        key = (
+            r.get("ltv"),
+            r.get("type", "후순위"),
+            r.get("is_refinance", False),
+            r.get("limit_not_calculated", False),
+        )
+        groups[key].append(r)
+    compressed = []
+    for key, group in groups.items():
+        ltv, result_type, is_refinance, limit_not_calculated = key
+        all_grades: Set[int] = set()
+        for r in group:
+            if r.get("credit_grade"):
+                all_grades.update(_parse_grade_range(r["credit_grade"]))
+        grade_str = _format_grade_range(all_grades)
+        first = group[0]
+        if limit_not_calculated:
+            merged = {
+                **first,
+                "credit_grade": grade_str,
+                "interest_rate": None,
+                "interest_rate_range": None,
+            }
+        else:
+            rates = [r.get("interest_rate") for r in group if r.get("interest_rate") is not None]
+            if rates:
+                min_rate, max_rate = min(rates), max(rates)
+                merged = {
+                    **first,
+                    "credit_grade": grade_str,
+                    "interest_rate": None,
+                    "interest_rate_range": (min_rate, max_rate) if min_rate != max_rate else None,
+                }
+                if min_rate == max_rate:
+                    merged["interest_rate"] = min_rate
+            else:
+                merged = {**first, "credit_grade": grade_str}
+        compressed.append(merged)
+    # LTV 내림차순 정렬
+    compressed.sort(key=lambda x: -(x.get("ltv", 0)))
+    return compressed
 
 
 def format_interest_rate(
@@ -102,6 +185,28 @@ def format_result(bank_result: Dict[str, Any]) -> str:
         header = f"* {bank_name}{lower_bound_suffix}"
     
     lines = [header]
+    
+    # 등급별 산출 시: 한도가 나온 등급(구간 포함)의 한도 미산출 항목 제외
+    # 예: 1~2등급에 한도 있으면, 1~5·1~3 등 1,2를 포함하는 구간의 한도 미산출도 제외
+    if has_multiple_grades and any(r.get("limit_not_calculated") for r in results):
+        grades_with_limit: Set[int] = set()
+        for r in results:
+            if not r.get("limit_not_calculated", False) and r.get("credit_grade"):
+                grades_with_limit.update(_parse_grade_range(r["credit_grade"]))
+        if grades_with_limit:
+            results = [
+                r for r in results
+                if not (
+                    r.get("limit_not_calculated", False)
+                    and r.get("credit_grade")
+                    and _grades_fully_covered(r["credit_grade"], grades_with_limit)
+                )
+            ]
+    
+    # 등급별 산출 시: LTV별로 압축 (금리 구간 + 등급 구간으로 표시)
+    # 예: 후순위 95% 9,300만 / 10.70%~11.60% (1~6등급)
+    if has_multiple_grades and results:
+        results = _compress_grade_results(results)
     
     # 고정금리 코멘트 확인 (모든 결과 중 하나라도 있으면 맨 끝에 표시)
     fixed_rate_comment = None

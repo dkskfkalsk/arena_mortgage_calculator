@@ -10,7 +10,7 @@ import re
 import sys
 import logging
 from datetime import date
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any, Union, Set
 from utils.validators import (
     validate_kb_price, extract_lower_bound_price, extract_kb_ai_price_from_special_notes,
     extract_bank_appraisal_price_from_special_notes, extract_realestatetech_price_from_special_notes,
@@ -94,6 +94,30 @@ def _load_refinanceable_institutions() -> List[str]:
         logger.warning("refinanceable_institutions.json 로드 실패: %s", e)
         _REFINANCEABLE_INSTITUTIONS_CACHE = []
     return _REFINANCEABLE_INSTITUTIONS_CACHE
+
+
+def _parse_grade_range(credit_grade: str) -> Set[int]:
+    """credit_grade 문자열(예: '1~2', '1~5', '5')을 등급 번호 집합으로 변환"""
+    if not credit_grade:
+        return set()
+    s = str(credit_grade).strip()
+    if "~" in s:
+        parts = s.split("~", 1)
+        try:
+            start, end = int(parts[0]), int(parts[1])
+            return set(range(start, end + 1))
+        except (ValueError, IndexError):
+            return set()
+    try:
+        return {int(s)}
+    except ValueError:
+        return set()
+
+
+def _grades_fully_covered(credit_grade: str, grades_with_limit: Set[int]) -> bool:
+    """해당 등급 구간의 모든 등급이 한도가 나온 등급에 포함되는지"""
+    grades_in_range = _parse_grade_range(credit_grade)
+    return bool(grades_in_range) and grades_in_range <= grades_with_limit
 
 
 class BaseCalculator:
@@ -1487,16 +1511,21 @@ class BaseCalculator:
                             "limit_not_calculated": limit_not_calculated,
                         }
                         results.append(result)
-                # 등급별로 한도가 나온 경우가 있으면, 해당 등급의 한도 미산출 항목은 제외
+                # 등급별로 한도가 나온 경우, 해당 등급(구간 포함)의 한도 미산출 항목 제외
+                # 예: 1~2등급에 한도 있으면 1~5·1~3 등 1,2를 포함하는 구간의 한도 미산출도 제외
                 if results:
-                    grades_with_limit = {
-                        r.get("credit_grade") for r in results
-                        if not r.get("limit_not_calculated", False) and r.get("credit_grade")
-                    }
+                    grades_with_limit: Set[int] = set()
+                    for r in results:
+                        if not r.get("limit_not_calculated", False) and r.get("credit_grade"):
+                            grades_with_limit.update(_parse_grade_range(r["credit_grade"]))
                     if grades_with_limit:
                         results = [
                             r for r in results
-                            if not (r.get("limit_not_calculated", False) and r.get("credit_grade") in grades_with_limit)
+                            if not (
+                                r.get("limit_not_calculated", False)
+                                and r.get("credit_grade")
+                                and _grades_fully_covered(r["credit_grade"], grades_with_limit)
+                            )
                         ]
                 if results and self.config.get("sort_results_by_grade"):
                     results.sort(key=lambda x: (x.get("credit_grade_sort", 99), -(x.get("ltv", 0))))
