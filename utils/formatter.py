@@ -62,12 +62,16 @@ def format_result(bank_result: Dict[str, Any]) -> str:
     if not results:
         return f"* {bank_name}\n산출 불가"
     
-    # 모든 결과가 최소진행금액 부족인지 확인
+    # 모든 결과가 최소진행금액 부족인지 확인 (한도 미산출 결과는 제외)
     # 대환인 경우: total_amount(전체 대출 금액) 기준
     # 후순위인 경우: amount 기준
-    all_below_minimum = all(
-        (result.get("total_amount") if result.get("is_refinance", False) else result.get("amount", 0)) < min_amount
-        for result in results
+    non_limit_results = [r for r in results if not r.get("limit_not_calculated", False)]
+    all_below_minimum = (
+        len(non_limit_results) > 0
+        and all(
+            (r.get("total_amount") if r.get("is_refinance", False) else r.get("amount", 0)) < min_amount
+            for r in non_limit_results
+        )
     )
     if all_below_minimum:
         # 첫 번째 결과의 신용등급 확인
@@ -85,9 +89,14 @@ def format_result(bank_result: Dict[str, Any]) -> str:
     # 첫 번째 결과의 신용등급 확인
     first_result = results[0]
     credit_grade = first_result.get("credit_grade")
+    # 등급별 산출(여러 등급 결과)인 경우 헤더에 "등급별" 표시
+    grade_values = [r.get("credit_grade") for r in results if r.get("credit_grade") is not None]
+    has_multiple_grades = len(set(str(g) for g in grade_values)) > 1 if grade_values else False
     
-    # 헤더 (신용등급이 있으면 표시)
-    if credit_grade:
+    # 헤더 (신용등급이 있으면 표시, 등급별 산출이면 "등급별")
+    if has_multiple_grades:
+        header = f"* {bank_name} (등급별){lower_bound_suffix}"
+    elif credit_grade:
         header = f"* {bank_name} ({credit_grade}등급기준){lower_bound_suffix}"
     else:
         header = f"* {bank_name}{lower_bound_suffix}"
@@ -109,6 +118,7 @@ def format_result(bank_result: Dict[str, Any]) -> str:
         interest_rate_range = result.get("interest_rate_range")
         result_type = result.get("type", "후순위")
         is_refinance = result.get("is_refinance", False)
+        limit_not_calculated = result.get("limit_not_calculated", False)
         
         # 금리 포맷팅
         rate_str = format_interest_rate(interest_rate, interest_rate_range)
@@ -122,13 +132,22 @@ def format_result(bank_result: Dict[str, Any]) -> str:
         else:
             ltv_str = f"{int(ltv)}%"
         
-        # 대환인 경우 전체 금액과 가용한도 표시 (대환 금융사는 맨 위 헤더에만 표시)
-        if is_refinance:
-            total_amount = result.get("total_amount", 0)
-            available_amount = result.get("available_amount", 0)
-            line = f"{result_type} {ltv_str} {format_amount(total_amount)} / {rate_str} / 가용 {format_amount(available_amount)}"
+        # 한도 미산출인 경우
+        if limit_not_calculated:
+            line = f"{result_type} {ltv_str} 한도 미산출 (적용 LTV {ltv_str})"
         else:
-            line = f"{result_type} {ltv_str} {amount_str} / {rate_str}"
+            # 대환인 경우 전체 금액과 가용한도 표시 (대환 금융사는 맨 위 헤더에만 표시)
+            if is_refinance:
+                total_amount = result.get("total_amount", 0)
+                available_amount = result.get("available_amount", 0)
+                line = f"{result_type} {ltv_str} {format_amount(total_amount)} / {rate_str} / 가용 {format_amount(available_amount)}"
+            else:
+                line = f"{result_type} {ltv_str} {amount_str} / {rate_str}"
+        
+        # 등급별 산출인 경우 각 줄에 등급 표시 (예: 1~3등급기준)
+        result_credit_grade = result.get("credit_grade")
+        if result_credit_grade is not None and str(result_credit_grade).strip():
+            line += f" ({result_credit_grade}등급기준)"
         
         # 기준 LTV 이하 지역인 경우 메시지 추가
         below_standard_ltv = result.get("below_standard_ltv", False)
