@@ -1487,6 +1487,17 @@ class BaseCalculator:
                             "limit_not_calculated": limit_not_calculated,
                         }
                         results.append(result)
+                # 등급별로 한도가 나온 경우가 있으면, 해당 등급의 한도 미산출 항목은 제외
+                if results:
+                    grades_with_limit = {
+                        r.get("credit_grade") for r in results
+                        if not r.get("limit_not_calculated", False) and r.get("credit_grade")
+                    }
+                    if grades_with_limit:
+                        results = [
+                            r for r in results
+                            if not (r.get("limit_not_calculated", False) and r.get("credit_grade") in grades_with_limit)
+                        ]
                 if results and self.config.get("sort_results_by_grade"):
                     results.sort(key=lambda x: (x.get("credit_grade_sort", 99), -(x.get("ltv", 0))))
             else:
