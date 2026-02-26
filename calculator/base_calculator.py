@@ -3423,8 +3423,9 @@ class BaseCalculator:
                         business_result["bank_name"] = "OK저축은행 사업자금"
                         results.append(business_result)
                 else:
-                    # 일반 금융사는 기존대로 계산
-                    result = calculator.calculate(property_data)
+                    # 일반 금융사: config의 product_type이 있으면 전달 (사업자 상품은 business로 계산)
+                    cfg_product_type = calculator.config.get("product_type")
+                    result = calculator.calculate(property_data, product_type=cfg_product_type)
                     if result is not None:
                         # 취급 불가지역인 경우도 포함 (errors에 "취급 불가지역"이 있으면)
                         results.append(result)
