@@ -272,8 +272,9 @@ class MessageParser:
         
         print(f"DEBUG: Before validation - kb_price: {data['kb_price']}")
         if data["kb_price"]:
-            # 원본 문자열 저장 (하한가 추출 등에 사용)
-            data["kb_price_raw"] = data["kb_price"]
+            # 원본 문자열 저장 (하한가 추출 등에 사용). 감정가/탁감가로 이미 설정된 경우 유지
+            if not data.get("kb_price_raw"):
+                data["kb_price_raw"] = data["kb_price"]
             validated_price = validate_kb_price(data["kb_price"])
             data["kb_price"] = validated_price
             print(f"DEBUG: After validation - kb_price: {data['kb_price']}, kb_price_raw: {data['kb_price_raw']}")
@@ -694,6 +695,12 @@ class MessageParser:
         
         elif "구분" in key_clean or "유형" in key_clean:
             data["property_type"] = value
+        
+        elif ("감정가" in key_clean or "탁감가" in key_clean or "탁감" in key_clean) and not data.get("kb_price"):
+            # 감정가/탁감가(은행감정가) - KB시세가 없을 때만 사용 (금융사별 bank_appraisal_price 설정에 따라 한도 산출)
+            data["kb_price"] = value
+            data["kb_price_raw"] = f"{key.strip()}: {value}"
+            print(f"DEBUG: Parsed 감정가/탁감가 - key: {key}, value: {value}")
         
         elif "kb시세" in key_clean or "시세" in key_clean:
             # "KB시세 참고" + URL은 시세가 아님 → 덮어쓰지 않음 (기존 일반/하한 시세 유지)

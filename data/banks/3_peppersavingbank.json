@@ -1,8 +1,30 @@
 {
   "bank_name": "페퍼저축은행-사업자",
-  "target_regions": ["서울", "경기", "인천", "부산", "대전", "대구", "광주", "울산", "세종", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주"],
+  "target_regions": [
+    "서울",
+    "경기",
+    "인천",
+    "부산",
+    "대전",
+    "대구",
+    "광주",
+    "울산",
+    "세종",
+    "강원",
+    "충북",
+    "충남",
+    "전북",
+    "전남",
+    "경북",
+    "경남",
+    "제주"
+  ],
   "product_type": "business",
-  "self_refinance_excluded": ["페퍼저축은행", "페퍼저축", "페퍼저축은행-사업자"],
+  "self_refinance_excluded": [
+    "페퍼저축은행",
+    "페퍼저축",
+    "페퍼저축은행-사업자"
+  ],
   "_comment_self_refinance_excluded": "본인 금융사 대환 불가 - 후순위 추가대출로 처리",
   "region_grades": {
     "서울특별시종로구": 1,
@@ -82,8 +104,8 @@
     "인천광역시중구": 2,
     "인천광역시계양구": 3,
     "인천광역시미추홀구": 3,
-    "인천광역시강화군": 6,
-    "인천광역시옹진군": 6,
+    "인천광역시강화군": 9,
+    "인천광역시옹진군": 9,
     "부산광역시중구": 3,
     "부산광역시서구": 3,
     "부산광역시동구": 3,
@@ -103,17 +125,17 @@
     "대전광역시대덕구": 3,
     "대전광역시서구": 3,
     "대전광역시유성구": 3,
-    "대전광역시동구": 6,
-    "대전광역시중구": 6,
-    "대구광역시중구": 6,
-    "대구광역시동구": 6,
-    "대구광역시서구": 6,
-    "대구광역시남구": 6,
-    "대구광역시북구": 6,
-    "대구광역시수성구": 6,
-    "대구광역시달서구": 6,
-    "대구광역시달성군": 6,
-    "대구광역시군위군": 6,
+    "대전광역시동구": 9,
+    "대전광역시중구": 9,
+    "대구광역시중구": 9,
+    "대구광역시동구": 9,
+    "대구광역시서구": 9,
+    "대구광역시남구": 9,
+    "대구광역시북구": 9,
+    "대구광역시수성구": 9,
+    "대구광역시달서구": 9,
+    "대구광역시달성군": 9,
+    "대구광역시군위군": 9,
     "광주광역시광산구": 2,
     "광주광역시남구": 3,
     "광주광역시동구": 3,
@@ -123,7 +145,7 @@
     "울산광역시중구": 2,
     "울산광역시남구": 3,
     "울산광역시북구": 3,
-    "울산광역시동구": 6,
+    "울산광역시동구": 9,
     "세종특별자치시세종시": 2,
     "세종특별자치시": 2,
     "강원특별자치도춘천시": 2,
@@ -256,19 +278,29 @@
     "충청북도음성군": 3,
     "충청북도단양군": 3,
     "충청북도증평군": 3,
-    "제주특별자치도제주시": 6,
-    "제주특별자치도서귀포시": 6
+    "제주특별자치도제주시": 9,
+    "제주특별자치도서귀포시": 9
   },
   "max_ltv_by_grade": {
     "1": 82,
     "2": 82,
     "3": 82,
-    "6": 0
+    "9": 0
   },
   "max_ltv_primary": 82,
   "max_ltv_subordinate": 85,
-  "ltv_steps_primary": [82, 80, 75, 70],
-  "ltv_steps_subordinate": [85, 80, 75, 70],
+  "ltv_steps_primary": [
+    82,
+    80,
+    75,
+    70
+  ],
+  "ltv_steps_subordinate": [
+    85,
+    80,
+    75,
+    70
+  ],
   "credit_score_to_grade": {
     "905-999": 1,
     "855-904": 2,
@@ -395,21 +427,69 @@
     "_comment_multi_family_house": "공동주택"
   },
   "min_amount": 2000,
-  "conditions": [
-  ],
+  "conditions": [],
   "lower_bound_price": {
     "enabled": true,
     "apartment": {
       "rules": [
-        { "total_floors_min": 30, "lower_bound_floors": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] },
-        { "total_floors_min": 8, "total_floors_max": 29, "lower_bound_floors": [1, 2] },
-        { "total_floors_max": 7, "lower_bound_floors": [1] }
+        {
+          "total_floors_min": 30,
+          "lower_bound_floors": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ]
+        },
+        {
+          "total_floors_min": 8,
+          "total_floors_max": 29,
+          "lower_bound_floors": [
+            1,
+            2
+          ]
+        },
+        {
+          "total_floors_max": 7,
+          "lower_bound_floors": [
+            1
+          ]
+        }
       ]
     },
     "residential_commercial": {
       "rules": [
-        { "total_floors_min": 20, "lower_bound_floors": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] },
-        { "total_floors_max": 19, "lower_bound_floors": [1, 2, 3, 4, 5] }
+        {
+          "total_floors_min": 20,
+          "lower_bound_floors": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ]
+        },
+        {
+          "total_floors_max": 19,
+          "lower_bound_floors": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        }
       ]
     },
     "description": "아파트: 7층이하 1층, 8~29층 1~2층, 30층이상 1~10층 하한가 / 주상복합: 19층이하 1~5층, 20층이상 1~10층 하한가"
@@ -421,16 +501,32 @@
     "enabled": true,
     "occupation_requirements": {
       "_comment": "직업 요구사항 (required_keywords: 필수 키워드, forbidden_keywords: 금지 키워드, check_fields: 체크할 필드)",
-      "required_keywords": ["사업자"],
-      "forbidden_keywords": ["법인사업자"],
-      "check_fields": ["occupation", "special_notes", "requests"],
+      "required_keywords": [
+        "사업자"
+      ],
+      "forbidden_keywords": [
+        "법인사업자"
+      ],
+      "check_fields": [
+        "occupation",
+        "special_notes",
+        "requests"
+      ],
       "error_message": "직업이 '사업자'인 경우만 취급 가능합니다 (현재 직업: '{occupation}')",
       "forbidden_error_message": "법인사업자는 취급 불가합니다"
     },
     "restricted_keywords": {
       "_comment": "제한 키워드 체크 (check_fields: 체크할 필드, keywords: 제한 키워드 목록)",
-      "check_fields": ["special_notes", "requests"],
-      "keywords": ["부가세 누락", "즉발", "즉발보유", "부가세"],
+      "check_fields": [
+        "special_notes",
+        "requests"
+      ],
+      "keywords": [
+        "부가세 누락",
+        "즉발",
+        "즉발보유",
+        "부가세"
+      ],
       "error_message": "특이사항/요청사항에 '{keywords}'가 포함되어 취급 불가합니다"
     },
     "complex_rules": [
@@ -439,8 +535,15 @@
         "name": "사업자보유 부가세누락신고조건",
         "conditions": {
           "_comment": "require_all: true면 모든 조건 만족 시, false면 하나라도 만족 시",
-          "occupation_keywords": ["사업자보유", "직장인"],
-          "combined_text_keywords": ["사업자보유", "부가세", "누락"],
+          "occupation_keywords": [
+            "사업자보유",
+            "직장인"
+          ],
+          "combined_text_keywords": [
+            "사업자보유",
+            "부가세",
+            "누락"
+          ],
           "require_all": true
         },
         "error_message": "사업자보유 부가세누락신고조건인 경우 취급 불가합니다"
@@ -448,4 +551,3 @@
     ]
   }
 }
-

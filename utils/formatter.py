@@ -137,6 +137,10 @@ def format_result(bank_result: Dict[str, Any]) -> str:
     if errors and "취급 불가지역" in errors:
         return f"* {bank_name}\n취급 불가지역"
     
+    # 9급지 취급 불가인 경우
+    if errors and "9급지로 취급 불가" in errors:
+        return f"* {bank_name}\n9급지로 취급 불가"
+    
     # 가용 한도 부족 등 에러가 있는 경우
     if errors and len(errors) > 0:
         error_msg = "\n".join(errors)
@@ -335,9 +339,13 @@ def format_all_results(
     
     # 순위 계산
     priority_text = ""
+    is_primary_section = False  # 근저당권 없음 = 선순위
     if property_data:
         mortgages = property_data.get("mortgages", [])
-        if mortgages:
+        if not mortgages:
+            priority_text = "선순위"
+            is_primary_section = True
+        elif mortgages:
             # 대환하는 근저당권 확인
             refinance_mortgages = [m for m in mortgages if m.get("is_refinance", False)]
             remaining_mortgages = [m for m in mortgages if not m.get("is_refinance", False)]
@@ -429,7 +437,10 @@ def format_all_results(
         return t + (f" / {appraisal_price_info}" if appraisal_price_info else "")
     
     def make_subordinate_header():
-        t = f"※ 후순위 진행 - {priority_text} 진행" if priority_text else "※ 후순위 진행"
+        if is_primary_section:
+            t = "※ 선순위 진행"
+        else:
+            t = f"※ 후순위 진행 - {priority_text} 진행" if priority_text else "※ 후순위 진행"
         return t + (f" / {appraisal_price_info}" if appraisal_price_info else "")
     
     # 그룹별로 정렬하여 출력: 대환 먼저, 후순위 나중

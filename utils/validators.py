@@ -228,8 +228,8 @@ def extract_bank_appraisal_price_from_special_notes(special_notes):
         # "8억" -> 80000, "80,000만원" -> 80000, "60,000만" -> 60000 등 처리
         # 더 명확하고 간단한 패턴들
         
-        # 먼저 "억" 단위가 있는지 확인
-        eok_pattern = r'(?:은행\s*감정가|감정가|탁감)\s*[:\s]*([\d,]+)\s*억'
+        # 먼저 "억" 단위가 있는지 확인 (탁감가: 은행감정가 약어)
+        eok_pattern = r'(?:은행\s*감정가|감정가|탁감가|탁감)\s*[:\s]*([\d,]+)\s*억'
         eok_match = re.search(eok_pattern, notes_str, re.IGNORECASE)
         if eok_match:
             price_str = eok_match.group(1).strip().replace(",", "")
@@ -243,8 +243,8 @@ def extract_bank_appraisal_price_from_special_notes(special_notes):
         
         # "만원" 또는 "만" 단위가 있는 경우
         man_patterns = [
-            r'(?:은행\s*감정가|감정가|탁감)\s*[:\s]*([\d,]+)\s*만원',  # "감정가 60,000만원" 형식
-            r'(?:은행\s*감정가|감정가|탁감)\s*[:\s]*([\d,]+)\s*만',  # "감정가 60,000만" 형식
+            r'(?:은행\s*감정가|감정가|탁감가|탁감)\s*[:\s]*([\d,]+)\s*만원',  # "감정가 60,000만원", "탁감가 82,000만원" 형식
+            r'(?:은행\s*감정가|감정가|탁감가|탁감)\s*[:\s]*([\d,]+)\s*만',  # "감정가 60,000만", "탁감가 82,000만" 형식
         ]
         
         for pattern in man_patterns:
@@ -261,7 +261,7 @@ def extract_bank_appraisal_price_from_special_notes(special_notes):
                         continue
         
         # 단위가 없는 경우 (숫자만)
-        no_unit_pattern = r'(?:은행\s*감정가|감정가|탁감)\s*[:\s]*([\d,]+)'
+        no_unit_pattern = r'(?:은행\s*감정가|감정가|탁감가|탁감)\s*[:\s]*([\d,]+)'
         no_unit_match = re.search(no_unit_pattern, notes_str, re.IGNORECASE)
         if no_unit_match:
             price_str = no_unit_match.group(1).strip().replace(",", "")

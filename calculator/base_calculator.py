@@ -778,10 +778,10 @@ class BaseCalculator:
             print(f"DEBUG: BaseCalculator.calculate - grade is None for region: {region}, 취급 불가지역")
             region_errors.append("취급 불가지역")
         
-        # 6급지인 경우 취급 불가지역으로 처리
-        if grade == 6:
-            print(f"DEBUG: BaseCalculator.calculate - grade 6 for region: {region}, 취급 불가지역")
-            region_errors.append("6급지로 취급 불가")
+        # 9급지인 경우 취급 불가지역으로 처리
+        if grade == 9:
+            print(f"DEBUG: BaseCalculator.calculate - grade 9 for region: {region}, 취급 불가지역")
+            region_errors.append("9급지로 취급 불가")
         
         # 지역 검증 오류가 있으면 반환
         if region_errors:
@@ -1131,7 +1131,7 @@ class BaseCalculator:
                 max_ltv_subordinate = self.config.get("max_ltv_subordinate")
                 if max_ltv_subordinate is not None:
                     # 후순위인 경우: max_ltv_subordinate를 우선 적용
-                    # 급지 제한이 0이면 취급 불가 (예: 6급지), 그 외에는 max_ltv_subordinate 사용
+                    # 급지 제한이 0이면 취급 불가 (예: 9급지), 그 외에는 max_ltv_subordinate 사용
                     if max_ltv is not None and max_ltv == 0:
                         # 급지 제한이 0이면 취급 불가
                         pass  # max_ltv는 0으로 유지
@@ -1288,7 +1288,7 @@ class BaseCalculator:
                     "amount": rounded_amount,
                     "interest_rate": rate_info.get("interest_rate"),
                     "interest_rate_range": rate_info.get("interest_rate_range"),
-                    "type": "대환" if is_refinance else "후순위",
+                    "type": "대환" if is_refinance else ("선순위" if not self._is_subordinate else "후순위"),
                     "available_amount": rounded_amount,
                     "total_amount": rounded_amount,
                     "is_refinance": is_refinance,
@@ -1386,7 +1386,7 @@ class BaseCalculator:
                     "amount": rounded_amount,
                     "interest_rate": rate_info.get("interest_rate"),
                     "interest_rate_range": rate_info.get("interest_rate_range"),
-                    "type": "대환" if is_refinance else "후순위",
+                    "type": "대환" if is_refinance else ("선순위" if not self._is_subordinate else "후순위"),
                     "available_amount": rounded_amount,
                     "total_amount": rounded_total_amount,
                     "is_refinance": is_refinance,
@@ -1499,7 +1499,7 @@ class BaseCalculator:
                             "amount": final_amount,
                             "interest_rate": rate,
                             "interest_rate_range": None,
-                            "type": "대환" if is_refinance else "후순위",
+                            "type": "대환" if is_refinance else ("선순위" if not self._is_subordinate else "후순위"),
                             "available_amount": final_amount,
                             "total_amount": final_total_amount,
                             "is_refinance": is_refinance,
@@ -1759,7 +1759,7 @@ class BaseCalculator:
                             "amount": final_amount,
                             "interest_rate": rate_info.get("interest_rate"),
                             "interest_rate_range": rate_info.get("interest_rate_range"),
-                            "type": "대환" if is_refinance else "후순위",
+                            "type": "대환" if is_refinance else ("선순위" if not self._is_subordinate else "후순위"),
                             "available_amount": final_amount,
                             "total_amount": final_total_amount,
                             "is_refinance": is_refinance,
@@ -1867,7 +1867,7 @@ class BaseCalculator:
         if is_mg_capital_return and property_data:
             kb_price_raw_str = str(property_data.get("kb_price_raw") or "")
             if "탁감가" in kb_price_raw_str or "감정가" in kb_price_raw_str or "은행감정가" in kb_price_raw_str:
-                conditions.append("감정건일 경우 가산금리 1% 추가")
+                conditions.append("※ 표시금리는 감정건(탁감가) 가산금리 1%p가 적용된 금리입니다")
         
         return {
             "bank_name": final_bank_name,
