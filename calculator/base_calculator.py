@@ -3034,6 +3034,10 @@ class BaseCalculator:
             # 후순위 대출이고 subordinate_interest_rates_by_ltv가 있으면 사용
             ltv_rates = subordinate_rates
             print(f"DEBUG: get_interest_rate - 후순위 대출, subordinate_interest_rates_by_ltv 사용")
+        elif is_subordinate and primary_rates:
+            # JB하이론 등: subordinate 없을 때 primary_rates fallback (선후순위 동일 금리)
+            ltv_rates = primary_rates
+            print(f"DEBUG: get_interest_rate - 후순위 대출, primary_interest_rates_by_ltv fallback 사용")
         elif not is_subordinate and primary_rates:
             # 선순위 대출이고 primary_interest_rates_by_ltv가 있으면 사용
             ltv_rates = primary_rates
