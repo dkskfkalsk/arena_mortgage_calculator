@@ -115,9 +115,13 @@ def format_amount(amount: float) -> str:
     return f"{int(amount):,}만"
 
 
-def format_result(bank_result: Dict[str, Any]) -> str:
+def format_result(bank_result: Dict[str, Any], requests: str = "") -> str:
     """
     결과 포맷팅
+    
+    Args:
+        bank_result: 금융사별 계산 결과
+        requests: 요청사항 문자열 (부족자금 포함 시 한도 미산출도 표시)
     
     예:
     * BNK캐피탈 (4등급기준) (하한가 적용)
@@ -189,6 +193,10 @@ def format_result(bank_result: Dict[str, Any]) -> str:
         header = f"* {bank_name}{lower_bound_suffix}"
     
     lines = [header]
+    
+    # 한도가 나온 경우 한도 미산출 제외 (부족자금 요청 시에는 한도 미산출도 표시)
+    if "부족자금" not in requests and any(not r.get("limit_not_calculated", False) for r in results):
+        results = [r for r in results if not r.get("limit_not_calculated", False)]
     
     # 등급별 산출 시: 한도가 나온 등급(구간 포함)의 한도 미산출 항목 제외
     # 예: 1~2등급에 한도 있으면, 1~5·1~3 등 1,2를 포함하는 구간의 한도 미산출도 제외
@@ -444,26 +452,28 @@ def format_all_results(
         return t + (f" / {appraisal_price_info}" if appraisal_price_info else "")
     
     # 그룹별로 정렬하여 출력: 대환 먼저, 후순위 나중
+    requests_str = (property_data.get("requests", "") or "") if property_data else ""
+    format_br = lambda br: format_result(br, requests=requests_str)
     output_parts = []
-    
+
     if refinance_banks and subordinate_banks:
         # 혼합: 대환 섹션 → 후순위 섹션 (각 그룹 맨 위에 헤더 한 번만)
         refinance_names = {br.get("bank_name") for br in refinance_banks}
         subordinate_only = [br for br in subordinate_banks if br.get("bank_name") not in refinance_names]
         output_parts.append(make_refinance_header())
-        output_parts.extend(format_result(br) for br in refinance_banks)
+        output_parts.extend(format_br(br) for br in refinance_banks)
         if subordinate_only:
             output_parts.append(make_subordinate_header())
-            output_parts.extend(format_result(br) for br in subordinate_only)
+            output_parts.extend(format_br(br) for br in subordinate_only)
     elif refinance_banks:
         # 대환만
         output_parts.append(make_refinance_header())
-        output_parts.extend(format_result(br) for br in refinance_banks)
+        output_parts.extend(format_br(br) for br in refinance_banks)
     elif subordinate_banks:
         # 후순위만
         output_parts.append(make_subordinate_header())
-        output_parts.extend(format_result(br) for br in subordinate_banks)
-    
+        output_parts.extend(format_br(br) for br in subordinate_banks)
+
     if output_parts:
         # 첫 줄은 헤더, 나머지는 금융사별 결과 (각 블록 사이 \n\n)
         header = output_parts[0]
@@ -471,5 +481,5 @@ def format_all_results(
         # 빈 문자열은 섹션 구분이므로 \n\n\n으로 연결, 나머지는 \n\n
         body_str = "\n\n".join(p for p in body_parts if p != "")
         return f"{header}\n\n{body_str}" if body_str else header
-    return "\n\n".join(format_result(br) for br in all_results)
+    return "\n\n".join(format_br(br) for br in all_results)
 
