@@ -29,6 +29,13 @@ DEFAULT_HEADERS = {
 # https://www.data.go.kr/data/15057017/openapi.do / juso.go.kr 신청 후 confmKey 발급
 JUSO_API_URL = "https://www.juso.go.kr/addrlink/addrLinkApi.do"
 
+# parse_address 결과(강원도, 전라북도 등) → dongcode_data 실제 키(강원특별자치도, 전북특별자치도) 매핑
+_REGION_LOOKUP_MAP = {
+    "강원도": "강원특별자치도",
+    "전라북도": "전북특별자치도",
+    "제주도": "제주특별자치도",
+}
+
 # 도로명 등으로 동/읍/면을 찾지 못할 때 사용하는 보조 매핑 (키워드→법정동코드)
 # (시/군 키워드, 도로명·단지 키워드) → 법정동코드. 주소에 키워드가 모두 포함되면 사용.
 _ROAD_FALLBACK_DONGCODES = [
@@ -311,6 +318,16 @@ class KBPriceAPI:
                 logger.debug(f"   구/시/군 추출: {match.group(1)}")
                 break
         
+        # 도로명주소: 맨 앞에 시/군만 있는 경우 (예: "원주시 장막2길 12") - region 없이 district만
+        if not result.get("district"):
+            lead_match = re.match(r'^([가-힣]+(?:시|군))\s', address)
+            if lead_match:
+                cand = lead_match.group(1)
+                # 시/도급(특별시, 광역시, 도)이면 district로 사용하지 않음
+                if not any(x in cand for x in ("특별", "광역", "특별자치", "도")):
+                    result["district"] = cand
+                    logger.debug(f"   구/시/군 추출(도로명 선행): {cand}")
+        
         # 동/읍/면 추출 (제217동, 제1105호 같은 '제' 제거)
         # 전국 데이터 구조: "권선구 곡반정동" 형식으로 저장됨
         # "경기도 수원시 권선구 곡반정동" -> dong="권선구 곡반정동"으로 추출
@@ -344,6 +361,13 @@ class KBPriceAPI:
         if not dong_found:
             logger.warning(f"⚠️ 동/읍/면을 찾을 수 없음: {address}")
         
+        # 도로명 패턴 추출 (~로, ~길) - find_dongcode에서 시/군/구 기반 검색 시 활용
+        # "장막2길", "양도로", "테스트로 123" 등 지원
+        road_match = re.search(r'([가-힣]+(?:\d)*(?:로|길)\s*\d*)', address)
+        if road_match:
+            result["road_name"] = road_match.group(1).strip()  # 예: "장막2길", "양도로"
+            logger.debug(f"   도로명 추출: {result['road_name']}")
+        
         # 상세 주소 (나머지)
         if result.get("dong"):
             detail_start = address.find(result["dong"]) + len(result["dong"])
@@ -374,7 +398,38 @@ class KBPriceAPI:
         district = parsed.get("district")
         dong = parsed.get("dong")
         
+        # 강원도→강원특별자치도, 전라북도→전북특별자치도 등 dongcode_data 키로 매핑
+        if region and region in _REGION_LOOKUP_MAP:
+            region = _REGION_LOOKUP_MAP[region]
+            logger.debug(f"   region 매핑 적용: {parsed.get('region')} → {region}")
+        
         logger.debug(f"   파싱된 주소 정보: region={region}, district={district}, dong={dong}")
+        
+        # [방안 A] district는 있는데 region 없음 → dongcode_data에서 해당 district를 가진 region 추론
+        if district and not region:
+            for reg_key, reg_val in (self.dongcode_data or {}).items():
+                districts_in_reg = (reg_val or {}).get("districts", {})
+                if district in districts_in_reg:
+                    region = reg_key
+                    logger.info(f"   region 추론(시/군 기반): {district} → {region}")
+                    break
+        
+        # [방안 A] region·district 있으나 dong 없음 + 도로명 있음 → district 하위 dongs에서 도로명 stem 매칭
+        road_name = parsed.get("road_name")
+        if region and district and not dong and road_name:
+            road_stem = re.sub(r'\d*(로|길)\s*\d*$', '', road_name).strip()  # "장막2길"→"장막", "양도로"→"양도"
+            if len(road_stem) >= 2:
+                region_data = self.dongcode_data.get(region, {})
+                district_data = (region_data.get("districts", {}) or {}).get(district, {})
+                dongs = (district_data or {}).get("dongs", {})
+                for dong_key, dong_val in dongs.items():
+                    if road_stem in dong_key and isinstance(dong_val, dict):
+                        code = dong_val.get("code")
+                        if code and re.match(r'^\d{10}$', str(code)):
+                            logger.info(f"   도로명 기반 동 매칭: {road_stem} in '{dong_key}' → {code}")
+                            return str(code)
+        
+        logger.debug(f"   파싱된 주소 정보(추론 후): region={region}, district={district}, dong={dong}")
         
         if not all([region, district, dong]):
             fallback = _try_road_fallback_dongcode(address)
