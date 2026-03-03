@@ -923,12 +923,10 @@ class BaseCalculator:
                     # self_refinance_excluded 체크: 본인 금융사 대환 불가
                     is_self_refinance_excluded = False
                     if self_refinance_excluded:
-                        # 본인 금융사인지 확인 (self.bank_name과 institution 비교)
-                        bank_name_clean = self.bank_name.replace(" ", "")
+                        # institution이 self_refinance_excluded 목록(본인 금융사 별칭)에 해당하면 대환 불가
                         for excluded_name in self_refinance_excluded:
                             excluded_clean = excluded_name.replace(" ", "")
-                            # excluded_name이 institution에 포함되어 있고, 동시에 bank_name과도 매칭되는 경우
-                            if excluded_clean in institution_clean and excluded_clean in bank_name_clean:
+                            if excluded_clean in institution_clean:
                                 is_self_refinance_excluded = True
                                 print(f"DEBUG: BaseCalculator.calculate - {self.bank_name}: '{institution}'는 self_refinance_excluded에 포함되어 본인 금융사 대환 불가, 후순위로 처리")
                                 break
