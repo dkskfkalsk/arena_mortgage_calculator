@@ -135,18 +135,24 @@ class BaseCalculator:
         "서울특별시관악구", "서울특별시서초구", "서울특별시강남구", "서울특별시송파구",
         "서울특별시강동구",
         "경기도성남시분당구", "경기도광명시", "경기도과천시", "경기도하남시",
-        "경기도수원시장안구", "경기도수원시권선구", "경기도수원시팔달구", "경기도수원시영통구",
-        "경기도성남시수정구", "경기도성남시중원구", "경기도안양시만안구", "경기도안양시동안구",
+        "경기도수원시장안구", "경기도수원시권선구", "경기도수원시팔달구",
+        "경기도수원시영통구이의동", "경기도수원시영통구원천동", "경기도수원시영통구하동",
+        "경기도수원시영통구",
+        "경기도성남시수정구창곡동", "경기도성남시수정구", "경기도성남시중원구",
+        "경기도안양시만안구", "경기도안양시동안구",
         "경기도부천시소사구", "경기도부천시오정구", "경기도부천시원미구", "경기도고양시덕양구",
         "경기도고양시일산동구", "경기도고양시일산서구", "인천광역시연수구", "인천광역시부평구",
         "경기도의정부시", "경기도안산시상록구", "경기도안산시단원구", "경기도구리시",
-        "경기도남양주시", "경기도군포시", "경기도의왕시", "경기도용인시처인구",
-        "경기도용인시기흥구", "경기도용인시수지구", "경기도김포시", "경기도화성시",
+        "경기도남양주시별내동", "경기도남양주시다산동", "경기도남양주시",
+        "경기도군포시", "경기도의왕시", "경기도용인시처인구",
+        "경기도용인시기흥구", "경기도용인시수지구", "경기도김포시",
+        "경기도화성시동탄구", "경기도화성시만세구", "경기도화성시효행구", "경기도화성시병점구", "경기도화성시",
         "경기도평택시", "경기도동두천시", "경기도오산시", "경기도시흥시",
         "경기도파주시", "경기도안성시", "경기도광주시", "경기도양주시",
         "경기도이천시", "경기도포천시", "경기도여주시", "경기도연천군",
         "경기도가평군", "경기도양평군",
         "인천광역시중구", "인천광역시동구", "인천광역시남동구", "인천광역시계양구",
+        "인천광역시서구청라동", "인천광역시서구가정동", "인천광역시서구신현동",
         "인천광역시서구", "인천광역시미추홀구", "인천광역시강화군", "인천광역시옹진군",
         "광주광역시동구", "광주광역시서구", "광주광역시남구", "광주광역시북구", "광주광역시광산구",
         "대전광역시동구", "대전광역시중구", "대전광역시서구", "대전광역시유성구", "대전광역시대덕구",
@@ -1117,6 +1123,8 @@ class BaseCalculator:
         self._is_household_product = is_household_product
         self._is_subordinate = len(other_mortgages) > 0  # 후순위 여부
         self._current_property_data = property_data
+        # 창업사업자 vs 일반사업자 구분 (애큐온캐피탈 등)
+        self._is_startup_business = self._check_is_startup_business(property_data)
         
         # 후순위/선순위에 따른 최대 LTV 재조정 (키움저축-리테일 등)
         # 애큐온저축은행: max_ltv_by_priority_grade_region을 사용한 경우 재조정 불필요
@@ -1958,6 +1966,30 @@ class BaseCalculator:
             print(f"DEBUG: _get_ltv_steps_by_grade - 기본 ltv_steps 사용: {default_steps}")
             return default_steps
     
+    def _check_is_startup_business(self, property_data: Dict[str, Any]) -> bool:
+        """
+        창업사업자 여부 판단 (애큐온캐피탈 등)
+        - 직업: 직장인, 직장인(사업자보유) -> 창업사업자
+        - 특이사항: 즉발, 즉발사업자, 가라사업자, 즉발보유, 가라사업자보유 -> 창업사업자
+        - 그 외 '사업자' 보유 -> 일반사업자
+        """
+        startup_config = self.config.get("startup_business_keywords", {})
+        if not startup_config:
+            return False  # 설정 없으면 일반사업자
+        occupation = (property_data.get("occupation") or "").strip()
+        special_notes = (property_data.get("special_notes") or "").strip()
+        requests = (property_data.get("requests") or "").strip()
+        combined = f"{occupation} {special_notes} {requests}"
+        occ_keywords = startup_config.get("occupation", [])
+        notes_keywords = startup_config.get("special_notes", [])
+        for kw in occ_keywords:
+            if kw in occupation:
+                return True
+        for kw in notes_keywords:
+            if kw in special_notes or kw in requests:
+                return True
+        return False
+
     def _validate_validation_rules(
         self, 
         property_data: Dict[str, Any], 
@@ -2146,6 +2178,25 @@ class BaseCalculator:
                 if grade is not None and not self._is_metropolitan_key(key):
                     print(f"DEBUG: get_region_grade - key clean match: {key} -> {region_clean} -> grade {grade}")
                     return grade
+        
+        # 4. 구/동 단위 region에 대한 부모 지역 fallback (다른 금융사 호환)
+        # 예: 경기도화성시동탄구 -> 경기도화성시, 경기도수원시영통구이의동 -> 경기도수원시영통구
+        region_to_parent = {
+            "경기도화성시동탄구": "경기도화성시", "경기도화성시만세구": "경기도화성시",
+            "경기도화성시효행구": "경기도화성시", "경기도화성시병점구": "경기도화성시",
+            "경기도수원시영통구이의동": "경기도수원시영통구", "경기도수원시영통구원천동": "경기도수원시영통구",
+            "경기도수원시영통구하동": "경기도수원시영통구",
+            "경기도성남시수정구창곡동": "경기도성남시수정구",
+            "경기도남양주시별내동": "경기도남양주시", "경기도남양주시다산동": "경기도남양주시",
+            "인천광역시서구청라동": "인천광역시서구", "인천광역시서구가정동": "인천광역시서구",
+            "인천광역시서구신현동": "인천광역시서구",
+        }
+        parent_region = region_to_parent.get(region_clean)
+        if parent_region and parent_region in region_grades:
+            grade = region_grades.get(parent_region)
+            if grade is not None and not self._is_metropolitan_key(parent_region):
+                print(f"DEBUG: get_region_grade - parent fallback: {region_clean} -> {parent_region} -> grade {grade}")
+                return grade
         
         print(f"DEBUG: get_region_grade - no match found for region: {region} (취급 불가지역)")
         return None
@@ -2934,6 +2985,38 @@ class BaseCalculator:
                 "credit_grade": 신용등급
             }
         """
+        # 애큐온캐피탈: 급지별·창업/일반사업자별·선후순위별 금리
+        rates_by_group = self.config.get("interest_rates_by_region_group_priority_business", {})
+        if rates_by_group and credit_grade is not None:
+            region_grade_str = str(region_grade) if region_grade is not None else None
+            grade_to_group = self.config.get("region_grade_to_group", {})
+            group = grade_to_group.get(region_grade_str) if region_grade_str else None
+            if group and group in rates_by_group:
+                is_subordinate = getattr(self, '_is_subordinate', False)
+                is_startup = getattr(self, '_is_startup_business', False)
+                priority_key = "subordinate" if is_subordinate else "primary"
+                business_key = "startup" if is_startup else "regular"
+                group_rates = rates_by_group[group].get(priority_key, {}).get(business_key, {})
+                bands = self.config.get("ltv_bands_subordinate" if is_subordinate else "ltv_bands_primary", [])
+                ltv_float = float(ltv)
+                ltv_key = None
+                for band in sorted(bands):
+                    if ltv_float <= band:
+                        ltv_key = str(band)
+                        break
+                if ltv_key and ltv_key in group_rates:
+                    grade_rates = group_rates[ltv_key]
+                    grade_key = str(credit_grade)
+                    if grade_key in grade_rates:
+                        rate = grade_rates[grade_key]
+                        if rate is not None:
+                            return {
+                                "interest_rate": round(float(rate), 2),
+                                "interest_rate_range": None,
+                                "credit_grade": credit_grade
+                            }
+                        return {"interest_rate": None, "interest_rate_range": None, "credit_grade": credit_grade}
+
         # OK 저축은행인지 확인 (cofix_rate가 있으면 OK 저축은행)
         cofix_rate = self.config.get("cofix_rate")
         if cofix_rate is not None:
