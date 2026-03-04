@@ -1449,15 +1449,97 @@ class BaseCalculator:
             
             print(f"DEBUG: BaseCalculator.calculate - max_ltv: {max_ltv}, ltv_steps: {ltv_steps}")  # 추가
             
-            # JB우리캐피탈: 신용 X일 때 등급별(1~7) LTV 산출, 동일 금리 등급 합산 표시
+            # 애큐온캐피탈: 신용 X일 때 금리 범위(1~7등급 min~max)로 산출
             max_ltv_by_region_credit_grade = self.config.get("max_ltv_by_region_credit_grade", {})
             region_grade_str = str(grade) if grade is not None else None
-            is_jb_per_grade = (
+            rates_by_group = self.config.get("interest_rates_by_region_group_priority_business", {})
+            grade_to_group = self.config.get("region_grade_to_group", {})
+            is_acuon_capital_no_credit = (
+                credit_grade is None
+                and max_ltv_by_region_credit_grade
+                and rates_by_group
+                and region_grade_str
+                and region_grade_str in max_ltv_by_region_credit_grade
+                and not region_grade_str.startswith("_")
+                and region_grade_str != "9"
+                and grade_to_group.get(region_grade_str)
+            )
+            if is_acuon_capital_no_credit:
+                max_ltv_map = max_ltv_by_region_credit_grade.get(region_grade_str, {})
+                group = grade_to_group.get(region_grade_str)
+                is_subordinate = getattr(self, '_is_subordinate', False)
+                is_startup = getattr(self, '_is_startup_business', False)
+                priority_key = "subordinate" if is_subordinate else "primary"
+                business_key = "startup" if is_startup else "regular"
+                bands = self.config.get("ltv_bands_subordinate" if is_subordinate else "ltv_bands_primary", [])
+                group_rates = rates_by_group.get(group, {}).get(priority_key, {}).get(business_key, {})
+                requests = property_data.get("requests", "") or ""
+                allow_negative_available = "부족자금" in requests
+                min_amount_config = self.config.get("min_amount")
+                for ltv in ltv_steps:
+                    if max_ltv is not None and ltv > max_ltv:
+                        continue
+                    any_grade_allows = False
+                    for g in range(1, 8):
+                        g_max = max_ltv_map.get(str(g), 0) if isinstance(max_ltv_map, dict) else 0
+                        if g_max is not None and g_max >= ltv:
+                            any_grade_allows = True
+                            break
+                    if not any_grade_allows:
+                        continue
+                    ltv_float = float(ltv)
+                    ltv_key = None
+                    for band in sorted(bands):
+                        if ltv_float <= band:
+                            ltv_key = str(band)
+                            break
+                    if not ltv_key or ltv_key not in group_rates:
+                        continue
+                    grade_rates = group_rates[ltv_key]
+                    valid_rates = [float(grade_rates[str(g)]) for g in range(1, 8) if str(g) in grade_rates and grade_rates[str(g)] is not None]
+                    if not valid_rates:
+                        continue
+                    rate_min, rate_max = min(valid_rates), max(valid_rates)
+                    amount_info = self.calculate_available_amount(
+                        kb_price, ltv, total_mortgage, is_refinance, refinance_principal
+                    )
+                    amount_for_min_rounded = self.round_down_to_hundred_thousand(
+                        amount_info["total_amount"] if is_refinance else amount_info.get("available_limit", amount_info.get("available_amount", 0))
+                    )
+                    limit_not_calculated = (
+                        (amount_info["available_amount"] <= 0 and not allow_negative_available)
+                        or (min_amount_config is not None and amount_for_min_rounded < min_amount_config)
+                    )
+                    final_amount = self.round_down_to_hundred_thousand(amount_info["available_amount"]) if not limit_not_calculated else 0
+                    final_total_amount = self.round_down_to_hundred_thousand(amount_info["total_amount"]) if not limit_not_calculated else 0
+                    result = {
+                        "ltv": ltv,
+                        "amount": final_amount,
+                        "interest_rate": None,
+                        "interest_rate_range": (round(rate_min, 2), round(rate_max, 2)),
+                        "type": "대환" if is_refinance else ("선순위" if not self._is_subordinate else "후순위"),
+                        "available_amount": final_amount,
+                        "total_amount": final_total_amount,
+                        "is_refinance": is_refinance,
+                        "credit_grade": None,
+                        "credit_grade_sort": 99,
+                        "below_standard_ltv": is_below_standard,
+                        "fixed_rate_comment": None,
+                        "refinance_institutions": (refinance_institutions if is_household_for_ok else all_refinance_institutions) if is_refinance else None,
+                        "limit_not_calculated": limit_not_calculated,
+                    }
+                    results.append(result)
+                if results and self.config.get("sort_results_by_grade"):
+                    results.sort(key=lambda x: (x.get("credit_grade_sort", 99), -(x.get("ltv", 0))))
+                print(f"DEBUG: BaseCalculator.calculate - 애큐온캐피탈 신용 X 금리범위 산출: {len(results)}건")
+            elif (
                 max_ltv_by_region_credit_grade and credit_grade is None and region_grade_str
                 and region_grade_str in max_ltv_by_region_credit_grade
                 and not region_grade_str.startswith("_")
-            )
-            if is_jb_per_grade:
+                and not rates_by_group
+            ):
+                # JB우리캐피탈: 신용 X일 때 등급별(1~7) LTV 산출, 동일 금리 등급 합산 표시
+                is_jb_per_grade = True
                 max_ltv_map = max_ltv_by_region_credit_grade.get(region_grade_str, {})
                 primary_rates = self.config.get("primary_interest_rates_by_ltv", {})
                 requests = property_data.get("requests", "") or ""
