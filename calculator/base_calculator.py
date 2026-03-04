@@ -1504,11 +1504,12 @@ class BaseCalculator:
                     )
                     final_amount = self.round_down_to_hundred_thousand(amount_info["available_amount"]) if not limit_not_calculated else 0
                     final_total_amount = self.round_down_to_hundred_thousand(amount_info["total_amount"]) if not limit_not_calculated else 0
-                    # 창업/일반사업자 둘 다 산출
-                    for business_key, biz_type in [("startup", "startup"), ("regular", "regular")]:
-                        group_rates = rates_by_group.get(group, {}).get(priority_key, {}).get(business_key, {})
-                        if ltv_key not in group_rates:
-                            continue
+                    # 해당 조건(창업/일반사업자)에 맞는 한도만 산출
+                    is_startup = getattr(self, '_is_startup_business', False)
+                    business_key = "startup" if is_startup else "regular"
+                    biz_type = "startup" if is_startup else "regular"
+                    group_rates = rates_by_group.get(group, {}).get(priority_key, {}).get(business_key, {})
+                    if ltv_key in group_rates:
                         grade_rates = group_rates[ltv_key]
                         valid_rates = [float(grade_rates[str(g)]) for g in range(1, 8) if str(g) in grade_rates and grade_rates[str(g)] is not None]
                         if not valid_rates:
@@ -1825,17 +1826,9 @@ class BaseCalculator:
                                 print(f"DEBUG: LTV {ltv} - available_amount <= 0, but allowing due to '부족자금' request")  # 추가
                         
                         # 금리 조회 (82% LTV의 경우 region_grade에 따라 다른 금리 적용)
-                        # 애큐온캐피탈 등: interest_rates_by_region_group_priority_business 있으면 창업/일반사업자 둘 다 산출
+                        # 애큐온캐피탈 등: interest_rates_by_region_group_priority_business 있으면 해당 조건(창업/일반)에 맞는 한도만 산출
                         rates_by_group = self.config.get("interest_rates_by_region_group_priority_business", {})
-                        if rates_by_group and credit_grade is not None:
-                            orig_startup = self._is_startup_business
-                            self._is_startup_business = True
-                            rate_info_startup = self.get_interest_rate(credit_score, credit_grade, ltv, grade)
-                            self._is_startup_business = False
-                            rate_info_regular = self.get_interest_rate(credit_score, credit_grade, ltv, grade)
-                            self._is_startup_business = orig_startup
-                        else:
-                            rate_info = self.get_interest_rate(credit_score, credit_grade, ltv, grade)
+                        rate_info = self.get_interest_rate(credit_score, credit_grade, ltv, grade)
                         
                         # 가계 상품 한도 제한 적용
                         final_amount = amount_info["available_amount"]
@@ -1855,30 +1848,23 @@ class BaseCalculator:
                             print(f"DEBUG: LTV {ltv} - 총실행금액 {amount_for_min_rounded}만원이 min_amount {min_amount}만원보다 작아서 제외 (가용금액: {final_amount}만원)")
                             continue
                         
-                        def _make_result(ri, biz_type=None):
-                            r = {
-                                "ltv": ltv,
-                                "amount": final_amount,
-                                "interest_rate": ri.get("interest_rate"),
-                                "interest_rate_range": ri.get("interest_rate_range"),
-                                "type": "대환" if is_refinance else ("선순위" if not self._is_subordinate else "후순위"),
-                                "available_amount": final_amount,
-                                "total_amount": final_total_amount,
-                                "is_refinance": is_refinance,
-                                "credit_grade": ri.get("credit_grade"),
-                                "below_standard_ltv": is_below_standard,
-                                "fixed_rate_comment": ri.get("fixed_rate_comment"),
-                                "refinance_institutions": (refinance_institutions if is_household_for_ok else all_refinance_institutions) if is_refinance else None
-                            }
-                            if biz_type:
-                                r["business_type"] = biz_type
-                            return r
-                        
-                        if rates_by_group and credit_grade is not None:
-                            results.append(_make_result(rate_info_startup, "startup"))
-                            results.append(_make_result(rate_info_regular, "regular"))
-                        else:
-                            results.append(_make_result(rate_info))
+                        result = {
+                            "ltv": ltv,
+                            "amount": final_amount,
+                            "interest_rate": rate_info.get("interest_rate"),
+                            "interest_rate_range": rate_info.get("interest_rate_range"),
+                            "type": "대환" if is_refinance else ("선순위" if not self._is_subordinate else "후순위"),
+                            "available_amount": final_amount,
+                            "total_amount": final_total_amount,
+                            "is_refinance": is_refinance,
+                            "credit_grade": rate_info.get("credit_grade"),
+                            "below_standard_ltv": is_below_standard,
+                            "fixed_rate_comment": rate_info.get("fixed_rate_comment"),
+                            "refinance_institutions": (refinance_institutions if is_household_for_ok else all_refinance_institutions) if is_refinance else None
+                        }
+                        if rates_by_group:
+                            result["business_type"] = "startup" if self._is_startup_business else "regular"
+                        results.append(result)
         
         # 결과가 없으면 에러 메시지와 함께 반환 (가용 한도 부족 등)
         if not results:
