@@ -194,8 +194,8 @@ def format_result(bank_result: Dict[str, Any], requests: str = "") -> str:
     
     lines = [header]
     
-    # 한도가 나온 경우 한도 미산출 제외 (부족자금 요청 시에는 한도 미산출도 표시)
-    if "부족자금" not in requests and any(not r.get("limit_not_calculated", False) for r in results):
+    # 부족자금 요청이 없으면 한도 미산출 항목 제외 (표시하지 않음)
+    if "부족자금" not in requests:
         results = [r for r in results if not r.get("limit_not_calculated", False)]
     
     # 등급별 산출 시: 한도가 나온 등급(구간 포함)의 한도 미산출 항목 제외
