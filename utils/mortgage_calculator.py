@@ -45,8 +45,8 @@ def classify_financial_institution(name: str) -> str:
     if any(keyword in name for keyword in ['캐피탈', '파이낸스', '파이낸셜']):
         return '캐피탈'
     
-    # 대부 체크
-    if any(keyword in name for keyword in ['대부', '크레디트']):
+    # 대부 체크 (대부/크레디트 명시 + 대부업체명 별도 매핑)
+    if any(keyword in name for keyword in ['대부', '크레디트', '리드코프']):
         return '대부'
     
     # 보험 체크
