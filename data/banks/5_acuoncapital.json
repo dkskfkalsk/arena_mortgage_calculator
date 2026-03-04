@@ -320,11 +320,12 @@
     "special_notes": ["즉발", "즉발사업자", "가라사업자", "즉발보유", "가라사업자보유"]
   },
   "_comment_startup": "직업 또는 특이사항에 해당 키워드 있으면 창업사업자. 없고 '사업자' 보유면 일반사업자",
-  "min_amount": 2000,
-  "max_amount": 10000,
+  "min_amount": 3000,
+  "max_amount": 20000,
+  "max_amount_limit": 20000,
   "min_age": 21,
   "max_age": 64,
-  "min_kb_price": 10000,
+  "min_kb_price": 20000,
   "business_property_types": {
     "apartment": 1,
     "apartment_no_land_registry": 1,
