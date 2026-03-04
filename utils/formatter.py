@@ -153,9 +153,39 @@ def format_result(bank_result: Dict[str, Any], requests: str = "") -> str:
     if not results:
         return f"* {bank_name}\n산출 불가"
     
+    # 애큐온캐피탈 등: business_type(창업/일반사업자)별로 분리하여 각각 포맷 후 합침
+    has_business_type = any(r.get("business_type") in ("startup", "regular") for r in results)
+    if has_business_type:
+        startup_results = [r for r in results if r.get("business_type") == "startup"]
+        regular_results = [r for r in results if r.get("business_type") == "regular"]
+        parts = []
+        for label, sub_results in [("창업사업자 기준", startup_results), ("일반사업자 기준", regular_results)]:
+            if not sub_results:
+                continue
+            sub_result = {**bank_result, "results": sub_results}
+            formatted = _format_result_with_label(sub_result, requests, business_type_label=label)
+            if formatted:
+                parts.append(formatted)
+        if parts:
+            return "\n\n".join(parts)
+    
+    return _format_result_with_label(bank_result, requests)
+
+
+def _format_result_with_label(
+    bank_result: Dict[str, Any],
+    requests: str = "",
+    business_type_label: Optional[str] = None
+) -> str:
+    """format_result 내부 로직. business_type_label이 있으면 헤더에 (창업사업자 기준) 등 추가."""
+    bank_name = bank_result.get("bank_name", "Unknown")
+    results = bank_result.get("results", [])
+    conditions = bank_result.get("conditions", [])
+    min_amount = bank_result.get("min_amount", 3000)
+    lower_bound_applied = bank_result.get("lower_bound_applied", False)
+    lower_bound_suffix = " (하한가 적용)" if lower_bound_applied else ""
+    
     # 모든 결과가 최소진행금액 부족인지 확인 (한도 미산출 결과는 제외)
-    # 대환인 경우: total_amount(전체 대출 금액) 기준
-    # 후순위인 경우: amount 기준
     non_limit_results = [r for r in results if not r.get("limit_not_calculated", False)]
     all_below_minimum = (
         len(non_limit_results) > 0
@@ -164,33 +194,27 @@ def format_result(bank_result: Dict[str, Any], requests: str = "") -> str:
             for r in non_limit_results
         )
     )
+    biz_prefix = f" ({business_type_label})" if business_type_label else ""
     if all_below_minimum:
-        # 첫 번째 결과의 신용등급 확인
         first_result = results[0]
         credit_grade = first_result.get("credit_grade")
-        
-        # 헤더 (신용등급이 있으면 표시)
         if credit_grade:
-            header = f"* {bank_name} ({credit_grade}등급기준){lower_bound_suffix}"
+            header = f"* {bank_name}{biz_prefix} ({credit_grade}등급기준){lower_bound_suffix}"
         else:
-            header = f"* {bank_name}{lower_bound_suffix}"
-        
+            header = f"* {bank_name}{biz_prefix}{lower_bound_suffix}"
         return f"{header}\n최소진행금액 부족으로 진행 어렵습니다"
     
-    # 첫 번째 결과의 신용등급 확인
     first_result = results[0]
     credit_grade = first_result.get("credit_grade")
-    # 등급별 산출(여러 등급 결과)인 경우 헤더에 "등급별" 표시
     grade_values = [r.get("credit_grade") for r in results if r.get("credit_grade") is not None]
     has_multiple_grades = len(set(str(g) for g in grade_values)) > 1 if grade_values else False
     
-    # 헤더 (신용등급이 있으면 표시, 등급별 산출이면 "등급별")
     if has_multiple_grades:
-        header = f"* {bank_name} (등급별){lower_bound_suffix}"
+        header = f"* {bank_name}{biz_prefix} (등급별){lower_bound_suffix}"
     elif credit_grade:
-        header = f"* {bank_name} ({credit_grade}등급기준){lower_bound_suffix}"
+        header = f"* {bank_name}{biz_prefix} ({credit_grade}등급기준){lower_bound_suffix}"
     else:
-        header = f"* {bank_name}{lower_bound_suffix}"
+        header = f"* {bank_name}{biz_prefix}{lower_bound_suffix}"
     
     lines = [header]
     
@@ -293,7 +317,7 @@ def format_result(bank_result: Dict[str, Any], requests: str = "") -> str:
     
     # 특이 조건 추가
     if conditions:
-        for condition in conditions[:3]:  # 최대 3개만 표시
+        for condition in conditions[:4]:  # 최대 4개만 표시
             lines.append(f"- {condition}")
     
     return "\n".join(lines)
