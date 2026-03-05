@@ -394,6 +394,7 @@ async def format_registry_result(result, caption_info, file_name):
     kb_complex_id = None
     households = ""
     property_type = ""
+    real_transactions_display = ""  # KB 시세 없을 때 공공데이터 실거래가
     
     if address and address != "확인불가" and area:
         try:
@@ -443,6 +444,30 @@ async def format_registry_result(result, caption_info, file_name):
                     property_type = "아파트"
             else:
                 logger.warning("KB 시세 조회 실패 (결과 없음)")
+                # KB 시세 없을 때 공공데이터 실거래가 조회
+                try:
+                    from KB_api.kb_price_api import KBPriceAPI
+                    from utils.real_transaction_api import get_real_transactions, format_real_transactions_display
+                    api = KBPriceAPI()
+                    dongcode = api.find_dongcode(address)
+                    if dongcode:
+                        area_float = None
+                        area_match = re.search(r'([\d.]+)', str(area or ""))
+                        if area_match:
+                            try:
+                                area_float = float(area_match.group(1))
+                            except ValueError:
+                                pass
+                        real_tx = get_real_transactions(
+                            address, dongcode,
+                            area_hint=area_float,
+                            max_items=5
+                        )
+                        if real_tx:
+                            real_transactions_display = format_real_transactions_display(real_tx)
+                            logger.info(f"✅ 실거래가 조회 성공: {len(real_tx)}건")
+                except Exception as rt_e:
+                    logger.debug("실거래가 조회 실패: %s", rt_e)
         except Exception as e:
             logger.error(f"KB 시세 조회 중 오류: {str(e)}", exc_info=True)
     
@@ -501,6 +526,13 @@ async def format_registry_result(result, caption_info, file_name):
     else:
         lines.append("KB시세 : 없음")
         lines.append("KB시세 : 하한      만원")
+        # KB 시세 없을 때는 잘못된 참고 URL 표시 금지 (거짓 정보 방지)
+        if real_transactions_display:
+            tx_lines = [ln.strip() for ln in real_transactions_display.split("\n") if ln.strip()]
+            if tx_lines:
+                lines.append(f"실거래가 : {tx_lines[0]}")
+                for ln in tx_lines[1:]:
+                    lines.append(f"           {ln}")
     
     # 근저당권 설정 내역 (캡션의 1순위 120%, 2순위 130% 등 수동 비율 적용)
     lines.append(f"=========설정내역=========")

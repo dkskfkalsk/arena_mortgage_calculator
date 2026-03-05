@@ -933,6 +933,7 @@ def get_application(force_new=False):
             kb_api_no_result = False  # 결과 없음 시 True
             kb_complex_id = None  # KB 시세 참고 링크(kbland.kr/c/{단지ID})용
             kb_result = None  # KB API 전체 결과 (사용승인일·재건축 정보 포함)
+            real_transactions_display = ""  # KB 시세 없을 때 공공데이터 실거래가
             
             # 등기부에서 주소와 면적을 추출한 경우 KB API 호출 (면적은 문자열 그대로 전달해 51/37.85 등 전용 추출)
             # 항상 등기부 주소로 KB API를 먼저 시도 (캡션에 KB시세가 있어도 등기부 주소로 정확한 시세 조회)
@@ -999,6 +1000,24 @@ def get_application(force_new=False):
                         kb_api_no_result = True
                         print(f"[WEBHOOK] ⚠️ KB 시세 조회 실패 (결과 없음)", file=sys.stderr, flush=True)
                         logger.warning("KB 시세 조회 실패 (결과 없음)")
+                        # KB 시세 없을 때 공공데이터 실거래가 조회
+                        try:
+                            from KB_api.kb_price_api import KBPriceAPI
+                            from utils.real_transaction_api import get_real_transactions, format_real_transactions_display
+                            api = KBPriceAPI()
+                            dongcode = api.find_dongcode(address)
+                            if dongcode:
+                                real_tx = get_real_transactions(
+                                    address, dongcode,
+                                    area_hint=area_value,
+                                    max_items=5
+                                )
+                                if real_tx:
+                                    real_transactions_display = format_real_transactions_display(real_tx)
+                                    print(f"[WEBHOOK] ✅ 실거래가 조회 성공: {len(real_tx)}건", file=sys.stderr, flush=True)
+                                    logger.info(f"실거래가 조회 성공: {len(real_tx)}건")
+                        except Exception as rt_e:
+                            logger.debug("실거래가 조회 실패: %s", rt_e)
                 except Exception as e:
                     kb_api_failed = True
                     print(f"[WEBHOOK] ❌ KB 시세 조회 중 오류: {str(e)}", file=sys.stderr, flush=True)
@@ -1105,12 +1124,15 @@ def get_application(force_new=False):
                     kb_price_url = f"https://kbland.kr/c/{kb_complex_id}"
                     lines.append(f"KB시세 참고 : {kb_price_url}")
             else:
-                # KB 시세 없음: 끌어온 정보만 표시, 참고 링크는 있으면 추가
+                # KB 시세 없음: 잘못된 참고 URL 표시 금지 (거짓 정보 방지)
                 lines.append("KB시세 : 없음")
                 lines.append("KB시세 : 하한      만원")
-                if kb_complex_id:
-                    kb_price_url = f"https://kbland.kr/c/{kb_complex_id}"
-                    lines.append(f"KB시세 참고 : {kb_price_url}")
+                if real_transactions_display:
+                    tx_lines = [ln.strip() for ln in real_transactions_display.split("\n") if ln.strip()]
+                    if tx_lines:
+                        lines.append(f"실거래가 : {tx_lines[0]}")
+                        for ln in tx_lines[1:]:
+                            lines.append(f"           {ln}")
             
             # 근저당권 설정 내역
             lines.append(f"=========설정내역=========")

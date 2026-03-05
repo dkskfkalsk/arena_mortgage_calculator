@@ -1563,6 +1563,12 @@ class BaseCalculator:
                     )
                     final_amount = self.round_down_to_hundred_thousand(amount_info["available_amount"]) if not limit_not_calculated else 0
                     final_total_amount = self.round_down_to_hundred_thousand(amount_info["total_amount"]) if not limit_not_calculated else 0
+                    # JB 최대 한도 제한 (max_amount_limit, 대환/후순위 공통 1억)
+                    if max_amount_limit is not None and final_amount > max_amount_limit:
+                        final_amount = self.round_down_to_hundred_thousand(max_amount_limit)
+                        if is_refinance:
+                            final_total_amount = self.round_down_to_hundred_thousand(refinance_principal + final_amount)
+                        print(f"DEBUG: BaseCalculator.calculate - JB하이론 최대 한도 제한 적용: {amount_info['available_amount']}만원 -> {final_amount}만원")
                     ltv_rates = primary_rates.get(str(ltv), primary_rates.get(str(int(ltv)), {}))
                     grade_rate_list = []
                     for g in range(1, 8):

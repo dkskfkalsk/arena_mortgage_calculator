@@ -8,10 +8,12 @@ import json
 import os
 import re
 import time
+import html
 import requests
 import logging
 from typing import Dict, List, Optional, Tuple, Any
 from pathlib import Path
+from urllib.parse import quote_plus
 
 from .kb_complex_scraper import get_complex_extra_info
 
@@ -174,6 +176,27 @@ logger = logging.getLogger(__name__)
 if is_vercel:
     logger.setLevel(logging.INFO)
 
+_SEARCH_URLS = [
+    "https://duckduckgo.com/html/?q={query}",
+    "https://search.naver.com/search.naver?query={query}",
+]
+_KBLAND_COMPLEX_PATH_RE = re.compile(r"https?://(?:www\.)?kbland\.kr/(?:se/)?c/(\d+)")
+_KBLAND_NUM_RE = re.compile(r"(\d+(?:-\d+)?)")
+
+
+def _is_invalid_complex_name(name: str) -> bool:
+    """
+    단지명 후보가 행정구역명으로 오탐된 경우 제외.
+    예) 지세포리, 관양동, 일운면 ...
+    """
+    s = (name or "").strip()
+    if len(s) < 2:
+        return True
+    # 행정구역 접미사로 끝나는 단독 지명은 단지명으로 취급하지 않음
+    if re.search(r"(동|리|면|읍|시|군|구)$", s):
+        return True
+    return False
+
 
 class KBPriceAPI:
     """KB 부동산 시세 API 클라이언트"""
@@ -224,6 +247,224 @@ class KBPriceAPI:
         else:
             logger.warning("법정동코드 데이터 파일을 찾을 수 없습니다.")
             self.dongcode_data = {}
+
+    def _cache_file_path(self) -> Path:
+        return Path(__file__).parent / "kb_complex_id_cache.json"
+
+    def _load_complex_id_cache(self) -> Dict[str, str]:
+        p = self._cache_file_path()
+        if not p.exists():
+            return {}
+        try:
+            with p.open("r", encoding="utf-8") as f:
+                obj = json.load(f)
+            if isinstance(obj, dict):
+                return {str(k): str(v) for k, v in obj.items() if str(v).strip().isdigit()}
+        except Exception as e:
+            logger.debug("kb_complex_id_cache 로드 실패: %s", e)
+        return {}
+
+    def _save_complex_id_cache(self, cache: Dict[str, str]) -> None:
+        p = self._cache_file_path()
+        try:
+            with p.open("w", encoding="utf-8") as f:
+                json.dump(cache, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.debug("kb_complex_id_cache 저장 실패: %s", e)
+
+    @staticmethod
+    def _normalize_text(value: str) -> str:
+        v = (value or "").strip()
+        v = re.sub(r"\s+", "", v)
+        v = re.sub(r"[()\-_,./]", "", v)
+        return v
+
+    def _build_cache_keys(self, address: str, complex_name: Optional[str]) -> List[str]:
+        keys = []
+        if complex_name:
+            keys.append(f"name::{self._normalize_text(complex_name)}")
+        if address:
+            keys.append(f"addr::{self._normalize_text(address)}")
+        if address and complex_name:
+            keys.append(f"pair::{self._normalize_text(address)}::{self._normalize_text(complex_name)}")
+        return keys
+
+    def _extract_complex_ids_from_search_html(self, html_text: str) -> List[str]:
+        ids = []
+        for m in _KBLAND_COMPLEX_PATH_RE.finditer(html_text or ""):
+            cid = m.group(1)
+            if cid and cid not in ids:
+                ids.append(cid)
+        return ids
+
+    def _search_kbland_complex_ids(self, query: str, head_limit: int = 12) -> List[str]:
+        if not query or not query.strip():
+            return []
+        all_ids: List[str] = []
+        for tmpl in _SEARCH_URLS:
+            url = tmpl.format(query=quote_plus(query))
+            try:
+                resp = requests.get(
+                    url,
+                    headers={
+                        "User-Agent": DEFAULT_HEADERS["User-Agent"],
+                        "Accept-Language": DEFAULT_HEADERS["Accept-Language"],
+                    },
+                    timeout=10,
+                )
+                resp.raise_for_status()
+                ids = self._extract_complex_ids_from_search_html(resp.text)
+                for cid in ids:
+                    if cid not in all_ids:
+                        all_ids.append(cid)
+                if len(all_ids) >= head_limit:
+                    break
+            except Exception as e:
+                logger.debug("외부 검색 실패(url=%s): %s", url, e)
+        return all_ids[:head_limit]
+
+    def _fetch_kbland_page_info(self, complex_id: str) -> Optional[Dict[str, str]]:
+        for path in (f"https://kbland.kr/se/c/{complex_id}", f"https://kbland.kr/c/{complex_id}"):
+            try:
+                r = requests.get(path, headers=DEFAULT_HEADERS, timeout=12)
+                if r.status_code >= 400:
+                    continue
+                text = html.unescape(r.text or "")
+                compact = re.sub(r"\s+", " ", text)
+
+                title_match = re.search(r"<title>(.*?)</title>", text, re.IGNORECASE | re.DOTALL)
+                title = title_match.group(1).strip() if title_match else ""
+
+                # meta keywords에 주소가 가장 잘 들어옴 (SSR)
+                keywords_match = re.search(r'<meta[^>]+name="keywords"[^>]+content="([^"]+)"', text, re.IGNORECASE)
+                keyword_text = keywords_match.group(1) if keywords_match else ""
+                compact_kw = re.sub(r"\s+", " ", html.unescape(keyword_text))
+
+                # 도로명 패턴 예: 거제시 일운면 지세포1길 27
+                road_match = re.search(
+                    r"((?:[가-힣]+도\s+)?[가-힣]+시(?:\s+[가-힣]+(?:구|군))?\s+[가-힣]+(?:동|읍|면)\s+[가-힣0-9]+(?:로|길)\s*\d+(?:-\d+)?)",
+                    compact_kw or compact,
+                )
+                # 지번 패턴 예: 경상남도 거제시 일운면 지세포리 1412
+                jibun_match = re.search(
+                    r"((?:[가-힣]+도\s+)?[가-힣]+시(?:\s+[가-힣]+(?:구|군))?\s+[가-힣]+(?:동|읍|면)\s+[가-힣0-9]+(?:리|동)\s*\d+(?:-\d+)?)",
+                    compact_kw or compact,
+                )
+                return {
+                    "url": path,
+                    "title": title,
+                    "road_address": road_match.group(1).strip() if road_match else "",
+                    "jibun_address": jibun_match.group(1).strip() if jibun_match else "",
+                }
+            except Exception:
+                continue
+        return None
+
+    def _score_complex_match(
+        self,
+        target_address: str,
+        target_complex_name: Optional[str],
+        page_info: Dict[str, str],
+    ) -> float:
+        score = 0.0
+        addr = self._normalize_text(target_address)
+        road = self._normalize_text(page_info.get("road_address", ""))
+        jibun = self._normalize_text(page_info.get("jibun_address", ""))
+        title = self._normalize_text(page_info.get("title", ""))
+        cand = f"{road}{jibun}{title}"
+
+        if addr and cand and (addr in cand or cand in addr):
+            score += 2.0
+
+        parsed = self.parse_address(target_address)
+        for key in ("district", "dong"):
+            token = self._normalize_text(parsed.get(key, ""))
+            if token and token in cand:
+                score += 1.0
+
+        target_nums = set(_KBLAND_NUM_RE.findall(target_address or ""))
+        cand_nums = set(_KBLAND_NUM_RE.findall(f"{page_info.get('road_address','')} {page_info.get('jibun_address','')}"))
+        if target_nums and cand_nums and target_nums.intersection(cand_nums):
+            score += 1.0
+
+        if target_complex_name:
+            name_norm = self._normalize_text(target_complex_name)
+            if name_norm and name_norm in title:
+                score += 2.0
+            elif name_norm and (name_norm in cand or cand.find(name_norm[:3]) >= 0):
+                score += 0.8
+
+        return score
+
+    def resolve_complex_id_by_search(
+        self,
+        address: str,
+        complex_name: Optional[str],
+        dongcode: Optional[str] = None,
+    ) -> Optional[Dict[str, str]]:
+        """
+        fastPriceInfo 매칭 실패 시, 웹 검색으로 kbland /se/c/{id} 후보를 수집하고
+        페이지 주소/단지명을 등기부 주소와 대조해 complex_id를 확정한다.
+        """
+        if not address or not complex_name:
+            return None
+
+        cache = self._load_complex_id_cache()
+        for k in self._build_cache_keys(address, complex_name):
+            cid = cache.get(k)
+            if cid:
+                info = self._fetch_kbland_page_info(cid)
+                if info and self._score_complex_match(address, complex_name, info) >= 3.0:
+                    logger.info("✅ KB 캐시 ID 사용: %s (%s)", cid, info.get("url"))
+                    return {"complex_id": cid, "complex_name": complex_name}
+
+        query_candidates = [f"site:kbland.kr/se/c {complex_name} {address}"]
+        parsed = self.parse_address(address)
+        if parsed.get("dong"):
+            query_candidates.append(f"site:kbland.kr/se/c {complex_name} {parsed.get('dong')}")
+        if parsed.get("district"):
+            query_candidates.append(f"site:kbland.kr/se/c {complex_name} {parsed.get('district')}")
+        if dongcode:
+            query_candidates.append(f"site:kbland.kr/se/c {complex_name} {dongcode}")
+
+        candidate_ids: List[str] = []
+        for q in query_candidates:
+            for cid in self._search_kbland_complex_ids(q):
+                if cid not in candidate_ids:
+                    candidate_ids.append(cid)
+            if len(candidate_ids) >= 12:
+                break
+
+        if not candidate_ids:
+            logger.info("KB ID 검색 후보 없음 (query=%s)", query_candidates[0])
+            return None
+
+        best = None
+        best_score = -1.0
+        for cid in candidate_ids[:12]:
+            info = self._fetch_kbland_page_info(cid)
+            if not info:
+                continue
+            score = self._score_complex_match(address, complex_name, info)
+            logger.info(
+                "KB ID 후보 검증: id=%s score=%.2f road=%s jibun=%s",
+                cid, score, info.get("road_address"), info.get("jibun_address")
+            )
+            if score > best_score:
+                best_score = score
+                best = (cid, info)
+
+        if not best or best_score < 3.0:
+            logger.info("KB ID 확정 실패: 최고 점수 %.2f", best_score)
+            return None
+
+        resolved_id, resolved_info = best
+        # 성공 시 캐시 저장
+        for k in self._build_cache_keys(address, complex_name):
+            cache[k] = resolved_id
+        self._save_complex_id_cache(cache)
+        logger.info("✅ KB ID 확정: %s (%s)", resolved_id, resolved_info.get("url"))
+        return {"complex_id": resolved_id, "complex_name": complex_name}
     
     def parse_address(self, address: str) -> Dict[str, str]:
         """
@@ -815,8 +1056,10 @@ class KBPriceAPI:
                 # 부분 매칭 점수 계산 (더 긴 매칭이 우선)
                 # 예: "미리내마을" in "미리내마을(롯데2)" -> True
                 score = 0
+                name_related = False
                 base_api = (complex_name_from_api or "").replace(" ", "").replace("(", "").replace(")", "")
                 if complex_name in complex_name_from_api or (base_api and complex_name in base_api):
+                    name_related = True
                     denom = len(base_api) or 1
                     score = len(complex_name) / denom
                     if '(' in (complex_name_from_api or ""):
@@ -824,15 +1067,16 @@ class KBPriceAPI:
                         if base_name and (complex_name == base_name or complex_name in base_name):
                             score = 0.9
                 elif complex_name_from_api in complex_name or (base_api and base_api in complex_name):
+                    name_related = True
                     score = len(base_api or complex_name_from_api or "") / len(complex_name)
                 
                 # 번지수 매칭 보너스 (번지수가 일치하면 점수 증가)
-                if lot_number and lot_number in complex_address_from_api:
+                if name_related and lot_number and lot_number in complex_address_from_api:
                     score += 0.2  # 번지수 일치 시 보너스
                     logger.debug(f"      번지수 일치 보너스: {lot_number}")
                 # 동+번지 매칭 보너스: 단지명이 비슷한 후보가 여러 개일 때,
                 # API 단지 주소에 "관양동"과 "1588"이 둘 다 들어 있으면 그 단지를 더 우선 선택
-                if dong_name and lot_number and dong_name in complex_address_from_api and lot_number in complex_address_from_api:
+                if name_related and dong_name and lot_number and dong_name in complex_address_from_api and lot_number in complex_address_from_api:
                     score += 0.35
                     logger.debug(f"      동+번지 매칭 보너스: {dong_name} {lot_number}")
                 
@@ -842,14 +1086,15 @@ class KBPriceAPI:
                     logger.debug(f"      매칭 발견: {complex_name_from_api} (점수: {score:.2f})")
             
             # 부분 매칭 결과 사용
-            if not selected_complex and best_match:
+            if not selected_complex and best_match and best_score >= 0.8:
                 selected_complex = best_match
                 complex_name_from_api = selected_complex.get('단지명', '알 수 없음')
                 logger.info(f"✅ 단지명 부분 매칭: {complex_name_from_api} (점수: {best_score:.2f})")
                 print(f"[OK] 단지명 부분 매칭: {complex_name_from_api}")
         
-        # 단지명 없을 때: 동+번지로 단지 선택 (예: 관양동 1588 직접 검색)
-        if not selected_complex and dong_name and lot_number:
+        # 단지명이 없을 때만: 동+번지로 단지 선택 (예: 관양동 1588 직접 검색)
+        # 단지명이 있는데도 동+번지를 허용하면 도로명 숫자(예: 지세포1길)로 오매칭될 수 있음
+        if not selected_complex and (not complex_name) and dong_name and lot_number:
             for complex in complexes:
                 complex_address_from_api = (complex.get("주소") or "").strip()
                 if dong_name in complex_address_from_api and lot_number in complex_address_from_api:
@@ -862,14 +1107,27 @@ class KBPriceAPI:
         # (예: 거제코아루파크드림인데 지세포골드캐슬 시세 표시 방지)
         if not selected_complex:
             if complex_name:
-                logger.warning(f"⚠️ 단지명 '{complex_name}' 매칭 실패. 잘못된 시세 표시 방지를 위해 KB 시세 생략")
-                print(f"[!] 단지명 '{complex_name}' 매칭 실패. KB 시세 없이 다른 정보만 추출합니다.")
-                return None
-            selected_complex = complexes[0]
-            complex_name_from_api = selected_complex.get('단지명', '알 수 없음')
-            logger.warning(f"⚠️ 단지명 매칭 실패, 첫 번째 단지 사용: {complex_name_from_api}")
-            logger.debug(f"   사용 가능한 단지 목록: {[c.get('단지명', 'N/A') for c in complexes[:5]]}")
-            print(f"[!] 단지명 매칭 실패, 첫 번째 단지 사용: {complex_name_from_api}")
+                logger.warning(f"⚠️ 단지명 '{complex_name}' 매칭 실패. /se/c/{'{id}'} 검색-검증 폴백 시도")
+                print(f"[!] 단지명 '{complex_name}' fastPriceInfo 매칭 실패 → KB 페이지 검색 검증 시도")
+                resolved = self.resolve_complex_id_by_search(address=address, complex_name=complex_name, dongcode=dongcode)
+                if resolved and resolved.get("complex_id"):
+                    selected_complex = {
+                        "단지기본일련번호": resolved["complex_id"],
+                        "단지명": resolved.get("complex_name") or complex_name,
+                        "주소": address,
+                    }
+                    logger.info("✅ 검색-검증으로 complex_id 확정: %s", resolved["complex_id"])
+                    print(f"[OK] KB 페이지 검색-검증으로 complex_id 확정: {resolved['complex_id']}")
+                else:
+                    logger.warning(f"⚠️ 단지명 '{complex_name}' 매칭/검색 모두 실패. KB 시세 생략")
+                    print(f"[!] 단지명 '{complex_name}' 매칭 실패. KB 시세 없이 다른 정보만 추출합니다.")
+                    return None
+            if not selected_complex:
+                selected_complex = complexes[0]
+                complex_name_from_api = selected_complex.get('단지명', '알 수 없음')
+                logger.warning(f"⚠️ 단지명 매칭 실패, 첫 번째 단지 사용: {complex_name_from_api}")
+                logger.debug(f"   사용 가능한 단지 목록: {[c.get('단지명', 'N/A') for c in complexes[:5]]}")
+                print(f"[!] 단지명 매칭 실패, 첫 번째 단지 사용: {complex_name_from_api}")
         
         # 4. 단지 데이터에서 매매 시세 정보 추출
         # fastPriceInfo API에 매매 배열이 있으면 사용, 없으면 get_complex_price(단지기본일련번호) 호출
@@ -1169,7 +1427,11 @@ def get_kb_price_from_registry(address: str, area: str) -> Optional[Dict[str, An
     for pattern in complex_patterns:
         match = re.search(pattern, address)
         if match:
-            complex_name = match.group(1)
+            candidate = match.group(1).strip()
+            if _is_invalid_complex_name(candidate):
+                logger.debug(f"단지명 후보 제외(행정구역 오탐): {candidate}")
+                continue
+            complex_name = candidate
             logger.info(f"✅ 주소에서 단지명 추출: {complex_name}")
             break
     
@@ -1186,8 +1448,10 @@ def get_kb_price_from_registry(address: str, area: str) -> Optional[Dict[str, An
                     if complex_name.endswith(suffix):
                         complex_name = complex_name[:-len(suffix)]
                         break
-                if len(complex_name) >= 2:
+                if len(complex_name) >= 2 and not _is_invalid_complex_name(complex_name):
                     logger.info(f"✅ 주소에서 단지명 추출 (필지+이름): {complex_name}")
+                else:
+                    complex_name = None
     
     # 번지수 + 한글 단지명 (제N동/제N층/제N호 앞까지) ex: "1562 천안역우방아이유쉘 제104동"
     if not complex_name:
@@ -1196,8 +1460,9 @@ def get_kb_price_from_registry(address: str, area: str) -> Optional[Dict[str, An
         if match:
             potential_name = match.group(1).strip()
             if len(potential_name) >= 2 and potential_name not in ('동', '구', '시', '군', '읍', '면'):
-                complex_name = potential_name
-                logger.info(f"✅ 주소에서 단지명 추출 (번지+이름): {complex_name}")
+                if not _is_invalid_complex_name(potential_name):
+                    complex_name = potential_name
+                    logger.info(f"✅ 주소에서 단지명 추출 (번지+이름): {complex_name}")
     
     # 기존: 번지수 + (마을|단지|아파트) ex: "1180-1 미리내마을"
     if not complex_name:
@@ -1206,8 +1471,9 @@ def get_kb_price_from_registry(address: str, area: str) -> Optional[Dict[str, An
         if match:
             potential_name = match.group(2)
             if len(potential_name) >= 2 and potential_name not in ('동', '구', '시', '군', '읍', '면'):
-                complex_name = potential_name
-                logger.info(f"✅ 주소에서 단지명 추출 (번지수 기준): {complex_name}")
+                if not _is_invalid_complex_name(potential_name):
+                    complex_name = potential_name
+                    logger.info(f"✅ 주소에서 단지명 추출 (번지수 기준): {complex_name}")
     
     # KB 시세 조회
     api = KBPriceAPI()
