@@ -22,7 +22,11 @@ def classify_financial_institution(name: str) -> str:
     name = name.strip()
     
     # 공공기관 체크 (주택담보대출 수행 기관 - 후순위 취급 가능)
-    if any(keyword in name for keyword in ['한국토지주택공사', '토지주택공사', '주택도시보증공사', '주택공사', 'LH', 'HUG', '주택도시보증']):
+    # - 지정 키워드: 한국토지주택공사, 주택도시보증공사, 서울주택도시공사 등
+    # - 근저당권 이름에 '공사'가 포함되면 공공기관으로 처리
+    if any(keyword in name for keyword in ['한국토지주택공사', '토지주택공사', '주택도시보증공사', '서울주택도시공사', '주택공사', 'LH', 'HUG', '주택도시보증']):
+        return '공공기관'
+    if '공사' in name:
         return '공공기관'
     
     # 전세권 체크 (최우선)
