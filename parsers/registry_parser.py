@@ -905,7 +905,9 @@ class RegistryParser:
                 mortgages.append(mortgage)
         
         # 방법 1-2: 전체 텍스트에서도 추출 시도 (요약 섹션이 없는 경우)
-        if not mortgages:
+        # 단, 요약에 "기록사항 없음"이 있으면 근저당권이 모두 말소된 것이므로 추출 생략
+        has_no_records = summary_match and "기록사항 없음" in summary_match.group(0)
+        if not mortgages and not has_no_records:
             summary_pattern = r'(\d+)\s+근저당권설정\s+(\d{4})년(\d{1,2})월(\d{1,2})일[\s\S]*?채권최고액\s*금?\s*([\d,]+)\s*원'
             
             matches = re.finditer(summary_pattern, self.text)
@@ -931,7 +933,7 @@ class RegistryParser:
                 mortgages.append(mortgage)
         
         # 방법 2: 을구 본문에서 추출 (주요 등기사항 요약이 없는 경우)
-        if not mortgages:
+        if not mortgages and not has_no_records:
             # 을구에서 근저당권설정 블록 찾기
             # 패턴: 순위번호 근저당권설정 날짜 날짜 채권최고액 금XXX원
             mortgage_block_pattern = r'(\d+)\s+근저당권설정\s+(\d{4})년(\d{1,2})월(\d{1,2})일.*?채권최고액\s*금?\s*([\d,]+)\s*원.*?채무자\s+(\S+).*?근저당권자\s+(\S+)'
