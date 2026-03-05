@@ -229,18 +229,34 @@ def extract_manual_principals(message: str) -> Dict[str, int]:
         except ValueError:
             pass
     
-    # 형식 1: "금융사명 숫자" (한글 2자 이상 + 공백 + 숫자, 만원 단위)
-    # "신한 16900", "리드코프 4000" 등 - 신용등급(1등급 850) 등 제외
-    pattern_name = r'([가-힣a-zA-Z]{2,})\s+(\d[\d,]*)\s*만?\s*원?'
-    for match in re.finditer(pattern_name, message):
+    # 형식 1-1: "금융사명 X만(Y만)" - 괄호 안 Y가 원금 (채권최고액 X, 원금 Y)
+    # "국민은행 21,650만(19,682만)/110%" → 원금 19,682 추출 (기존 패턴은 21,650 채권최고액을 잘못 추출함)
+    pattern_parentheses = r'([가-힣a-zA-Z]{2,})\s+[\d,]+\s*만?\s*\(([\d,]+)\s*만?\)'
+    for match in re.finditer(pattern_parentheses, message):
         name = match.group(1).strip()
         num_str = match.group(2).replace(',', '')
-        # "등급", "점수" 등 신용 관련 키워드 제외
         if any(kw in name for kw in ['등급', '점수', '신용', '원금']):
             continue
         try:
             num = int(num_str)
-            if num >= 100 and num < 100000:  # 100만원~99999만원
+            if num >= 100 and num < 100000:
+                result[name] = num
+        except ValueError:
+            pass
+    
+    # 형식 1: "금융사명 숫자" (괄호 없는 경우 - "신한 16900", "리드코프 4000" 등)
+    # 이미 괄호 형식으로 추출된 금융사는 덮어쓰지 않음
+    pattern_name = r'([가-힣a-zA-Z]{2,})\s+(\d[\d,]*)\s*만?\s*원?'
+    for match in re.finditer(pattern_name, message):
+        name = match.group(1).strip()
+        if name in result:
+            continue  # 괄호 형식에서 이미 추출됨
+        num_str = match.group(2).replace(',', '')
+        if any(kw in name for kw in ['등급', '점수', '신용', '원금']):
+            continue
+        try:
+            num = int(num_str)
+            if num >= 100 and num < 100000:
                 result[name] = num
         except ValueError:
             pass
