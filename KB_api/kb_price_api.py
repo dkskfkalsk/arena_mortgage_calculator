@@ -1132,11 +1132,15 @@ def get_kb_price_from_registry(address: str, area: str) -> Optional[Dict[str, An
     logger.debug(f"   추출된 면적(전용): {area_float}m²")
     
     # 주소에서 단지명 추출 (예: "미리내마을", "천안역우방아이유쉘")
+    # KB 사이트는 "성우아뜨리움"처럼 접미사 없이 표기하는 경우가 많음 → 접미사 제거하여 매칭
     complex_name = None
     complex_patterns = [
+        r'([가-힣]+)오피스텔',   # 성우아뜨리움오피스텔 → 성우아뜨리움 (KB: 성우아뜨리움)
+        r'([가-힣]+)아파트',    # 성우아파트 → 성우
+        r'([가-힣]+)빌라',      # OO빌라 → OO
+        r'([가-힣]+)다가구',    # OO다가구 또는 다가구
         r'([가-힣]+마을)',
         r'([가-힣]+단지)',
-        r'([가-힣]+아파트)',
         r'([가-힣]+(?:힐스|힐스테이트))',
         r'([가-힣]+(?:아이파크|래미안|자이|힐스테이트|푸르지오|센트럴|팰리스|월드|뉴|더|디|엘|리|그린|보람|연화|은하|중흥|한라|포도|무지개|꿈|덕유|설악|복사골|금강|동원|대신|범양|영안|현대|형진|풍남|우방|아이유쉘|유쉘))',
     ]
@@ -1146,6 +1150,22 @@ def get_kb_price_from_registry(address: str, area: str) -> Optional[Dict[str, An
             complex_name = match.group(1)
             logger.info(f"✅ 주소에서 단지명 추출: {complex_name}")
             break
+    
+    # 필지 + 단지명 (1314외 3필지 성우아뜨리움오피스텔 제2층)
+    if not complex_name:
+        lot_name_pattern = r'(?:필지|외)\s+([가-힣]+?)(?=\s+제\d+동|\s+제\d+층|\s+제\d+호|$)'
+        match = re.search(lot_name_pattern, address)
+        if match:
+            potential_name = match.group(1).strip()
+            if len(potential_name) >= 2 and potential_name not in ('동', '구', '시', '군', '읍', '면', '필지'):
+                complex_name = potential_name
+                # 접미사 제거 (KB는 "성우아뜨리움" 형태로 표기)
+                for suffix in ('오피스텔', '아파트', '빌라', '다가구'):
+                    if complex_name.endswith(suffix):
+                        complex_name = complex_name[:-len(suffix)]
+                        break
+                if len(complex_name) >= 2:
+                    logger.info(f"✅ 주소에서 단지명 추출 (필지+이름): {complex_name}")
     
     # 번지수 + 한글 단지명 (제N동/제N층/제N호 앞까지) ex: "1562 천안역우방아이유쉘 제104동"
     if not complex_name:
