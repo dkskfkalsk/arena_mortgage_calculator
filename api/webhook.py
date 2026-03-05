@@ -1124,9 +1124,12 @@ def get_application(force_new=False):
                     kb_price_url = f"https://kbland.kr/c/{kb_complex_id}"
                     lines.append(f"KB시세 참고 : {kb_price_url}")
             else:
-                # KB 시세 없음: 잘못된 참고 URL 표시 금지 (거짓 정보 방지)
+                # KB 시세가 없어도 단지 식별 ID가 있으면 단지 페이지는 안내
                 lines.append("KB시세 : 없음")
                 lines.append("KB시세 : 하한      만원")
+                if kb_complex_id:
+                    kb_price_url = f"https://kbland.kr/c/{kb_complex_id}"
+                    lines.append(f"KB단지 참고 : {kb_price_url}")
                 if real_transactions_display:
                     tx_lines = [ln.strip() for ln in real_transactions_display.split("\n") if ln.strip()]
                     if tx_lines:

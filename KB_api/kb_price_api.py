@@ -1199,9 +1199,8 @@ class KBPriceAPI:
         logger.debug(f"   매칭된 시세 데이터 키: {list(matched_price.keys())}")
         
         if not price_value:
-            logger.error(f"❌ 시세 가격 정보가 없음. 매칭된 데이터: {matched_price}")
-            print("[X] 시세 가격 정보가 없음")
-            return None
+            logger.warning(f"⚠️ 시세 가격 정보가 없음(단지 식별 정보만 반환). 매칭된 데이터: {matched_price}")
+            print("[!] 시세 가격 정보 없음 → 단지 식별 정보만 반환")
         
         # 가격을 숫자로 변환 (만원 단위)
         def parse_price(value):
@@ -1216,10 +1215,11 @@ class KBPriceAPI:
         
         price_num = parse_price(price_value)
         price_min_num = parse_price(price_min_value)
-        
-        if price_num is None:
-            print(f"[X] 시세 가격 파싱 실패: {price_value}")
-            return None
+        # KB에서 시세 미제공 단지는 0으로 내려오기도 함 (시세없음 처리)
+        if price_num is not None and price_num <= 0:
+            price_num = None
+        if price_min_num is not None and price_min_num <= 0:
+            price_min_num = None
         
         # 매칭된 면적과 원본 면적의 차이 계산
         matched_area_val = float(matched_price.get("전용면적") or matched_price.get("공급면적") or matched_price.get("면적") or area)
@@ -1236,7 +1236,7 @@ class KBPriceAPI:
         result = {
             "kb_price": price_num,  # 일반 매매가 (만원 단위)
             "kb_price_min": price_min_num,  # 하한 매매가 (만원 단위, 없으면 None)
-            "kb_price_raw": f"{price_num:,.0f}만원",
+            "kb_price_raw": f"{price_num:,.0f}만원" if price_num is not None else None,
             "kb_price_min_raw": f"{price_min_num:,.0f}만원" if price_min_num else None,
             "complex_name": selected_complex.get("단지명") or selected_complex.get("name", "알 수 없음"),
             "area": matched_area_val,  # 매칭된 면적
@@ -1350,9 +1350,12 @@ class KBPriceAPI:
                 elif result["buildings"] is None:
                     pass
         
-        price_info = f"{result['kb_price']:,.0f}만원"
-        if price_min_num:
-            price_info += f" (하한: {price_min_num:,.0f}만원)"
+        if result["kb_price"] is not None:
+            price_info = f"{result['kb_price']:,.0f}만원"
+            if price_min_num:
+                price_info += f" (하한: {price_min_num:,.0f}만원)"
+        else:
+            price_info = "시세없음"
         
         # 면적 차이 경고
         if area_diff and area_diff > 5.0:
@@ -1361,7 +1364,10 @@ class KBPriceAPI:
         
         logger.info(f"✅ KB 시세 조회 완료: {price_info} ({result['complex_name']})")
         logger.debug(f"   최종 결과: {result}")
-        print(f"[OK] KB 시세 조회 완료: {price_info} ({result['complex_name']})")
+        if result["kb_price"] is not None:
+            print(f"[OK] KB 시세 조회 완료: {price_info} ({result['complex_name']})")
+        else:
+            print(f"[OK] KB 단지 식별 완료(시세없음): {result['complex_name']} / id={result.get('complex_id')}")
         return result
 
 
