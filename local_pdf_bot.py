@@ -567,7 +567,8 @@ async def format_registry_result(result, caption_info, file_name):
                         principal_amounts[-1] = principal_man
                         amount_str = f"{amount_man:,}만({principal_man:,})만원({used_ratio}%)"
                         gamak_applied = True
-                    else:
+                    elif manual_principal_man < principal_man:
+                        # 보낸 원금이 계산 원금보다 적을 때만 (감액 의도 있으나 1천만원 미만 차이)
                         gamak_excluded_creditors.append(creditor)
 
                 if not gamak_applied:
@@ -638,9 +639,9 @@ async def format_registry_result(result, caption_info, file_name):
     special_notes = []
     if caption_info.get('special_notes'):
         special_notes.extend(caption_info['special_notes'])
-    # 감액등기 미적용 (1천만원 미만 차이) 코멘트
+    # 감액등기 미적용 (보낸 원금 < 계산 원금, 채권최고액 차이 1천만원 미만)
     for cred in gamak_excluded_creditors:
-        special_notes.append(f"{cred} 해당 순위 근저당권 감액등기 적용시 채권최고액 변동 1천만원 이하로 반영되지 않았습니다")
+        special_notes.append(f"{cred} 감액등기 미적용")
     if result.압류목록:
         seizure_info = []
         for s in result.압류목록:

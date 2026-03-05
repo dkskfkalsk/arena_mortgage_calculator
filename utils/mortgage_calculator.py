@@ -17,9 +17,13 @@ def classify_financial_institution(name: str) -> str:
         name: 금융사 이름 (근저당권자)
     
     Returns:
-        금융사 유형 ('조합', '은행', '저축은행', '캐피탈', '대부', '보험', '전세권', '기타')
+        금융사 유형 ('조합', '은행', '저축은행', '캐피탈', '대부', '보험', '전세권', '공공기관', '기타')
     """
     name = name.strip()
+    
+    # 공공기관 체크 (주택담보대출 수행 기관 - 후순위 취급 가능)
+    if any(keyword in name for keyword in ['한국토지주택공사', '토지주택공사', '주택도시보증공사', '주택공사', 'LH', 'HUG', '주택도시보증']):
+        return '공공기관'
     
     # 전세권 체크 (최우선)
     if '전세권' in name:
@@ -74,6 +78,7 @@ def get_ratio_range(institution_type: str) -> Tuple[int, int]:
         '대부': (130, 170),
         '보험': (110, 130),
         '전세권': (100, 100),
+        '공공기관': (110, 130),  # LH, 주택도시보증공사 등 - 은행과 유사
         '기타': (100, 100),  # 기타는 채권최고액=원금
     }
     return ranges.get(institution_type, (100, 100))
@@ -97,6 +102,7 @@ def get_default_ratio(institution_type: str) -> int:
         '대부': 150,
         '보험': 120,
         '전세권': 100,
+        '공공기관': 110,
         '기타': 100,
     }
     return defaults.get(institution_type, 120)
