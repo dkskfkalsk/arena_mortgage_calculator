@@ -537,44 +537,58 @@ class KBPriceAPI:
         logger.warning(f"법정동코드를 찾을 수 없음: {region} {district} {dong}")
         return None
     
-    def get_complex_list(self, dongcode: str) -> List[Dict[str, Any]]:
+    def get_complex_list(self, dongcode: str, property_type_hint: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         법정동코드로 단지 목록 조회
         
         Args:
             dongcode: 법정동코드 (10자리)
+            property_type_hint: 주소 기반 유형 힌트 ("오피스텔" 등). 오피스텔이면 유형 2도 조회하여 병합
         
         Returns:
             단지 목록 리스트
         """
         url = f"{self.base_url}/land-price/price/fastPriceInfo"
-        params = {
-            "법정동코드": dongcode,
-            "유형": "1",  # 아파트
-            "거래유형": "0"  # 매매
-        }
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                response = requests.get(url, params=params, headers=DEFAULT_HEADERS, timeout=15)
-                response.raise_for_status()
-                data = response.json()
-                complexes = data.get("dataBody", {}).get("data", [])
-                print(f"[OK] 단지 목록 조회 성공: {len(complexes)}개 단지")
-                return complexes
-            except (requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError) as e:
-                if attempt < max_retries - 1:
-                    time.sleep(1.5 * (attempt + 1))
-                    continue
-                print(f"[X] 단지 목록 조회 실패(연결 끊김): {e}")
-                return []
-            except requests.exceptions.RequestException as e:
-                print(f"[X] 단지 목록 조회 실패: {e}")
-                return []
-            except Exception as e:
-                print(f"[X] 단지 목록 조회 오류: {e}")
-                return []
-        return []
+        # 유형: 1=아파트, 2=오피스텔 (KB API)
+        type_codes = ["1"]  # 기본: 아파트
+        if property_type_hint and "오피스텔" in property_type_hint:
+            type_codes = ["2", "1"]  # 오피스텔 우선, 아파트 fallback
+        seen_ids = set()
+        merged = []
+        for type_code in type_codes:
+            params = {
+                "법정동코드": dongcode,
+                "유형": type_code,
+                "거래유형": "0"  # 매매
+            }
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    response = requests.get(url, params=params, headers=DEFAULT_HEADERS, timeout=15)
+                    response.raise_for_status()
+                    data = response.json()
+                    complexes = data.get("dataBody", {}).get("data", [])
+                    for c in complexes:
+                        cid = c.get("단지기본일련번호")
+                        if cid is not None and cid not in seen_ids:
+                            seen_ids.add(cid)
+                            merged.append(c)
+                    type_name = "오피스텔" if type_code == "2" else "아파트"
+                    print(f"[OK] 단지 목록 조회 성공 (유형:{type_name}): {len(complexes)}개 → 병합:{len(merged)}개")
+                    break
+                except (requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError) as e:
+                    if attempt < max_retries - 1:
+                        time.sleep(1.5 * (attempt + 1))
+                        continue
+                    print(f"[X] 단지 목록 조회 실패(연결 끊김): {e}")
+                    break
+                except requests.exceptions.RequestException as e:
+                    print(f"[X] 단지 목록 조회 실패: {e}")
+                    break
+                except Exception as e:
+                    print(f"[X] 단지 목록 조회 오류: {e}")
+                    break
+        return merged
     
     def get_complex_price(self, complex_id: str) -> List[Dict[str, Any]]:
         """
@@ -741,9 +755,10 @@ class KBPriceAPI:
 
         logger.info(f"✅ 법정동코드: {dongcode}")
         
-        # 2. 단지 목록 조회
+        # 2. 단지 목록 조회 (오피스텔 주소면 유형 2도 조회하여 병합)
         logger.debug("2단계: 단지 목록 조회")
-        complexes = self.get_complex_list(dongcode)
+        property_type_hint = address if "오피스텔" in (address or "") else None
+        complexes = self.get_complex_list(dongcode, property_type_hint=property_type_hint)
         if not complexes:
             logger.error("❌ 단지 목록을 찾을 수 없음")
             print("[X] 단지 목록을 찾을 수 없음")
