@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-from utils.mortgage_calculator import calculate_principal, extract_manual_ratios
+from utils.mortgage_calculator import calculate_principal, extract_manual_ratios, extract_manual_principals
 
 # .env.local 로드
 load_dotenv('.env.local')
@@ -247,10 +247,11 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         logger.info(f"✅ PDF 파싱 완료: {parsed_doc.부동산_주소}")
         
-        # 캡션 정보 추출 (1순위 120%, 2순위 130% 등 수동 비율 포함)
+        # 캡션 정보 추출 (1순위 120%, 2순위 130% 등 수동 비율 + 감액등기 원금)
         caption = message.caption or ""
         caption_info = parse_caption_info(caption)
         caption_info['manual_ratios'] = extract_manual_ratios(caption)
+        caption_info['manual_principals'] = extract_manual_principals(caption)
         file_name = document.file_name
         
         # 결과 포맷팅
@@ -514,14 +515,17 @@ async def format_registry_result(result, caption_info, file_name):
             pass
 
     manual_ratios = caption_info.get('manual_ratios', {})
+    manual_principals = caption_info.get('manual_principals', {})
     needs_principal_check = False
     start_rank = 2 if (is_trustee and trust_amount_man) else 1
+    gamak_excluded_creditors = []  # 1천만원 미만 차이로 감액등기 미적용된 금융사
 
     if result.근저당권목록:
         mortgage_amounts = []
         principal_amounts = []
 
         for i, m in enumerate(result.근저당권목록, start=start_rank):
+            gamak_applied = False
             manual_ratio = manual_ratios.get(str(i))
             amount_match = re.search(r'금?\s*([\d,]+)\s*원', m.채권최고액)
             if amount_match:
@@ -537,10 +541,40 @@ async def format_registry_result(result, caption_info, file_name):
                 if not is_clean and not manual_ratio:
                     needs_principal_check = True
 
-                if hasattr(m, '권리종류') and m.권리종류 == "전세권":
-                    amount_str = f"{amount_man:,} ({amount_man:,})만원(100%)"
-                else:
-                    amount_str = f"{amount_man:,} ({principal_man:,})만원({used_ratio}%)"
+                creditor_raw = m.근저당권자
+                creditor = re.sub(r'주식회사', '', creditor_raw)
+                creditor = re.sub(r'유한회사', '', creditor)
+                creditor = re.sub(r'사단법인', '', creditor)
+                creditor = creditor.strip()
+
+                # 감액등기: 고객이 원금을 보냈을 때 채권최고액 역산 (차이 1000만원 이상일 때만)
+                manual_principal_man = manual_principals.get(str(i))
+                if manual_principal_man is None:
+                    for key, val in manual_principals.items():
+                        if key.isdigit():
+                            continue
+                        if key in creditor or creditor in key:
+                            manual_principal_man = val
+                            break
+
+                if manual_principal_man is not None and not (hasattr(m, '권리종류') and m.권리종류 == "전세권"):
+                    new_max_claim_man = int(manual_principal_man * used_ratio / 100)
+                    diff_man = abs(amount_man - new_max_claim_man)
+                    if diff_man >= 1000:
+                        amount_man = new_max_claim_man
+                        principal_man = manual_principal_man
+                        mortgage_amounts[-1] = amount_man
+                        principal_amounts[-1] = principal_man
+                        amount_str = f"{amount_man:,}만({principal_man:,})만원({used_ratio}%)"
+                        gamak_applied = True
+                    else:
+                        gamak_excluded_creditors.append(creditor)
+
+                if not gamak_applied:
+                    if hasattr(m, '권리종류') and m.권리종류 == "전세권":
+                        amount_str = f"{amount_man:,} ({amount_man:,})만원(100%)"
+                    else:
+                        amount_str = f"{amount_man:,} ({principal_man:,})만원({used_ratio}%)"
             else:
                 man_match = re.search(r'([\d,]+)\s*만', m.채권최고액)
                 if man_match:
@@ -552,18 +586,21 @@ async def format_registry_result(result, caption_info, file_name):
                 else:
                     amount_str = m.채권최고액
 
-            creditor = m.근저당권자
-            creditor = re.sub(r'주식회사', '', creditor)
-            creditor = re.sub(r'유한회사', '', creditor)
-            creditor = re.sub(r'사단법인', '', creditor)
-            creditor = creditor.strip()
-            
-            # 채무자 정보
+                creditor_raw = m.근저당권자
+                creditor = re.sub(r'주식회사', '', creditor_raw)
+                creditor = re.sub(r'유한회사', '', creditor)
+                creditor = re.sub(r'사단법인', '', creditor)
+                creditor = creditor.strip()
+                gamak_applied = False
+
+            # 채무자 정보 + 감액등기 표시
             debtor = m.채무자 if m.채무자 else ""
+            creditor_line = f"{i}순위 : {creditor}"
             if debtor:
-                lines.append(f"{i}순위 : {creditor}({debtor})")
-            else:
-                lines.append(f"{i}순위 : {creditor}")
+                creditor_line += f"({debtor})"
+            if gamak_applied:
+                creditor_line += " 감액등기"
+            lines.append(creditor_line)
             lines.append(f"           {amount_str}")
         
         if is_trustee and trust_amount_man:
@@ -601,6 +638,9 @@ async def format_registry_result(result, caption_info, file_name):
     special_notes = []
     if caption_info.get('special_notes'):
         special_notes.extend(caption_info['special_notes'])
+    # 감액등기 미적용 (1천만원 미만 차이) 코멘트
+    for cred in gamak_excluded_creditors:
+        special_notes.append(f"{cred} 해당 순위 근저당권 감액등기 적용시 채권최고액 변동 1천만원 이하로 반영되지 않았습니다")
     if result.압류목록:
         seizure_info = []
         for s in result.압류목록:

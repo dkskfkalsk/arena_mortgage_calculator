@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.mortgage_calculator import (
     calculate_principal,
     extract_manual_ratios,
+    extract_manual_principals,
     classify_financial_institution
 )
 
@@ -1126,9 +1127,11 @@ def get_application(force_new=False):
                 except (ValueError, TypeError):
                     pass
             
-            # 캡션에서 수동 지정된 비율 추출
+            # 캡션에서 수동 지정된 비율 및 감액등기 원금 추출
             manual_ratios = extract_manual_ratios(caption or "")
+            manual_principals = extract_manual_principals(caption or "")
             needs_principal_check = False  # 깔끔하지 않은 금액이 있는지 체크
+            gamak_excluded_creditors = []  # 1천만원 미만 차이로 감액등기 미적용된 금융사
             
             # 기존 근저당권 목록 처리
             if result.근저당권목록:
@@ -1140,8 +1143,9 @@ def get_application(force_new=False):
                 start_rank = 2 if (is_trustee and trust_amount_man) else 1
                 
                 for i, m in enumerate(result.근저당권목록, start=start_rank):
+                    gamak_applied = False
                     # 금액을 만원 단위로 변환
-                    amount_match = re.search(r'([\d,]+)\s*원', m.채권최고액)
+                    amount_match = re.search(r'금?\s*([\d,]+)\s*원', m.채권최고액)
                     if amount_match:
                         amount_won = int(amount_match.group(1).replace(',', ''))
                         amount_man = amount_won // 10000  # 만원 단위
@@ -1162,11 +1166,41 @@ def get_application(force_new=False):
                         if not is_clean and not manual_ratio:
                             needs_principal_check = True
                         
-                        # 권리종류에 따라 표시 (전세권은 채권최고액=원금), 원금 계산에 쓴 비율(%) 표시
-                        if m.권리종류 == "전세권":
-                            amount_str = f"{amount_man:,} ({amount_man:,})만원(100%)"
-                        else:
-                            amount_str = f"{amount_man:,} ({principal_man:,})만원({used_ratio}%)"
+                        # 근저당권자 이름 간소화 (감액등기 매칭용)
+                        creditor_raw = m.근저당권자
+                        creditor = re.sub(r'주식회사', '', creditor_raw)
+                        creditor = re.sub(r'유한회사', '', creditor)
+                        creditor = re.sub(r'사단법인', '', creditor)
+                        creditor = creditor.strip()
+                        
+                        # 감액등기: 고객이 원금을 보냈을 때 채권최고액 역산 (차이 1000만원 이상일 때만)
+                        manual_principal_man = manual_principals.get(str(i))
+                        if manual_principal_man is None:
+                            for key, val in manual_principals.items():
+                                if key.isdigit():
+                                    continue
+                                if key in creditor or creditor in key:
+                                    manual_principal_man = val
+                                    break
+                        
+                        if manual_principal_man is not None and getattr(m, '권리종류', '근저당권') != "전세권":
+                            new_max_claim_man = int(manual_principal_man * used_ratio / 100)
+                            diff_man = abs(amount_man - new_max_claim_man)
+                            if diff_man >= 1000:
+                                amount_man = new_max_claim_man
+                                principal_man = manual_principal_man
+                                mortgage_amounts[-1] = amount_man
+                                principal_amounts[-1] = principal_man
+                                amount_str = f"{amount_man:,}만({principal_man:,})만원({used_ratio}%)"
+                                gamak_applied = True
+                            else:
+                                gamak_excluded_creditors.append(creditor)
+                        
+                        if not gamak_applied:
+                            if getattr(m, '권리종류', '근저당권') == "전세권":
+                                amount_str = f"{amount_man:,} ({amount_man:,})만원(100%)"
+                            else:
+                                amount_str = f"{amount_man:,} ({principal_man:,})만원({used_ratio}%)"
                     else:
                         amount_str = m.채권최고액
                         # 만원 단위 추출 시도
@@ -1175,20 +1209,21 @@ def get_application(force_new=False):
                             extracted_man = int(man_match.group(1).replace(',', ''))
                             mortgage_amounts.append(extracted_man)
                             principal_amounts.append(extracted_man)  # 원금도 동일하게 추가
+                        
+                        creditor_raw = m.근저당권자
+                        creditor = re.sub(r'주식회사', '', creditor_raw)
+                        creditor = re.sub(r'유한회사', '', creditor)
+                        creditor = re.sub(r'사단법인', '', creditor)
+                        creditor = creditor.strip()
                     
-                    # 근저당권자 이름 간소화 (주식회사, 유한회사 등 제거)
-                    creditor = m.근저당권자
-                    creditor = re.sub(r'^주식회사', '', creditor)
-                    creditor = re.sub(r'^유한회사', '', creditor)
-                    creditor = re.sub(r'^사단법인', '', creditor)
-                    creditor = creditor.strip()
-                    
-                    # 채무자 정보 추가
+                    # 채무자 정보 + 감액등기 표시
                     debtor = m.채무자 if m.채무자 else ""
+                    creditor_line = f"{i}순위 : {creditor}"
                     if debtor:
-                        lines.append(f"{i}순위 : {creditor}({debtor})")
-                    else:
-                        lines.append(f"{i}순위 : {creditor}")
+                        creditor_line += f"({debtor})"
+                    if gamak_applied:
+                        creditor_line += " 감액등기"
+                    lines.append(creditor_line)
                     lines.append(f"           {amount_str}")
                 
                 # 신탁 금액이 있으면 mortgage_amounts와 principal_amounts에 추가
@@ -1236,6 +1271,9 @@ def get_application(force_new=False):
             # 캡션에서 추출한 특이사항 추가 (즉발보유 등)
             if caption_info.get('special_notes'):
                 special_notes.extend(caption_info['special_notes'])
+            # 감액등기 미적용 (1천만원 미만 차이) 코멘트
+            for cred in gamak_excluded_creditors:
+                special_notes.append(f"{cred} 해당 순위 근저당권 감액등기 적용시 채권최고액 변동 1천만원 이하로 반영되지 않았습니다")
             
             if result.압류목록:
                 seizure_info = []

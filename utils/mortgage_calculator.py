@@ -185,3 +185,54 @@ def extract_manual_ratios(message: str) -> Dict[str, int]:
         ratios[rank] = ratio
     
     return ratios
+
+
+def extract_manual_principals(message: str) -> Dict[str, int]:
+    """
+    메시지에서 감액등기용 수동 원금 추출
+    
+    형식 예시:
+    - "신한 16900/리드코프 4000" (금융사명 + 공백 + 원금만원, 슬래시 구분)
+    - "2순위 원금 4000만원" 또는 "2순위 원금 4000만"
+    
+    Args:
+        message: 텔레그램 메시지 (캡션)
+    
+    Returns:
+        {금융사명_또는_순위: 원금_만원} 딕셔너리
+        예: {"신한": 16900, "리드코프": 4000} 또는 {"2": 4000}
+    """
+    result = {}
+    
+    if not message:
+        return result
+    
+    # 형식 2 먼저 (순위 기반 - 더 구체적): "N순위 원금 000만원" 또는 "N순위 원금 000만"
+    pattern_rank = r'(\d+)\s*순위\s+원금\s+([\d,]+)\s*만?\s*원?'
+    for match in re.finditer(pattern_rank, message, re.IGNORECASE):
+        rank = match.group(1)
+        num_str = match.group(2).replace(',', '')
+        try:
+            num = int(num_str)
+            if num > 0 and num < 100000:
+                result[rank] = num
+        except ValueError:
+            pass
+    
+    # 형식 1: "금융사명 숫자" (한글 2자 이상 + 공백 + 숫자, 만원 단위)
+    # "신한 16900", "리드코프 4000" 등 - 신용등급(1등급 850) 등 제외
+    pattern_name = r'([가-힣a-zA-Z]{2,})\s+(\d[\d,]*)\s*만?\s*원?'
+    for match in re.finditer(pattern_name, message):
+        name = match.group(1).strip()
+        num_str = match.group(2).replace(',', '')
+        # "등급", "점수" 등 신용 관련 키워드 제외
+        if any(kw in name for kw in ['등급', '점수', '신용', '원금']):
+            continue
+        try:
+            num = int(num_str)
+            if num >= 100 and num < 100000:  # 100만원~99999만원
+                result[name] = num
+        except ValueError:
+            pass
+    
+    return result
