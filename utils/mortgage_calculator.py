@@ -141,8 +141,11 @@ def calculate_principal(
     inst_type = classify_financial_institution(institution_name)
     min_ratio, max_ratio = get_ratio_range(inst_type)
     
+    # 대부·캐피탈·저축은행: 1% 단위 계산 불필요, 5% 단위로만 검색 (136% → 140% 등)
+    step = 5 if inst_type in ('대부', '캐피탈', '저축은행') else 1
+    
     # 범위 내에서 깔끔하게 떨어지는 비율 찾기
-    for ratio in range(min_ratio, max_ratio + 1):
+    for ratio in range(min_ratio, max_ratio + 1, step):
         principal = int(max_claim_amount * 100 / ratio)
         if is_clean_amount(principal):
             return principal, ratio, True
