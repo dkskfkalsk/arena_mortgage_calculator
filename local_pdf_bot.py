@@ -389,9 +389,10 @@ async def format_registry_result(result, caption_info, file_name):
     else:
         lines.append(f"총층수 : ")
     
-    # 면적
+    # 면적 (등기부 PDF에서 추출)
     area = result.면적 or ''
-    lines.append(f"면   적 : {area}")
+    area_source = " (등기부 추출)" if area else ""
+    lines.append(f"면   적 : {area}{area_source}")
     
     # KB 시세 조회
     kb_result = None

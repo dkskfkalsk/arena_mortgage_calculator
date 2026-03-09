@@ -925,8 +925,11 @@ def get_application(force_new=False):
                 lines.append(f"총층수 : ")
             
             # 면적 (캡션에서 입력한 면적 우선, 없으면 등기부에서 추출)
-            area = caption_info.get('area') or result.면적 or ''
-            lines.append(f"면   적 : {area}")
+            area_from_caption = caption_info.get('area')
+            area_from_pdf = result.면적 or ''
+            area = area_from_caption or area_from_pdf or ''
+            area_source = " (캡션 입력)" if (area and area_from_caption) else (" (등기부 추출)" if area else "")
+            lines.append(f"면   적 : {area}{area_source}")
             
             # 세대수, 구분, KB시세 (캡션에서 추출한 정보 사용, KB API 결과로 업데이트 가능)
             households = caption_info.get('households') or ''
