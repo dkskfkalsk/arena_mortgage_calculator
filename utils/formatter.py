@@ -290,7 +290,8 @@ def _format_result_with_label(
     # 예: 후순위 95% 9,300만 / 10.70%~11.60% (1~6등급)
     if has_multiple_grades and results:
         results = _compress_grade_results(results)
-        # 동일 금액인 LTV 결과 합침 (예: 95%~60% 모두 10,000만 → 60%만 표시)
+    # 동일 금액·금리인 LTV 결과 합침 (예: 95%~60% 모두 10,000만 → 60%만, 한도 동일 시 최소 LTV만)
+    if results:
         results = _merge_same_amount_ltv_results(results)
     
     # 고정금리 코멘트 확인 (모든 결과 중 하나라도 있으면 맨 끝에 표시)
