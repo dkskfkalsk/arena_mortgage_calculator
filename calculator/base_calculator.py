@@ -1183,15 +1183,16 @@ class BaseCalculator:
                         "min_amount": self.config.get("min_amount", 3000)
                     }
         
-        # 세입자 후순위 급지 제한 (max_subordinate_grade: 4급지 이상에서는 후순위 취급 불가)
+        # 세입자 후순위 급지 제한 (세입자 있을 때만: 4급지 이상에서는 후순위 취급 불가)
+        has_tenant = any(m.get("is_tenant") for m in other_mortgages)
         max_subordinate_grade = self.config.get("max_subordinate_grade")
-        if max_subordinate_grade is not None and self._is_subordinate and grade is not None:
+        if max_subordinate_grade is not None and has_tenant and self._is_subordinate and grade is not None:
             try:
                 grade_int = int(grade)
             except (ValueError, TypeError):
                 grade_int = None
             if grade_int is not None and grade_int > max_subordinate_grade:
-                print(f"DEBUG: BaseCalculator.calculate - 후순위 대출, 급지 {grade_int} > max_subordinate_grade {max_subordinate_grade}, 취급 불가")
+                print(f"DEBUG: BaseCalculator.calculate - 세입자 후순위 대출, 급지 {grade_int} > max_subordinate_grade {max_subordinate_grade}, 취급 불가")
                 return {
                     "bank_name": self.bank_name,
                     "results": [],
