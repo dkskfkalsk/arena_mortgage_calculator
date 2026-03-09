@@ -1265,11 +1265,16 @@ class BaseCalculator:
             max_ltv = 70
             print(f"DEBUG: BaseCalculator.calculate - 가계자금: LTV 70% 고정")
         
-        # JB하이론: 대환 원금 1억 초과 시 한도 미산출 (결과 전체 없음)
+        # JB하이론 / DSFNC 하이론: 대환 원금이 한도 초과 시 한도 미산출 (결과 전체 없음)
         is_jb = "JB" in self.bank_name or "제이비" in self.bank_name
-        if is_jb and is_refinance and max_amount_limit is not None and refinance_principal > max_amount_limit:
-            print(f"DEBUG: BaseCalculator.calculate - JB하이론: 대환 원금 {refinance_principal}만원 > {max_amount_limit}만원, 한도 미산출")
-            return None
+        max_amount_limit_applies_to_total = self.config.get("max_amount_limit_applies_to_total", False)
+        if is_refinance and max_amount_limit is not None and refinance_principal > max_amount_limit:
+            if is_jb:
+                print(f"DEBUG: BaseCalculator.calculate - JB하이론: 대환 원금 {refinance_principal}만원 > {max_amount_limit}만원, 한도 미산출")
+            elif max_amount_limit_applies_to_total:
+                print(f"DEBUG: BaseCalculator.calculate - 한도 총액 적용 상품: 대환 원금 {refinance_principal}만원 > {max_amount_limit}만원, 한도 미산출")
+            if is_jb or max_amount_limit_applies_to_total:
+                return None
         
         # 필요자금이 있으면 LTV별 계산을 건너뛰고 필요자금 기준으로 역산 계산
         required_amount = property_data.get("required_amount")
@@ -1878,19 +1883,32 @@ class BaseCalculator:
                         rates_by_group = self.config.get("interest_rates_by_region_group_priority_business", {})
                         rate_info = self.get_interest_rate(credit_score, credit_grade, ltv, grade)
                         
-                        # 가계 상품 한도 제한 적용
+                        # 한도 제한 적용: 총액 한도(대환금액 포함) vs 가용 한도
                         final_amount = amount_info["available_amount"]
-                        if max_amount_limit is not None and final_amount > max_amount_limit:
-                            final_amount = max_amount_limit
-                            print(f"DEBUG: BaseCalculator.calculate - 가계 상품 한도 제한 적용: {amount_info['available_amount']}만원 -> {final_amount}만원")
+                        final_total_amount = amount_info["total_amount"]
+                        if max_amount_limit is not None:
+                            if max_amount_limit_applies_to_total and is_refinance:
+                                # 총액 한도: total_amount = min(계산값, 한도), available = total - 대환원금
+                                final_total_amount = min(amount_info["total_amount"], max_amount_limit)
+                                final_amount = final_total_amount - refinance_principal
+                                if final_amount <= 0 and not allow_negative_available:
+                                    print(f"DEBUG: BaseCalculator.calculate - 총액 한도 적용: LTV {ltv}% 가용 {final_amount}만원 <= 0, 스킵")
+                                    continue
+                                print(f"DEBUG: BaseCalculator.calculate - 총액 한도 적용: total {amount_info['total_amount']} -> {final_total_amount}만원, 가용 {final_amount}만원")
+                            elif not max_amount_limit_applies_to_total and final_amount > max_amount_limit:
+                                final_amount = max_amount_limit
+                                print(f"DEBUG: BaseCalculator.calculate - 가계 상품 한도 제한 적용: {amount_info['available_amount']}만원 -> {final_amount}만원")
                         
                         # 100만 단위로 절삭
                         final_amount = self.round_down_to_hundred_thousand(final_amount)
-                        final_total_amount = self.round_down_to_hundred_thousand(amount_info["total_amount"])
+                        final_total_amount = self.round_down_to_hundred_thousand(final_total_amount)
                         
                         # 최소진행금액 체크: 대환 시 총 실행금액(대환+추가), 후순위 시 가한도 기준
                         min_amount = self.config.get("min_amount")
-                        amount_for_min_check = amount_info["total_amount"] if is_refinance else amount_info.get("available_limit", amount_info.get("available_amount", 0))
+                        if max_amount_limit_applies_to_total and is_refinance:
+                            amount_for_min_check = final_total_amount
+                        else:
+                            amount_for_min_check = amount_info["total_amount"] if is_refinance else amount_info.get("available_limit", amount_info.get("available_amount", 0))
                         amount_for_min_rounded = self.round_down_to_hundred_thousand(amount_for_min_check)
                         if min_amount is not None and amount_for_min_rounded < min_amount:
                             print(f"DEBUG: LTV {ltv} - 총실행금액 {amount_for_min_rounded}만원이 min_amount {min_amount}만원보다 작아서 제외 (가용금액: {final_amount}만원)")
