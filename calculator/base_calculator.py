@@ -1894,9 +1894,10 @@ class BaseCalculator:
                                 print(f"DEBUG: LTV {ltv} - available_amount <= 0, but allowing due to '부족자금' request")  # 추가
                         
                         # 금리 조회 (82% LTV의 경우 region_grade에 따라 다른 금리 적용)
-                        # 애큐온캐피탈 등: interest_rates_by_region_group_priority_business 있으면 해당 조건(창업/일반)에 맞는 한도만 산출
+                        # hide_credit_grade: 신용등급 무시하고 급지별 단일금리 (디에스론 3급지 80% 등)
+                        credit_grade_for_rate = None if self.config.get("hide_credit_grade") else credit_grade
                         rates_by_group = self.config.get("interest_rates_by_region_group_priority_business", {})
-                        rate_info = self.get_interest_rate(credit_score, credit_grade, ltv, grade)
+                        rate_info = self.get_interest_rate(credit_score, credit_grade_for_rate, ltv, grade)
                         
                         # 한도 제한 적용: 총액 한도(대환금액 포함) vs 가용 한도
                         final_amount = amount_info["available_amount"]
@@ -1910,6 +1911,11 @@ class BaseCalculator:
                                     print(f"DEBUG: BaseCalculator.calculate - 총액 한도 적용: LTV {ltv}% 가용 {final_amount}만원 <= 0, 스킵")
                                     continue
                                 print(f"DEBUG: BaseCalculator.calculate - 총액 한도 적용: total {amount_info['total_amount']} -> {final_total_amount}만원, 가용 {final_amount}만원")
+                            elif max_amount_limit_applies_to_total and not is_refinance:
+                                # 후순위: 한도가 가용금액 상한 (하이론 3~4급지 3천만원 등)
+                                final_amount = min(amount_info["available_amount"], max_amount_limit)
+                                final_total_amount = final_amount
+                                print(f"DEBUG: BaseCalculator.calculate - 총액 한도 적용(후순위): 가용 {amount_info['available_amount']} -> {final_amount}만원")
                             elif not max_amount_limit_applies_to_total and final_amount > max_amount_limit:
                                 final_amount = max_amount_limit
                                 print(f"DEBUG: BaseCalculator.calculate - 가계 상품 한도 제한 적용: {amount_info['available_amount']}만원 -> {final_amount}만원")
@@ -1920,7 +1926,7 @@ class BaseCalculator:
                         
                         # 최소진행금액 체크: 대환 시 총 실행금액(대환+추가), 후순위 시 가한도 기준
                         min_amount = effective_min_amount
-                        if max_amount_limit_applies_to_total and is_refinance:
+                        if max_amount_limit_applies_to_total:
                             amount_for_min_check = final_total_amount
                         else:
                             amount_for_min_check = amount_info["total_amount"] if is_refinance else amount_info.get("available_limit", amount_info.get("available_amount", 0))
