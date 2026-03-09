@@ -462,6 +462,7 @@ def get_application(force_new=False):
                 'name_display': '',  # 최종 표시할 이름 형식
                 'area': '',          # 면적 (캡션에서 입력한 경우)
                 'trust_amount': '',  # 신탁 금액 (만원 단위 문자열)
+                'tenant': None,      # 세입자 정보 {deposit_man, monthly_rent_man, display_name} 또는 None
             }
             
             if not caption:
@@ -718,6 +719,60 @@ def get_application(force_new=False):
                     if price_man:
                         info['trust_amount'] = f"{price_man:,}"
                         break
+            
+            # 세입자 추출 (전세세입자, 월세세입자, 전세입자, 월세입자, 세입자, 임차보증금)
+            tenant_keywords = r'전세세입자|월세세입자|전세입자|월세입자|세입자|임차보증금'
+            if re.search(tenant_keywords, caption):
+                deposit_man = None
+                monthly_rent_man = None
+                # 보증금 추출: "보증금 6.5억", "6.5억", "원금 65000", "65000", "1순위 전세입자 100% 원금 65000"
+                def _parse_deposit(txt):
+                    if not txt:
+                        return None
+                    txt = txt.strip().replace(',', '').replace(' ', '')
+                    # 6.5억 → 65000
+                    eok_m = re.search(r'(\d+\.?\d*)\s*억', txt)
+                    if eok_m:
+                        try:
+                            return int(float(eok_m.group(1)) * 10000)
+                        except ValueError:
+                            pass
+                    return parse_complex_amount(txt)
+                deposit_patterns = [
+                    (r'1순위\s*(?:전세|월세)?입자[^\d]*(\d{4,})', 1),  # 1순위 전세입자 100% 원금 65000
+                    (r'보증금\s*[:：]?\s*([\d,.\s억천만원]+)', 1),
+                    (r'(?:전세|월세)?세입자[^\d]*보증금\s*[:：]?\s*([\d,.\s억천만원]+)', 1),
+                    (r'임차보증금\s*[:：]?\s*([\d,.\s억천만원]+)', 1),
+                    (r'(?:전세|월세)?세입자[^\d]*원금\s*[:：]?\s*(\d[\d,.\s]*)', 1),
+                    (r'(\d+\.?\d*)\s*억\s*원?', 1),
+                ]
+                for dp, grp in deposit_patterns:
+                    m = re.search(dp, caption)
+                    if m:
+                        val = _parse_deposit(m.group(grp))
+                        if val and val >= 100:  # 100만원 이상
+                            deposit_man = val
+                            break
+                # 월세 추출: "(120만)", "120만", "월세 120만", "월세: 120만원"
+                monthly_patterns = [
+                    r'\((\d+)\s*만\s*원?\)',  # (120만), (120만원)
+                    r'월세\s*[:：]?\s*\(?\s*(\d+)\s*만\s*원?\)?',
+                    r'월세\s*[:：]?\s*(\d+)',
+                    r'(\d+)\s*만\s*원?\s*월세',
+                ]
+                for mp in monthly_patterns:
+                    m = re.search(mp, caption)
+                    if m:
+                        num = int(re.search(r'\d+', m.group(1) if m.lastindex else m.group(0)).group(0))
+                        if 1 <= num <= 9999:  # 1만~9999만원
+                            monthly_rent_man = num
+                            break
+                if deposit_man:
+                    info['tenant'] = {
+                        'deposit_man': deposit_man,
+                        'monthly_rent_man': monthly_rent_man,
+                        'display_name': '월세입자' if monthly_rent_man else '세입자',
+                    }
             
             # 특이사항 추출 (캡션에서 "특이사항" 키워드 뒤의 내용)
             # 패턴: "특이사항 : 내용" 또는 "특이사항: 내용" 또는 "특이사항 내용"
@@ -1165,6 +1220,20 @@ def get_application(force_new=False):
                 except (ValueError, TypeError):
                     pass
             
+            # 세입자 처리 (캡션에 전세/월세 세입자 키워드 있을 때)
+            tenant = caption_info.get('tenant')
+            tenant_rank = 2 if (is_trustee and trust_amount_man) else 1  # 신탁 있으면 2순위
+            if tenant:
+                dep = tenant['deposit_man']
+                mon = tenant.get('monthly_rent_man')
+                name = tenant['display_name']
+                if mon:
+                    lines.append(f"{tenant_rank}순위 : {name}")
+                    lines.append(f"           {dep:,}만원(100%) / 월세 {mon:,}만원")
+                else:
+                    lines.append(f"{tenant_rank}순위 : {name}")
+                    lines.append(f"           {dep:,}만원(100%)")
+            
             # 캡션에서 수동 지정된 비율 및 감액등기 원금 추출
             manual_ratios = extract_manual_ratios(caption or "")
             manual_principals = extract_manual_principals(caption or "")
@@ -1177,9 +1246,10 @@ def get_application(force_new=False):
                 mortgage_amounts = []  # 각 근저당권의 채권최고액 만원 단위 저장
                 principal_amounts = []  # 각 근저당권의 원금 만원 단위 저장
                 
-                # 신탁 금액이 있으면 기존 근저당권 순위를 1씩 증가
-                start_rank = 2 if (is_trustee and trust_amount_man) else 1
+                # 신탁·세입자가 있으면 기존 근저당권 순위를 밀어냄
+                start_rank = 1 + (1 if (is_trustee and trust_amount_man) else 0) + (1 if tenant else 0)
                 
+                rank_offset = (1 if (is_trustee and trust_amount_man) else 0) + (1 if tenant else 0)
                 for i, m in enumerate(result.근저당권목록, start=start_rank):
                     gamak_applied = False
                     # 금액을 만원 단위로 변환
@@ -1190,8 +1260,8 @@ def get_application(force_new=False):
                         total_amount += amount_won
                         mortgage_amounts.append(amount_man)
                         
-                        # 원금 계산
-                        manual_ratio = manual_ratios.get(str(i))
+                        # 원금 계산 (신탁·세입자로 순위 밀림 반영)
+                        manual_ratio = manual_ratios.get(str(i - rank_offset))
                         principal_won, used_ratio, is_clean = calculate_principal(
                             amount_won, 
                             m.근저당권자,
@@ -1212,7 +1282,7 @@ def get_application(force_new=False):
                         creditor = creditor.strip()
                         
                         # 감액등기: 고객이 원금을 보냈을 때 채권최고액 역산 (차이 1000만원 이상일 때만)
-                        manual_principal_man = manual_principals.get(str(i))
+                        manual_principal_man = manual_principals.get(str(i - rank_offset))
                         if manual_principal_man is None:
                             for key, val in manual_principals.items():
                                 if key.isdigit():
@@ -1265,10 +1335,16 @@ def get_application(force_new=False):
                     lines.append(creditor_line)
                     lines.append(f"           {amount_str}")
                 
-                # 신탁 금액이 있으면 mortgage_amounts와 principal_amounts에 추가
+                # 신탁·세입자 금액을 mortgage_amounts, principal_amounts에 추가 (LTV 계산용)
+                insert_idx = 0
                 if is_trustee and trust_amount_man:
-                    mortgage_amounts.insert(0, trust_amount_man)
-                    principal_amounts.insert(0, trust_amount_man)  # 신탁은 채권최고액=원금
+                    mortgage_amounts.insert(insert_idx, trust_amount_man)
+                    principal_amounts.insert(insert_idx, trust_amount_man)
+                    insert_idx += 1
+                if tenant:
+                    dep = tenant['deposit_man']
+                    mortgage_amounts.insert(insert_idx, dep)
+                    principal_amounts.insert(insert_idx, dep)  # 세입자도 채권최고액=원금
                 
                 # KB시세 대비 LTV 계산 (채권최고액 기준 / 원금 기준)
                 if kb_price and mortgage_amounts:
@@ -1290,13 +1366,31 @@ def get_application(force_new=False):
                 # 신탁만 있고 다른 근저당권이 없는 경우
                 mortgage_amounts = [trust_amount_man]
                 principal_amounts = [trust_amount_man]  # 신탁은 채권최고액=원금
-                # KB시세 대비 신탁 금액 비율 계산 (LTV)
+                if tenant:
+                    dep = tenant['deposit_man']
+                    mortgage_amounts.append(dep)
+                    principal_amounts.append(dep)
+                # KB시세 대비 비율 계산 (LTV)
+                if kb_price and mortgage_amounts:
+                    try:
+                        kb_price_man = int(kb_price.replace(',', ''))
+                        if kb_price_man > 0:
+                            total_man = sum(mortgage_amounts)
+                            ratio = (total_man / kb_price_man) * 100
+                            lines.append(f"{ratio:.2f}% / {ratio:.2f}%")
+                    except (ValueError, ZeroDivisionError):
+                        pass
+            elif tenant:
+                # 세입자만 있고 근저당권이 없는 경우
+                dep = tenant['deposit_man']
+                mortgage_amounts = [dep]
+                principal_amounts = [dep]
                 if kb_price:
                     try:
                         kb_price_man = int(kb_price.replace(',', ''))
                         if kb_price_man > 0:
-                            ratio = (trust_amount_man / kb_price_man) * 100
-                            lines.append(f"{ratio:.2f}% / {ratio:.2f}%")  # 신탁은 채권최고액=원금이므로 같음
+                            ratio = (dep / kb_price_man) * 100
+                            lines.append(f"{ratio:.2f}% / {ratio:.2f}%")
                     except (ValueError, ZeroDivisionError):
                         pass
             else:
