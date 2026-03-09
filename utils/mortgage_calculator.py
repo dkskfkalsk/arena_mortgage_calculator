@@ -141,8 +141,8 @@ def calculate_principal(
     inst_type = classify_financial_institution(institution_name)
     min_ratio, max_ratio = get_ratio_range(inst_type)
     
-    # 대부·캐피탈·저축은행: 1% 단위 계산 불필요, 5% 단위로만 검색 (136% → 140% 등)
-    step = 5 if inst_type in ('대부', '캐피탈', '저축은행') else 1
+    # 대부·캐피탈·저축은행: 1% 단위 계산 불필요, 10% 단위로만 검색 (125% → 130%, 136% → 140% 등)
+    step = 10 if inst_type in ('대부', '캐피탈', '저축은행') else 1
     
     # 범위 내에서 깔끔하게 떨어지는 비율 찾기
     for ratio in range(min_ratio, max_ratio + 1, step):
@@ -232,7 +232,25 @@ def extract_manual_principals(message: str) -> Dict[str, int]:
         except ValueError:
             pass
     
+    # 형식 1-2: "N.금융사명 X만(Y만)" - 순위+금융사별 원금 (동일 금융사 여러 순위 구분)
+    # "1.주식회사국민은행 36,850만(33,500만)/110%" → 순위1=33,500
+    # "2.주식회사국민은행 14,300만(13,000만)/110%" → 순위2=13,000
+    # 등장 순서대로 순위 1,2,3... 매핑 (선순위 1,2 / 대환 1 등 섹션 구분 무관)
+    pattern_rank_creditor = r'(\d+)\s*[\.)]\s*([가-힣a-zA-Z]+)\s+[\d,]+\s*만?\s*\(([\d,]+)\s*만?\)'
+    for seq, match in enumerate(re.finditer(pattern_rank_creditor, message), 1):
+        name = match.group(2).strip()
+        if any(kw in name for kw in ['등급', '점수', '신용', '원금', '합계']):
+            continue
+        num_str = match.group(3).replace(',', '')
+        try:
+            num = int(num_str)
+            if num >= 100 and num < 100000:
+                result[str(seq)] = num  # 등장 순서대로 순위 매핑
+        except ValueError:
+            pass
+    
     # 형식 1-1: "금융사명 X만(Y만)" - 괄호 안 Y가 원금 (채권최고액 X, 원금 Y)
+    # 순위 형식이 이미 추출된 경우 덮어쓰지 않음 (동일 금융사 여러 순위 시 순위 기반 우선)
     # "국민은행 21,650만(19,682만)/110%" → 원금 19,682 추출 (기존 패턴은 21,650 채권최고액을 잘못 추출함)
     pattern_parentheses = r'([가-힣a-zA-Z]{2,})\s+[\d,]+\s*만?\s*\(([\d,]+)\s*만?\)'
     for match in re.finditer(pattern_parentheses, message):
