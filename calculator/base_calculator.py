@@ -805,29 +805,32 @@ class BaseCalculator:
             area = property_data.get("area")
             if area is not None:
                 max_area = area_limit_config.get("max_area", 135)
+                max_ltv_when_exceeded = area_limit_config.get("max_ltv_when_exceeded")
                 excluded_regions = area_limit_config.get("excluded_regions", [])
                 
-                # 제외 지역(서울 등)이 아니고 면적이 제한을 초과하면 불가
-                is_excluded_region = False
-                for excluded in excluded_regions:
-                    if excluded in region:
-                        is_excluded_region = True
-                        break
-                
-                if not is_excluded_region and area > max_area:
-                    print(f"DEBUG: BaseCalculator.calculate - area {area}㎡ > max_area {max_area}㎡ for region {region}, 취급 불가")
-                    # 소수점 3자리로 포맷팅
-                    area_formatted = f"{area:.3f}".rstrip('0').rstrip('.') if area % 1 != 0 else f"{int(area)}"
-                    max_area_formatted = f"{max_area:.3f}".rstrip('0').rstrip('.') if max_area % 1 != 0 else f"{int(max_area)}"
-                    excess_area = area - max_area
-                    excess_area_formatted = f"{excess_area:.3f}".rstrip('0').rstrip('.') if excess_area % 1 != 0 else f"{int(excess_area)}"
-                    return {
-                        "bank_name": self.bank_name,
-                        "results": [],
-                        "conditions": self.config.get("conditions", []),
-                        "errors": [f"면적 {area_formatted}㎡는 서울지역 이외에서는 최대 {max_area_formatted}㎡까지 취급 가능합니다 (초과: {excess_area_formatted}㎡)"],
-                        "min_amount": self.config.get("min_amount", 3000)
-                    }
+                # max_ltv_when_exceeded가 있으면 면적 초과 시 LTV만 제한 (취급불가 아님)
+                if not max_ltv_when_exceeded:
+                    # 제외 지역(서울 등)이 아니고 면적이 제한을 초과하면 불가
+                    is_excluded_region = False
+                    for excluded in excluded_regions:
+                        if excluded in region:
+                            is_excluded_region = True
+                            break
+                    
+                    if not is_excluded_region and area > max_area:
+                        print(f"DEBUG: BaseCalculator.calculate - area {area}㎡ > max_area {max_area}㎡ for region {region}, 취급 불가")
+                        # 소수점 3자리로 포맷팅
+                        area_formatted = f"{area:.3f}".rstrip('0').rstrip('.') if area % 1 != 0 else f"{int(area)}"
+                        max_area_formatted = f"{max_area:.3f}".rstrip('0').rstrip('.') if max_area % 1 != 0 else f"{int(max_area)}"
+                        excess_area = area - max_area
+                        excess_area_formatted = f"{excess_area:.3f}".rstrip('0').rstrip('.') if excess_area % 1 != 0 else f"{int(excess_area)}"
+                        return {
+                            "bank_name": self.bank_name,
+                            "results": [],
+                            "conditions": self.config.get("conditions", []),
+                            "errors": [f"면적 {area_formatted}㎡는 서울지역 이외에서는 최대 {max_area_formatted}㎡까지 취급 가능합니다 (초과: {excess_area_formatted}㎡)"],
+                            "min_amount": self.config.get("min_amount", 3000)
+                        }
         
         # 기준 LTV 이하 지역 확인
         below_standard_ltv = self.get_below_standard_ltv(region)
@@ -863,6 +866,15 @@ class BaseCalculator:
         if is_below_standard:
             max_ltv = below_standard_ltv
             print(f"DEBUG: BaseCalculator.calculate - 기준 LTV 이하 지역: {region}, 적용 LTV: {max_ltv}%")
+        
+        # 면적 초과 시 LTV 제한 (max_ltv_when_exceeded: 85㎡ 초과 시 LTV 85% 등)
+        if area_limit_config.get("enabled", False) and area_limit_config.get("max_ltv_when_exceeded"):
+            area = property_data.get("area")
+            if area is not None and area > area_limit_config.get("max_area", 135):
+                cap_ltv = area_limit_config["max_ltv_when_exceeded"]
+                if max_ltv is not None and max_ltv > cap_ltv:
+                    max_ltv = cap_ltv
+                    print(f"DEBUG: BaseCalculator.calculate - 면적 {area}㎡ > {area_limit_config.get('max_area')}㎡, max_ltv 제한: {max_ltv}%")
         
         # 기존 근저당권 총액 계산 (채권최고액 기준)
         mortgages = property_data.get("mortgages", [])
@@ -1171,6 +1183,23 @@ class BaseCalculator:
                         "min_amount": self.config.get("min_amount", 3000)
                     }
         
+        # 세입자 후순위 급지 제한 (max_subordinate_grade: 4급지 이상에서는 후순위 취급 불가)
+        max_subordinate_grade = self.config.get("max_subordinate_grade")
+        if max_subordinate_grade is not None and self._is_subordinate and grade is not None:
+            try:
+                grade_int = int(grade)
+            except (ValueError, TypeError):
+                grade_int = None
+            if grade_int is not None and grade_int > max_subordinate_grade:
+                print(f"DEBUG: BaseCalculator.calculate - 후순위 대출, 급지 {grade_int} > max_subordinate_grade {max_subordinate_grade}, 취급 불가")
+                return {
+                    "bank_name": self.bank_name,
+                    "results": [],
+                    "conditions": self.config.get("conditions", []),
+                    "errors": [f"세입자 후순위는 1~{max_subordinate_grade}급지까지 가능합니다 (현재: {grade_int}급지)"],
+                    "min_amount": self.config.get("min_amount", 3000)
+                }
+        
         # 신용점수/등급 확인
         credit_score = property_data.get("credit_score")
         credit_grade = self.credit_score_to_grade(credit_score)
@@ -1190,7 +1219,13 @@ class BaseCalculator:
         
         # 일반 상품 최대 한도 제한 (config에서 읽기)
         config_max_amount_limit = self.config.get("max_amount_limit")
-        if config_max_amount_limit is not None:
+        max_amount_limit_by_grade = self.config.get("max_amount_limit_by_grade", {})
+        if max_amount_limit_by_grade and grade is not None:
+            grade_str = str(grade)
+            if grade_str in max_amount_limit_by_grade:
+                max_amount_limit = max_amount_limit_by_grade[grade_str]
+                print(f"DEBUG: BaseCalculator.calculate - 급지별 최대 한도 제한 (급지 {grade}): {max_amount_limit}만원")
+        elif config_max_amount_limit is not None:
             max_amount_limit = config_max_amount_limit
             print(f"DEBUG: BaseCalculator.calculate - config에서 최대 한도 제한: {max_amount_limit}만원")
         
@@ -3703,9 +3738,23 @@ class BaseCalculator:
                 if filename.endswith("_config.json") or filename.endswith(".json"):
                     config_path = os.path.join(loan_dir, filename)
                     try:
-                        calculator = cls(config_path)
-                        calculators.append(calculator)
-                        print(f"✅ {subfolder}/{filename} 계산기 로드 완료")
+                        with open(config_path, "r", encoding="utf-8") as f:
+                            raw_config = json.load(f)
+                        # products 배열이 있으면 다중 상품 (DSFNC 등)
+                        products = raw_config.get("products", [])
+                        if products:
+                            base_name = raw_config.get("bank_name", "Unknown")
+                            for prod in products:
+                                merged = {**raw_config, **prod}
+                                merged["bank_name"] = f"{base_name} {prod.get('product_name', '')}".strip()
+                                del merged["products"]
+                                calculator = cls(merged)
+                                calculators.append(calculator)
+                                print(f"✅ {subfolder}/{filename} ({merged['bank_name']}) 계산기 로드 완료")
+                        else:
+                            calculator = cls(config_path)
+                            calculators.append(calculator)
+                            print(f"✅ {subfolder}/{filename} 계산기 로드 완료")
                     except Exception as e:
                         print(f"⚠️  계산기 로드 실패 ({subfolder}/{filename}): {e}")
                         continue
