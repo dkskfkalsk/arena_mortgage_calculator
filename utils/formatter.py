@@ -70,7 +70,10 @@ def _compress_grade_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any
                 "interest_rate_range": None,
             }
         else:
-            rates = [r.get("interest_rate") for r in group if r.get("interest_rate") is not None]
+            # 0은 취급 불가(해당 없음)를 의미하므로 제외 (DSFNC 등 단일금리 상품에서 0.00%~10.90% 방지)
+            rates = [r.get("interest_rate") for r in group if r.get("interest_rate") is not None and r.get("interest_rate") > 0]
+            if not rates:
+                rates = [r.get("interest_rate") for r in group if r.get("interest_rate") is not None]
             if rates:
                 min_rate, max_rate = min(rates), max(rates)
                 merged = {

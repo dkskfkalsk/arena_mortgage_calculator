@@ -3396,8 +3396,10 @@ class BaseCalculator:
         # show_interest_rate_range 플래그 확인: 신용등급 구분 없이 금리 구간 표시 여부
         show_interest_rate_range = self.config.get("show_interest_rate_range", False)
         if show_interest_rate_range:
-            # 신용등급 구분 없이 해당 LTV의 최저~최고 금리 범위 반환
-            all_rates = [v for v in grade_rates.values() if isinstance(v, (int, float))]
+            # 신용등급 구분 없이 해당 LTV의 최저~최고 금리 범위 반환 (0=취급불가 제외)
+            all_rates = [v for v in grade_rates.values() if isinstance(v, (int, float)) and v > 0]
+            if not all_rates:
+                all_rates = [v for v in grade_rates.values() if isinstance(v, (int, float))]
             if all_rates:
                 min_rate = min(all_rates) + grade_additional_rate + non_apartment_additional_rate + bank_appraisal_additional_rate + promotion_discount
                 max_rate = max(all_rates) + grade_additional_rate + non_apartment_additional_rate + bank_appraisal_additional_rate + promotion_discount
@@ -3430,15 +3432,41 @@ class BaseCalculator:
             else:
                 print(f"DEBUG: get_interest_rate - grade_key {grade_key} not found in grade_rates")  # 추가
         
+        # 신용점수 없을 때: hide_credit_grade + region_grade 있으면 급지별 단일금리 반환 (DSFNC: 2급지 70%→8.4%, 5급지 70%→10.9%)
+        hide_credit_grade = self.config.get("hide_credit_grade", False)
+        if hide_credit_grade and region_grade is not None and credit_grade is None:
+            grade_key = str(region_grade)
+            if grade_key in grade_rates:
+                rate = grade_rates[grade_key]
+                if rate is not None and rate > 0:
+                    final_rate = rate + grade_additional_rate + non_apartment_additional_rate + bank_appraisal_additional_rate + promotion_discount
+                    return {
+                        "interest_rate": round(final_rate, 2),
+                        "interest_rate_range": None,
+                        "credit_grade": None,
+                        "promotion_applied": promotion_discount != 0.0
+                    }
+        
         # 신용점수/등급이 없으면 최저~최고 금리 범위 반환
-        all_rates = [v for v in grade_rates.values() if isinstance(v, (int, float))]
+        # 0은 취급 불가(해당 없음)를 의미하므로 제외 (DSFNC 등 단일금리 상품에서 0.00%~10.90% 방지)
+        all_rates = [v for v in grade_rates.values() if isinstance(v, (int, float)) and v > 0]
+        if not all_rates:
+            all_rates = [v for v in grade_rates.values() if isinstance(v, (int, float))]
         if all_rates:
             min_rate = min(all_rates) + grade_additional_rate + non_apartment_additional_rate + bank_appraisal_additional_rate + promotion_discount
             max_rate = max(all_rates) + grade_additional_rate + non_apartment_additional_rate + bank_appraisal_additional_rate + promotion_discount
+            min_r, max_r = round(min_rate, 2), round(max_rate, 2)
             print(f"DEBUG: get_interest_rate - no credit_grade, returning range: {min_rate}~{max_rate} (급지 가산: {grade_additional_rate}%, 비아파트 가산: {non_apartment_additional_rate}%, 감정건 가산: {bank_appraisal_additional_rate}%, 프로모션: {promotion_discount}%)")  # 추가
+            if min_r == max_r:
+                return {
+                    "interest_rate": min_r,
+                    "interest_rate_range": None,
+                    "credit_grade": None,
+                    "promotion_applied": promotion_discount != 0.0
+                }
             return {
                 "interest_rate": None,
-                "interest_rate_range": (round(min_rate, 2), round(max_rate, 2)),
+                "interest_rate_range": (min_r, max_r),
                 "credit_grade": None,
                 "promotion_applied": promotion_discount != 0.0
             }
