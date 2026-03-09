@@ -75,10 +75,11 @@ def get_application(force_new=False):
             except ModuleNotFoundError:
                 raise ValueError("TELEGRAM_BOT_TOKEN 환경변수를 설정해주세요.")
 
-        # 허용된 채팅방 ID 가져오기 (1번방: banks, 2번방: loan, 3번방: banks_2 - PDF 등기부등본 분석)
+        # 허용된 채팅방 ID 가져오기 (1번방: banks, 2번방: loan, 3번방: banks_2 - PDF 등기부등본 분석, pdf_only - PDF 파싱만)
         ALLOWED_CHAT_IDS_BANKS_STR = os.getenv("ALLOWED_CHAT_IDS_BANKS")
         ALLOWED_CHAT_IDS_LOAN_STR = os.getenv("ALLOWED_CHAT_IDS_LOAN")
         ALLOWED_CHAT_IDS_BANKS_2_STR = os.getenv("ALLOWED_CHAT_IDS_BANKS_2")
+        ALLOWED_CHAT_IDS_PDF_ONLY_STR = os.getenv("ALLOWED_CHAT_IDS_PDF_ONLY")
         
         if not ALLOWED_CHAT_IDS_BANKS_STR:
             try:
@@ -101,6 +102,13 @@ def get_application(force_new=False):
             except (ModuleNotFoundError, ImportError):
                 ALLOWED_CHAT_IDS_BANKS_2_STR = None
         
+        if not ALLOWED_CHAT_IDS_PDF_ONLY_STR:
+            try:
+                from config.telegram_config import ALLOWED_CHAT_IDS_PDF_ONLY  # type: ignore
+                ALLOWED_CHAT_IDS_PDF_ONLY_STR = ALLOWED_CHAT_IDS_PDF_ONLY
+            except (ModuleNotFoundError, ImportError, AttributeError):
+                ALLOWED_CHAT_IDS_PDF_ONLY_STR = None
+        
         # 허용된 채팅방 ID 리스트로 변환
         allowed_chat_ids_banks = []
         if ALLOWED_CHAT_IDS_BANKS_STR:
@@ -114,11 +122,15 @@ def get_application(force_new=False):
         if ALLOWED_CHAT_IDS_BANKS_2_STR:
             allowed_chat_ids_banks_2 = [int(chat_id.strip()) for chat_id in ALLOWED_CHAT_IDS_BANKS_2_STR.split(",") if chat_id.strip()]
         
-        # 전체 허용된 채팅방 ID (모두 합침)
-        allowed_chat_ids = allowed_chat_ids_banks + allowed_chat_ids_loan + allowed_chat_ids_banks_2
+        allowed_chat_ids_pdf_only = []
+        if ALLOWED_CHAT_IDS_PDF_ONLY_STR:
+            allowed_chat_ids_pdf_only = [int(chat_id.strip()) for chat_id in ALLOWED_CHAT_IDS_PDF_ONLY_STR.split(",") if chat_id.strip()]
         
-        print(f"[WEBHOOK] Application initializing - allowed_chat_ids_banks: {allowed_chat_ids_banks}, allowed_chat_ids_loan: {allowed_chat_ids_loan}, allowed_chat_ids_banks_2: {allowed_chat_ids_banks_2}", file=sys.stderr, flush=True)
-        logger.info(f"Application initialized - allowed_chat_ids_banks: {allowed_chat_ids_banks}, allowed_chat_ids_loan: {allowed_chat_ids_loan}, allowed_chat_ids_banks_2: {allowed_chat_ids_banks_2}")
+        # 전체 허용된 채팅방 ID (모두 합침)
+        allowed_chat_ids = allowed_chat_ids_banks + allowed_chat_ids_loan + allowed_chat_ids_banks_2 + allowed_chat_ids_pdf_only
+        
+        print(f"[WEBHOOK] Application initializing - allowed_chat_ids_banks: {allowed_chat_ids_banks}, allowed_chat_ids_loan: {allowed_chat_ids_loan}, allowed_chat_ids_banks_2: {allowed_chat_ids_banks_2}, allowed_chat_ids_pdf_only: {allowed_chat_ids_pdf_only}", file=sys.stderr, flush=True)
+        logger.info(f"Application initialized - allowed_chat_ids_banks: {allowed_chat_ids_banks}, allowed_chat_ids_loan: {allowed_chat_ids_loan}, allowed_chat_ids_banks_2: {allowed_chat_ids_banks_2}, allowed_chat_ids_pdf_only: {allowed_chat_ids_pdf_only}")
 
         app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
         print("[WEBHOOK] Application initialized successfully", file=sys.stderr, flush=True)
@@ -240,11 +252,12 @@ def get_application(force_new=False):
             if not is_allowed_chat(chat_id):
                 return
             
-            # banks_2 소속 여부는 get_chat_type 순서와 무관하게 직접 확인
-            # (동일 chat_id가 banks에도 있으면 get_chat_type이 'banks'만 반환함)
-            if chat_id not in allowed_chat_ids_banks_2:
+            # banks_2 또는 pdf_only 소속 여부 확인 (동일 chat_id가 여러 목록에 있을 수 있음)
+            if chat_id not in allowed_chat_ids_banks_2 and chat_id not in allowed_chat_ids_pdf_only:
                 await message.reply_text("등기부 PDF 분석은 등기부·KB시세 전용 방에서 이용해 주세요.")
                 return
+            
+            pdf_only_mode = chat_id in allowed_chat_ids_pdf_only
             
             document = message.document
             if not document:
@@ -280,7 +293,7 @@ def get_application(force_new=False):
                 try:
                     def _blocking_pdf_work():
                         result = analyze_pdf(tmp_path)
-                        return format_registry_result(result, caption, file_name)
+                        return format_registry_result(result, caption, file_name, pdf_only=pdf_only_mode)
                     loop = asyncio.get_event_loop()
                     response = await loop.run_in_executor(None, _blocking_pdf_work)
                     
@@ -291,7 +304,7 @@ def get_application(force_new=False):
                         except Exception as del_err:
                             print(f"[WEBHOOK] Failed to delete processing message: {str(del_err)}", file=sys.stderr, flush=True)
                     
-                    # 에러 메시지인 경우 (KB 시세가 없고 대체 시세도 없는 경우)
+                    # 에러 메시지인 경우 (KB 시세가 없고 대체 시세도 없는 경우) - pdf_only 모드에서는 해당 메시지 없음
                     if response and isinstance(response, str) and "KB 시세가 검색되지 않으므로" in response:
                         await message.reply_text(response)
                         return
@@ -742,8 +755,8 @@ def get_application(force_new=False):
                 return match.group(1).strip()
             return ""
         
-        def format_registry_result(result, caption, file_name):
-            """등기부등본 분석 결과를 텔레그램 메시지 형식으로 포맷"""
+        def format_registry_result(result, caption, file_name, pdf_only=False):
+            """등기부등본 분석 결과를 텔레그램 메시지 형식으로 포맷. pdf_only=True면 KB API·공공데이터·스크래핑 호출 없음"""
             import re
             
             # 캡션에서 추가 정보 추출
@@ -936,10 +949,10 @@ def get_application(force_new=False):
             real_transactions_display = ""  # KB 시세 없을 때 공공데이터 실거래가
             
             # 등기부에서 주소와 면적을 추출한 경우 KB API 호출 (면적은 문자열 그대로 전달해 51/37.85 등 전용 추출)
-            # 항상 등기부 주소로 KB API를 먼저 시도 (캡션에 KB시세가 있어도 등기부 주소로 정확한 시세 조회)
+            # pdf_only 모드에서는 KB API·공공데이터·스크래핑 호출 없음 (Vercel 수준에서 PDF 파싱만)
             has_area = bool(area and str(area).strip()) or (area_value is not None and area_value > 0)
             should_call_kb_api = (
-                address and address != "확인불가" and has_area
+                address and address != "확인불가" and has_area and not pdf_only
             )
             
             if should_call_kb_api:
@@ -1328,8 +1341,8 @@ def get_application(force_new=False):
             request_text = caption_info.get('request', '')
             lines.append(f"요청사항 : {request_text}")
             
-            # KB 시세 없을 때 맨 끝에 멘트 추가
-            if not kb_price:
+            # KB 시세 없을 때 맨 끝에 멘트 추가 (pdf_only 모드에서는 조회 자체를 안 하므로 생략)
+            if not kb_price and not pdf_only:
                 lines.append("KB시세 없음. 다른 시세 첨부 바랍니다.")
             
             # 근저당권 원금 설정이 깔끔하지 않을 때 확인 필요 멘트 추가
@@ -1388,11 +1401,9 @@ def get_application(force_new=False):
             print(f"[WEBHOOK] Chat type: {chat_type}", file=sys.stderr, flush=True)
             logger.info(f"handle_message - chat_type: {chat_type}")
             
-            # PDF 등기부 업로드: banks_2에 포함된 채팅방이면 문서 핸들러로 처리
-            # (get_chat_type은 banks → loan → banks_2 순으로 판별하므로, 동일 chat_id가 여러 목록에 있으면
-            # banks로만 인식될 수 있음. 문서 처리만큼은 banks_2 소속 여부를 직접 확인)
-            if message.document and (chat_id in allowed_chat_ids_banks_2):
-                print(f"[WEBHOOK] PDF in banks_2 chat, calling handle_document", file=sys.stderr, flush=True)
+            # PDF 등기부 업로드: banks_2 또는 pdf_only에 포함된 채팅방이면 문서 핸들러로 처리
+            if message.document and (chat_id in allowed_chat_ids_banks_2 or chat_id in allowed_chat_ids_pdf_only):
+                print(f"[WEBHOOK] PDF in banks_2/pdf_only chat, calling handle_document", file=sys.stderr, flush=True)
                 await handle_document(update, context)
                 return
             # 다른 방에서 PDF만 보낸 경우 안내 메시지 (무응답 방지)
@@ -1686,10 +1697,11 @@ class handler(BaseHTTPRequestHandler):
             chat_id = get_chat_id_from_update(update)
             print(f"[WEBHOOK] Chat ID: {chat_id}", file=sys.stderr, flush=True)
 
-            # 허용된 채팅방 ID 확인 (1번방: banks, 2번방: loan, 3번방: banks_2 - PDF 등기부등본 분석)
+            # 허용된 채팅방 ID 확인 (1번방: banks, 2번방: loan, 3번방: banks_2, pdf_only - PDF 파싱만)
             ALLOWED_CHAT_IDS_BANKS_STR = os.getenv("ALLOWED_CHAT_IDS_BANKS")
             ALLOWED_CHAT_IDS_LOAN_STR = os.getenv("ALLOWED_CHAT_IDS_LOAN")
             ALLOWED_CHAT_IDS_BANKS_2_STR = os.getenv("ALLOWED_CHAT_IDS_BANKS_2")
+            ALLOWED_CHAT_IDS_PDF_ONLY_STR = os.getenv("ALLOWED_CHAT_IDS_PDF_ONLY")
             
             if not ALLOWED_CHAT_IDS_BANKS_STR:
                 try:
@@ -1712,6 +1724,13 @@ class handler(BaseHTTPRequestHandler):
                 except (ModuleNotFoundError, ImportError):
                     ALLOWED_CHAT_IDS_BANKS_2_STR = None
 
+            if not ALLOWED_CHAT_IDS_PDF_ONLY_STR:
+                try:
+                    from config.telegram_config import ALLOWED_CHAT_IDS_PDF_ONLY  # type: ignore
+                    ALLOWED_CHAT_IDS_PDF_ONLY_STR = ALLOWED_CHAT_IDS_PDF_ONLY
+                except (ModuleNotFoundError, ImportError, AttributeError):
+                    ALLOWED_CHAT_IDS_PDF_ONLY_STR = None
+
             allowed_chat_ids_banks = []
             if ALLOWED_CHAT_IDS_BANKS_STR:
                 allowed_chat_ids_banks = [int(chat_id.strip()) for chat_id in ALLOWED_CHAT_IDS_BANKS_STR.split(",") if chat_id.strip()]
@@ -1724,10 +1743,14 @@ class handler(BaseHTTPRequestHandler):
             if ALLOWED_CHAT_IDS_BANKS_2_STR:
                 allowed_chat_ids_banks_2 = [int(chat_id.strip()) for chat_id in ALLOWED_CHAT_IDS_BANKS_2_STR.split(",") if chat_id.strip()]
 
-            # 전체 허용된 채팅방 ID (모두 합침)
-            allowed_chat_ids = allowed_chat_ids_banks + allowed_chat_ids_loan + allowed_chat_ids_banks_2
+            allowed_chat_ids_pdf_only = []
+            if ALLOWED_CHAT_IDS_PDF_ONLY_STR:
+                allowed_chat_ids_pdf_only = [int(chat_id.strip()) for chat_id in ALLOWED_CHAT_IDS_PDF_ONLY_STR.split(",") if chat_id.strip()]
 
-            print(f"[WEBHOOK] Allowed chat IDs - banks: {allowed_chat_ids_banks}, loan: {allowed_chat_ids_loan}, banks_2: {allowed_chat_ids_banks_2}", file=sys.stderr, flush=True)
+            # 전체 허용된 채팅방 ID (모두 합침)
+            allowed_chat_ids = allowed_chat_ids_banks + allowed_chat_ids_loan + allowed_chat_ids_banks_2 + allowed_chat_ids_pdf_only
+
+            print(f"[WEBHOOK] Allowed chat IDs - banks: {allowed_chat_ids_banks}, loan: {allowed_chat_ids_loan}, banks_2: {allowed_chat_ids_banks_2}, pdf_only: {allowed_chat_ids_pdf_only}", file=sys.stderr, flush=True)
             logger.info(f"chat_id: {chat_id}, allowed_chat_ids_banks: {allowed_chat_ids_banks}, allowed_chat_ids_loan: {allowed_chat_ids_loan}, allowed_chat_ids_banks_2: {allowed_chat_ids_banks_2}")
 
             # 허용된 채팅방이 설정되어 있고, 현재 채팅방이 허용 목록에 없으면 무시

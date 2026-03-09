@@ -36,3 +36,9 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", None)
 
+# ============================================
+# PDF 전용 채널 (등기부 파싱만, KB API·공공데이터·스크래핑 없음)
+# ============================================
+# Vercel 수준에서 PDF 파싱만 수행하는 채널 ID (쉼표 구분)
+# 예: ALLOWED_CHAT_IDS_PDF_ONLY = "-1003892896741"
+ALLOWED_CHAT_IDS_PDF_ONLY = os.getenv("ALLOWED_CHAT_IDS_PDF_ONLY", None)
