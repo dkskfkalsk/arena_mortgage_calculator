@@ -3765,6 +3765,35 @@ class BaseCalculator:
                 print(f"계산기 {calculator.bank_name} 에러: {e}")
                 continue
         
+        # DSFNC: 하이론 한도가 디에스론보다 클 때만 둘 다 표시, 아니면 디에스론만
+        results = cls._filter_dsfnc_results(results)
+        
+        return results
+    
+    @classmethod
+    def _filter_dsfnc_results(cls, results: list) -> list:
+        """DSFNC 디에스론/하이론: 하이론 한도 > 디에스론 한도일 때만 둘 다 표시, 아니면 디에스론만"""
+        dsfnc_desron = next((r for r in results if r.get("bank_name") == "DSFNC 디에스론"), None)
+        dsfnc_hiroon = next((r for r in results if r.get("bank_name") == "DSFNC 하이론"), None)
+        if not dsfnc_desron or not dsfnc_hiroon:
+            return results
+        
+        def _get_max_amount(bank_result):
+            res_list = bank_result.get("results") or []
+            valid = [x for x in res_list if not x.get("limit_not_calculated", False)]
+            if not valid:
+                return 0
+            amounts = [x.get("available_amount") or x.get("amount", 0) or 0 for x in valid]
+            return max(amounts) if amounts else 0
+        
+        max_desron = _get_max_amount(dsfnc_desron)
+        max_hiroon = _get_max_amount(dsfnc_hiroon)
+        
+        if max_desron >= max_hiroon:
+            results = [r for r in results if r.get("bank_name") != "DSFNC 하이론"]
+            print(f"DEBUG: BaseCalculator - DSFNC 디에스론 한도({max_desron}만) >= 하이론({max_hiroon}만), 하이론 제외")
+        else:
+            print(f"DEBUG: BaseCalculator - DSFNC 하이론 한도({max_hiroon}만) > 디에스론({max_desron}만), 둘 다 표시")
         return results
     
     @classmethod
@@ -3858,6 +3887,9 @@ class BaseCalculator:
             except Exception as e:
                 print(f"계산기 {calculator.bank_name} 에러: {e}")
                 continue
+        
+        # DSFNC: 하이론 한도가 디에스론보다 클 때만 둘 다 표시, 아니면 디에스론만
+        results = cls._filter_dsfnc_results(results)
         
         return results
 

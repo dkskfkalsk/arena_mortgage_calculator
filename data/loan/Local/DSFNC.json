@@ -359,8 +359,7 @@
       "max_age": 70,
       "_comment_max_age": "차주 및 담보제공자 만70세까지",
       "conditions": [
-        "물상담보, 개인설정 대환 가능",
-        "담보제공범위: 가족관계증명서상 증빙되는 가족까지"
+        "-2년 계약- 1년 후 금리 2%인상조건"
       ],
       "validation_rules": {
         "enabled": true,
