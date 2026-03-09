@@ -272,13 +272,13 @@
         "5": 70,
         "9": 0
       },
-      "_comment_max_ltv": "1급지 85%(10.9%)/70%(8.4%), 2~4급지 83/80/75%(10.9%)/70%(8.4%), 5급지 70%(8.4%). LTV 70% 이하 전 구간 8.4% 고정",
+      "_comment_max_ltv": "1급지 85%(10.9%)/70%(8.4%), 2~4급지 83/80/75%(10.9%)/70%(8.4%), 5급지 70%(10.9%). 1~4급지 70% 이하 8.4% 고정",
       "ltv_steps": [85, 83, 80, 75, 70],
       "_comment_ltv_steps": "1급지 85/70, 2급지 83/70, 3급지 80/70, 4급지 75/70, 5급지 70. 70% 이하는 8.4% 고정",
       "primary_interest_rates_by_ltv": {
         "60": {"1": 8.4, "2": 8.4, "3": 8.4, "4": 8.4, "5": 8.4, "6": 8.4, "7": 8.4},
         "65": {"1": 8.4, "2": 8.4, "3": 8.4, "4": 8.4, "5": 8.4, "6": 8.4, "7": 8.4},
-        "70": {"1": 8.4, "2": 8.4, "3": 8.4, "4": 8.4, "5": 8.4, "6": 8.4, "7": 8.4},
+        "70": {"1": 8.4, "2": 8.4, "3": 8.4, "4": 8.4, "5": 10.9, "6": 8.4, "7": 8.4},
         "75": {"1": 10.9, "2": 10.9, "3": 10.9, "4": 10.9, "5": 0, "6": 10.9, "7": 10.9},
         "80": {"1": 10.9, "2": 10.9, "3": 10.9, "4": 0, "5": 0, "6": 10.9, "7": 10.9},
         "83": {"1": 10.9, "2": 10.9, "3": 0, "4": 0, "5": 0, "6": 10.9, "7": 10.9},
@@ -304,8 +304,28 @@
         "440-579": 8
       },
       "max_credit_grade": 7,
+      "hide_credit_grade": true,
+      "_comment_hide_credit_grade": "신용등급 구분 없이 산출",
+      "show_region_grade": true,
+      "_comment_show_region_grade": "헤더에 N급지 명시",
       "min_amount": 3000,
       "min_kb_price": 20000,
+      "lower_bound_price": {
+        "enabled": true,
+        "apartment": {
+          "rules": [
+            {"total_floors_min": 7, "lower_bound_floors": [1, 2]},
+            {"total_floors_max": 6, "lower_bound_floors": [1]}
+          ]
+        },
+        "residential_commercial": {
+          "rules": [
+            {"total_floors_min": 7, "lower_bound_floors": [1, 2]},
+            {"total_floors_max": 6, "lower_bound_floors": [1]}
+          ]
+        },
+        "description": "6층 이하 1층, 7층 이상 1~2층 하한가"
+      },
       "price_sources": {
         "kb_price": 1,
         "kb_ai_price": 0,
@@ -483,6 +503,8 @@
         "440-579": 8
       },
       "max_credit_grade": 7,
+      "hide_credit_grade": true,
+      "show_region_grade": true,
       "min_amount": 3000,
       "min_kb_price": 20000,
       "max_amount_limit": 5000,

@@ -2019,7 +2019,10 @@ class BaseCalculator:
             "errors": [],
             "min_amount": self.config.get("min_amount", 3000),  # 기본값 3000만원
             "promotion_rejection_reason": promotion_rejection_reason,  # 프로모션 미적용 사유 (1,2급지만)
-            "lower_bound_applied": lower_bound_applied  # 하한가 적용 여부
+            "lower_bound_applied": lower_bound_applied,  # 하한가 적용 여부
+            "region_grade": grade,  # 급지 (show_region_grade 시 헤더에 N급지 표시)
+            "hide_credit_grade": self.config.get("hide_credit_grade", False),
+            "show_region_grade": self.config.get("show_region_grade", False)
         }
     
     def credit_score_to_grade(self, credit_score: Optional[int]) -> Optional[int]:
