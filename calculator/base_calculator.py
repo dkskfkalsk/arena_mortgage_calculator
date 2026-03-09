@@ -1265,6 +1265,21 @@ class BaseCalculator:
             max_ltv = 70
             print(f"DEBUG: BaseCalculator.calculate - 가계자금: LTV 70% 고정")
         
+        # 선순위일 때 max_amount_limit_primary 적용 (디에스론: 선순위 5억, 후순위 3억)
+        max_amount_limit_primary = self.config.get("max_amount_limit_primary")
+        if max_amount_limit_primary is not None and not self._is_subordinate:
+            max_amount_limit = max_amount_limit_primary
+            print(f"DEBUG: BaseCalculator.calculate - 선순위, max_amount_limit_primary 적용: {max_amount_limit}만원")
+        
+        # min_amount_by_grade: 급지별 최소진행금액 (디에스론: 4~5급지 3천만원)
+        effective_min_amount = self.config.get("min_amount")
+        min_amount_by_grade = self.config.get("min_amount_by_grade", {})
+        if min_amount_by_grade and grade is not None:
+            grade_str = str(grade)
+            if grade_str in min_amount_by_grade:
+                effective_min_amount = min_amount_by_grade[grade_str]
+                print(f"DEBUG: BaseCalculator.calculate - 급지 {grade} 최소진행금액: {effective_min_amount}만원")
+        
         # JB하이론 / DSFNC 하이론: 대환 원금이 한도 초과 시 한도 미산출 (결과 전체 없음)
         is_jb = "JB" in self.bank_name or "제이비" in self.bank_name
         max_amount_limit_applies_to_total = self.config.get("max_amount_limit_applies_to_total", False)
@@ -1519,7 +1534,7 @@ class BaseCalculator:
                 bands = self.config.get("ltv_bands_subordinate" if is_subordinate else "ltv_bands_primary", [])
                 requests = property_data.get("requests", "") or ""
                 allow_negative_available = "부족자금" in requests
-                min_amount_config = self.config.get("min_amount")
+                min_amount_config = effective_min_amount
                 for ltv in ltv_steps:
                     if max_ltv is not None and ltv > max_ltv:
                         continue
@@ -1595,7 +1610,7 @@ class BaseCalculator:
                 primary_rates = self.config.get("primary_interest_rates_by_ltv", {})
                 requests = property_data.get("requests", "") or ""
                 allow_negative_available = "부족자금" in requests
-                min_amount_config = self.config.get("min_amount")
+                min_amount_config = effective_min_amount
                 for ltv in ltv_steps:
                     if max_ltv is not None and ltv > max_ltv:
                         continue
@@ -1728,7 +1743,7 @@ class BaseCalculator:
                         final_total_amount = self.round_down_to_hundred_thousand(amount_info["total_amount"])
                         
                         # 최소진행금액 체크: 대환 시 총 실행금액(대환+추가), 후순위 시 가한도 기준
-                        min_amount = self.config.get("min_amount")
+                        min_amount = effective_min_amount
                         amount_for_min_check = amount_info["total_amount"] if is_refinance else amount_info.get("available_limit", amount_info.get("available_amount", 0))
                         amount_for_min_rounded = self.round_down_to_hundred_thousand(amount_for_min_check)
                         if min_amount is not None and amount_for_min_rounded < min_amount:
@@ -1791,7 +1806,7 @@ class BaseCalculator:
                             final_total_amount = self.round_down_to_hundred_thousand(amount_info["total_amount"])
                             
                             # 최소진행금액 체크: 대환 시 총 실행금액(대환+추가), 후순위 시 가한도 기준
-                            min_amount = self.config.get("min_amount")
+                            min_amount = effective_min_amount
                             amount_for_min_check = amount_info["total_amount"] if is_refinance else amount_info.get("available_limit", amount_info.get("available_amount", 0))
                             amount_for_min_rounded = self.round_down_to_hundred_thousand(amount_for_min_check)
                             if min_amount is not None and amount_for_min_rounded < min_amount:
@@ -1904,7 +1919,7 @@ class BaseCalculator:
                         final_total_amount = self.round_down_to_hundred_thousand(final_total_amount)
                         
                         # 최소진행금액 체크: 대환 시 총 실행금액(대환+추가), 후순위 시 가한도 기준
-                        min_amount = self.config.get("min_amount")
+                        min_amount = effective_min_amount
                         if max_amount_limit_applies_to_total and is_refinance:
                             amount_for_min_check = final_total_amount
                         else:
@@ -1947,7 +1962,7 @@ class BaseCalculator:
         if not results:
             # 최대 LTV로 계산했을 때 가용 한도 확인
             max_ltv_amount = kb_price * (max_ltv / 100)
-            min_amount = self.config.get("min_amount", 3000)
+            min_amount = effective_min_amount if effective_min_amount is not None else 3000
             
             # 대환 시: 선순위(대환 제외) 채권최고액만으로 한도 초과 여부 검사. 구 대환 대상은 담보에서 해지되므로 제외.
             # 대환이 아닌 경우: 기존 근저당권의 채권최고액만 체크
@@ -2035,7 +2050,7 @@ class BaseCalculator:
             "results": results,
             "conditions": conditions,
             "errors": [],
-            "min_amount": self.config.get("min_amount", 3000),  # 기본값 3000만원
+            "min_amount": effective_min_amount if effective_min_amount is not None else self.config.get("min_amount", 3000),
             "promotion_rejection_reason": promotion_rejection_reason,  # 프로모션 미적용 사유 (1,2급지만)
             "lower_bound_applied": lower_bound_applied,  # 하한가 적용 여부
             "region_grade": grade,  # 급지 (show_region_grade 시 헤더에 N급지 표시)

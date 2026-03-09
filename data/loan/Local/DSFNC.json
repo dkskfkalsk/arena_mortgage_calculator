@@ -308,7 +308,12 @@
       "_comment_hide_credit_grade": "신용등급 구분 없이 산출",
       "show_region_grade": true,
       "_comment_show_region_grade": "헤더에 N급지 명시",
-      "min_amount": 3000,
+      "min_amount": 1000,
+      "min_amount_by_grade": {"4": 3000, "5": 3000},
+      "_comment_min_amount": "최소 1천만원, 4~5급지는 최소진행금액 3천만원",
+      "max_amount_limit": 30000,
+      "max_amount_limit_primary": 50000,
+      "_comment_max_amount": "최대한도 3억, 선순위 최대 5억",
       "min_kb_price": 20000,
       "lower_bound_price": {
         "enabled": true,
