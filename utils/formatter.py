@@ -89,6 +89,46 @@ def _compress_grade_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any
     return compressed
 
 
+def _merge_same_amount_ltv_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    동일 금액·금리·등급인 LTV 결과를 하나로 합침 (가장 낮은 LTV만 표시).
+    - 모든 결과가 동일 금액이면: 가장 낮은 LTV 하나만 표시 (예: 95%~60% 모두 10,000만 → 60%만)
+    - 그 외: (금액, 금리, 등급) 동일한 그룹끼리 합쳐 가장 낮은 LTV만 표시
+    """
+    if len(results) <= 1:
+        return results
+
+    def _get_amount(r: Dict[str, Any]) -> float:
+        if r.get("is_refinance"):
+            return r.get("available_amount", 0) or 0
+        return r.get("amount", 0) or 0
+
+    amounts = [_get_amount(r) for r in results]
+    all_same_amount = len(set(amounts)) == 1 and amounts[0] > 0
+
+    if all_same_amount:
+        # 모든 결과가 동일 금액 → 가장 낮은 LTV 하나만
+        return [min(results, key=lambda x: x.get("ltv", 999))]
+
+    def _make_key(r: Dict[str, Any]) -> tuple:
+        amount = _get_amount(r)
+        rate = r.get("interest_rate") or r.get("interest_rate_range")
+        return (amount, str(rate), r.get("credit_grade", ""), r.get("type", ""), r.get("is_refinance", False))
+
+    from collections import defaultdict
+    groups: Dict[tuple, List[Dict]] = defaultdict(list)
+    for r in results:
+        groups[_make_key(r)].append(r)
+
+    merged = []
+    for group in groups.values():
+        best = min(group, key=lambda x: x.get("ltv", 999))
+        merged.append(best)
+
+    merged.sort(key=lambda x: -(x.get("ltv", 0)))
+    return merged
+
+
 def format_interest_rate(
     interest_rate: Optional[float],
     interest_rate_range: Optional[Tuple[float, float]]
@@ -243,6 +283,8 @@ def _format_result_with_label(
     # 예: 후순위 95% 9,300만 / 10.70%~11.60% (1~6등급)
     if has_multiple_grades and results:
         results = _compress_grade_results(results)
+        # 동일 금액인 LTV 결과 합침 (예: 95%~60% 모두 10,000만 → 60%만 표시)
+        results = _merge_same_amount_ltv_results(results)
     
     # 고정금리 코멘트 확인 (모든 결과 중 하나라도 있으면 맨 끝에 표시)
     fixed_rate_comment = None
