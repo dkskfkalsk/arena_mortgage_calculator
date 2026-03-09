@@ -1229,6 +1229,12 @@ class BaseCalculator:
             max_ltv = 70
             print(f"DEBUG: BaseCalculator.calculate - 가계자금: LTV 70% 고정")
         
+        # JB하이론: 대환 원금 1억 초과 시 한도 미산출 (결과 전체 없음)
+        is_jb = "JB" in self.bank_name or "제이비" in self.bank_name
+        if is_jb and is_refinance and max_amount_limit is not None and refinance_principal > max_amount_limit:
+            print(f"DEBUG: BaseCalculator.calculate - JB하이론: 대환 원금 {refinance_principal}만원 > {max_amount_limit}만원, 한도 미산출")
+            return None
+        
         # 필요자금이 있으면 LTV별 계산을 건너뛰고 필요자금 기준으로 역산 계산
         required_amount = property_data.get("required_amount")
         results = []

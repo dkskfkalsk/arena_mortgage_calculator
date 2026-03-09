@@ -422,7 +422,7 @@
   "min_amount": 1000,
   "max_amount": 10000,
   "max_amount_limit": 10000,
-  "_comment_max_amount_limit": "대환/후순위 공통 최대 한도 1억 (만원 단위)",
+  "_comment_max_amount_limit": "대환 원금 1억 초과 시 한도 미산출. 대환 원금 1억 이하 시 가용 1억 제한 적용",
   "min_age": 21,
   "max_age": 64,
   "min_kb_price": 10000,
