@@ -180,6 +180,12 @@ def parse_caption_info(caption):
     if request_match:
         info['request'] = re.sub(r'\s+', ' ', request_match.group(1).strip())
 
+    # 세입자 추출 (공통 유틸)
+    from utils.tenant_extractor import extract_tenant_info
+    tenant = extract_tenant_info(caption, parse_amount_fn=parse_complex_amount)
+    if tenant:
+        info['tenant'] = tenant
+
     return info
 
 
@@ -541,6 +547,7 @@ async def format_registry_result(result, caption_info, file_name):
     lines.append(f"=========설정내역=========")
     trust_amount = caption_info.get('trust_amount', '')
     trust_amount_man = None
+    tenant_info = caption_info.get('tenant')
     if is_trustee and trust_amount:
         try:
             trust_amount_man = int(trust_amount.replace(',', ''))
@@ -549,10 +556,26 @@ async def format_registry_result(result, caption_info, file_name):
         except (ValueError, TypeError):
             pass
 
+    # 세입자 (신탁 있으면 2순위, 없으면 1순위)
+    if tenant_info:
+        dep = tenant_info['deposit_man']
+        mon = tenant_info.get('monthly_rent_man')
+        name = tenant_info['display_name']
+        tenant_rank = 2 if (is_trustee and trust_amount_man) else 1
+        lines.append(f"{tenant_rank}순위 : {name}")
+        if mon:
+            lines.append(f"           {dep:,}만원 (월세 {mon:,}만원)")
+        else:
+            lines.append(f"           {dep:,}만원")
+
     manual_ratios = caption_info.get('manual_ratios', {})
     manual_principals = caption_info.get('manual_principals', {})
     needs_principal_check = False
-    start_rank = 2 if (is_trustee and trust_amount_man) else 1
+    start_rank = 1
+    if is_trustee and trust_amount_man:
+        start_rank += 1
+    if tenant_info:
+        start_rank += 1
     gamak_excluded_creditors = []  # 1천만원 미만 차이로 감액등기 미적용된 금융사
 
     if result.근저당권목록:
@@ -642,6 +665,11 @@ async def format_registry_result(result, caption_info, file_name):
         if is_trustee and trust_amount_man:
             mortgage_amounts.insert(0, trust_amount_man)
             principal_amounts.insert(0, trust_amount_man)
+        if tenant_info:
+            dep_man = tenant_info['deposit_man']
+            insert_idx = 1 if (is_trustee and trust_amount_man) else 0
+            mortgage_amounts.insert(insert_idx, dep_man)
+            principal_amounts.insert(insert_idx, dep_man)
         # LTV 계산
         if kb_price and mortgage_amounts:
             try:
@@ -657,11 +685,26 @@ async def format_registry_result(result, caption_info, file_name):
     elif is_trustee and trust_amount_man:
         mortgage_amounts = [trust_amount_man]
         principal_amounts = [trust_amount_man]
+        if tenant_info:
+            mortgage_amounts.append(tenant_info['deposit_man'])
+            principal_amounts.append(tenant_info['deposit_man'])
+        if kb_price:
+            try:
+                kb_price_man = int(kb_price.replace(',', ''))
+                total_man = sum(mortgage_amounts)
+                if kb_price_man > 0:
+                    ratio = (total_man / kb_price_man) * 100
+                    lines.append(f"{ratio:.2f}% / {ratio:.2f}%")
+            except (ValueError, ZeroDivisionError):
+                pass
+    elif tenant_info:
+        mortgage_amounts = [tenant_info['deposit_man']]
+        principal_amounts = [tenant_info['deposit_man']]
         if kb_price:
             try:
                 kb_price_man = int(kb_price.replace(',', ''))
                 if kb_price_man > 0:
-                    ratio = (trust_amount_man / kb_price_man) * 100
+                    ratio = (tenant_info['deposit_man'] / kb_price_man) * 100
                     lines.append(f"{ratio:.2f}% / {ratio:.2f}%")
             except (ValueError, ZeroDivisionError):
                 pass

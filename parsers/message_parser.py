@@ -246,6 +246,25 @@ class MessageParser:
             
             i += 1
         
+        # 세입자 추출 (전체 텍스트) - 공통 유틸 사용, 신탁 1순위 시 2순위, 없으면 1순위
+        from utils.tenant_extractor import extract_tenant_info, tenant_to_mortgage
+        from utils.validators import parse_amount
+        tenant = extract_tenant_info(message_text, parse_amount_fn=lambda t: parse_amount(t) if t else None)
+        if tenant:
+            trust_idx = next((i for i, m in enumerate(data["mortgages"]) if (m.get("institution") or "").strip() == "신탁"), -1)
+            has_trust = trust_idx >= 0
+            tenant_priority = 2 if has_trust else 1
+            tenant_mortgage = tenant_to_mortgage(tenant, tenant_priority, has_trust)
+            # 신탁 1순위, 세입자 2순위 유지: 신탁 있으면 맨 앞으로 이동 후 세입자 삽입
+            if has_trust and trust_idx > 0:
+                trust_item = data["mortgages"].pop(trust_idx)
+                data["mortgages"].insert(0, trust_item)
+            insert_idx = 1 if has_trust else 0
+            data["mortgages"].insert(insert_idx, tenant_mortgage)
+            # 전체 순위 재정렬 (1 신탁, 2 세입자, 3 근저당... 또는 1 세입자, 2 근저당...)
+            for idx, m in enumerate(data["mortgages"]):
+                m["priority"] = idx + 1
+        
         # 지역 추출 (주소에서)
         if data["address"]:
             data["region"] = self._extract_region(data["address"])

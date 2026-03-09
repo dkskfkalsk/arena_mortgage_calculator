@@ -3571,7 +3571,7 @@ class BaseCalculator:
         if "개인설정" in special_notes:
             return True
         # 기관명이 금융기관이 아닌 순위가 하나라도 있으면 개인설정
-        exclude_keywords = ("신탁", "물상담보", "전세입자", "전세권")
+        exclude_keywords = ("신탁", "물상담보", "전세입자", "전세권", "세입자", "월세입자")
         for m in property_data.get("mortgages") or []:
             institution = (m.get("institution") or "").strip()
             if not institution:

@@ -720,59 +720,11 @@ def get_application(force_new=False):
                         info['trust_amount'] = f"{price_man:,}"
                         break
             
-            # 세입자 추출 (전세세입자, 월세세입자, 전세입자, 월세입자, 세입자, 임차보증금)
-            tenant_keywords = r'전세세입자|월세세입자|전세입자|월세입자|세입자|임차보증금'
-            if re.search(tenant_keywords, caption):
-                deposit_man = None
-                monthly_rent_man = None
-                # 보증금 추출: "보증금 6.5억", "6.5억", "원금 65000", "65000", "1순위 전세입자 100% 원금 65000"
-                def _parse_deposit(txt):
-                    if not txt:
-                        return None
-                    txt = txt.strip().replace(',', '').replace(' ', '')
-                    # 6.5억 → 65000
-                    eok_m = re.search(r'(\d+\.?\d*)\s*억', txt)
-                    if eok_m:
-                        try:
-                            return int(float(eok_m.group(1)) * 10000)
-                        except ValueError:
-                            pass
-                    return parse_complex_amount(txt)
-                deposit_patterns = [
-                    (r'1순위\s*(?:전세|월세)?입자[^\d]*(\d{4,})', 1),  # 1순위 전세입자 100% 원금 65000
-                    (r'보증금\s*[:：]?\s*([\d,.\s억천만원]+)', 1),
-                    (r'(?:전세|월세)?세입자[^\d]*보증금\s*[:：]?\s*([\d,.\s억천만원]+)', 1),
-                    (r'임차보증금\s*[:：]?\s*([\d,.\s억천만원]+)', 1),
-                    (r'(?:전세|월세)?세입자[^\d]*원금\s*[:：]?\s*(\d[\d,.\s]*)', 1),
-                    (r'(\d+\.?\d*)\s*억\s*원?', 1),
-                ]
-                for dp, grp in deposit_patterns:
-                    m = re.search(dp, caption)
-                    if m:
-                        val = _parse_deposit(m.group(grp))
-                        if val and val >= 100:  # 100만원 이상
-                            deposit_man = val
-                            break
-                # 월세 추출: "(120만)", "120만", "월세 120만", "월세: 120만원"
-                monthly_patterns = [
-                    r'\((\d+)\s*만\s*원?\)',  # (120만), (120만원)
-                    r'월세\s*[:：]?\s*\(?\s*(\d+)\s*만\s*원?\)?',
-                    r'월세\s*[:：]?\s*(\d+)',
-                    r'(\d+)\s*만\s*원?\s*월세',
-                ]
-                for mp in monthly_patterns:
-                    m = re.search(mp, caption)
-                    if m:
-                        num = int(re.search(r'\d+', m.group(1) if m.lastindex else m.group(0)).group(0))
-                        if 1 <= num <= 9999:  # 1만~9999만원
-                            monthly_rent_man = num
-                            break
-                if deposit_man:
-                    info['tenant'] = {
-                        'deposit_man': deposit_man,
-                        'monthly_rent_man': monthly_rent_man,
-                        'display_name': '월세입자' if monthly_rent_man else '세입자',
-                    }
+            # 세입자 추출 (공통 유틸 사용)
+            from utils.tenant_extractor import extract_tenant_info
+            tenant = extract_tenant_info(caption, parse_amount_fn=parse_complex_amount)
+            if tenant:
+                info['tenant'] = tenant
             
             # 특이사항 추출 (캡션에서 "특이사항" 키워드 뒤의 내용)
             # 패턴: "특이사항 : 내용" 또는 "특이사항: 내용" 또는 "특이사항 내용"
