@@ -791,19 +791,21 @@ class RegistryParser:
                     continue  # 채권최고액 못 찾으면 건너뛰기
                 initial_amount = amount_match.group(1)
                 
-                # 같은 순위의 근저당권 변경 사항 확인 (을구에서)
+                # 같은 순위의 근저당권 변경 사항 확인 (요약 블록 내 + 을구)
                 # 패턴: "N-M 근저당권 변경" 또는 "N-M 근저당권증액" 또는 "N-M 근저당권감액"
-                # 같은 순위의 모든 변경 사항을 찾아서 가장 마지막 금액 사용
                 change_pattern = rf'{rank}\s*-\s*\d+\s*근저당권\s*(?:변경|증액|감액)'
-                change_matches = list(re.finditer(change_pattern, eulgu_text, re.IGNORECASE))
-                
-                # 같은 순위의 모든 변경 사항에서 채권최고액 추출
                 change_amounts = []
-                for change_match in change_matches:
-                    # 변경 항목의 블록 추출 (다음 순위번호나 변경 항목 전까지)
+                # 1) 요약 블록 내 변경 사항 (4-2 근저당권변경 등)
+                for change_match in re.finditer(change_pattern, rank_block, re.IGNORECASE):
                     change_start = change_match.start()
-                    change_block = eulgu_text[change_start:change_start + 500]  # 충분한 범위
-                    
+                    change_block = rank_block[change_start:change_start + 300]
+                    change_amount_match = re.search(r'채권최고액[\s\S]*?금?\s*([\d,]+)\s*원', change_block)
+                    if change_amount_match:
+                        change_amounts.append(change_amount_match.group(1))
+                # 2) 을구에서도 변경 사항 확인
+                for change_match in re.finditer(change_pattern, eulgu_text, re.IGNORECASE):
+                    change_start = change_match.start()
+                    change_block = eulgu_text[change_start:change_start + 500]
                     change_amount_match = re.search(r'채권최고액[\s\S]*?금?\s*([\d,]+)\s*원', change_block)
                     if change_amount_match:
                         change_amounts.append(change_amount_match.group(1))
@@ -826,7 +828,7 @@ class RegistryParser:
                 # 근저당권자 찾기 (순위 블록에서 직접 추출)
                 # rank_block은 이미 다음 순위 전까지만 포함하므로, "근저당권자" 뒤의 텍스트 추출
                 # 패턴: "근저당권자 주식회사XXX" (줄바꿈이나 숫자로 시작하는 줄 전까지)
-                creditor_match = re.search(r'근저당권자\s+([가-힣a-zA-Z0-9]+(?:\s+[가-힣a-zA-Z0-9]+)*)', rank_block)
+                creditor_match = re.search(r'근저당권자\s*[:：]?\s*([가-힣a-zA-Z0-9]+(?:\s+[가-힣a-zA-Z0-9]+)*)', rank_block)
                 if creditor_match:
                     creditor = creditor_match.group(1).strip()
                     # 줄바꿈이나 숫자로 시작하는 부분 제거
@@ -999,9 +1001,16 @@ class RegistryParser:
                 seen.add(key)
                 unique.append(m)
         
-        # 전세권 추출 및 통합
+        # 전세권 추출 및 통합 (500만원 초과만 포함, 500만원 이하는 표시 안 함)
         jeonse_list = self._extract_jeonse()
-        unique.extend(jeonse_list)
+        for j in jeonse_list:
+            amount_str = re.sub(r'[^\d]', '', j.채권최고액)
+            try:
+                amount = int(amount_str) if amount_str else 0
+                if amount > 5_000_000:  # 500만원 초과 전세권만 표시
+                    unique.append(j)
+            except ValueError:
+                pass
         
         # 순위번호로 정렬
         unique.sort(key=lambda x: int(x.순위번호) if x.순위번호.isdigit() else 999)
@@ -1267,8 +1276,16 @@ class RegistryParser:
             special_conditions.append("환매특약")
         
         # 전매제한 (주택법 관련) - 줄바꿈 허용
+        # 단, 전매제한등기가 말소된 경우 제외
         if re.search(r'주택법.*?제\d+조.*?기간.*?지나기\s*전', self.text, re.DOTALL):
-            special_conditions.append("전매제한")
+            # 말소 패턴 확인 (전매제한등기 말소, 기간 경과 등)
+            jeonmae_cancelled = re.search(
+                r'전매제한\s*등\s*기\s*말\s*소|전매제한등기\s*말\s*소|'
+                r'전매제한\s*등기\s*말소|전매제한\s*기간\s*경과',
+                self.text, re.DOTALL | re.IGNORECASE
+            )
+            if not jeonmae_cancelled:
+                special_conditions.append("전매제한")
         
         # 금지사항 (소유권 제한) - 줄바꿈 허용
         # 단, 신탁등기가 말소된 경우 또는 소유권 이전이 있으면 제외 (소유권 제한이 해소된 경우)

@@ -179,6 +179,7 @@ def extract_manual_ratios(message: str) -> Dict[str, int]:
     - "1순위 120%설정"
     - "2순위 130%"
     - "3순위:150%"
+    - "1순위 원금 12787 120%" (원금 등 중간 텍스트 있어도 인식)
     
     Args:
         message: 텔레그램 메시지 (캡션)
@@ -188,14 +189,24 @@ def extract_manual_ratios(message: str) -> Dict[str, int]:
     """
     ratios = {}
     
-    # 패턴: "N순위" 뒤에 퍼센트 (다양한 형식 지원)
+    # 패턴 1: "N순위" 뒤에 퍼센트 (콜론·공백 유연)
     pattern = r'(\d+)\s*순위\s*[:：\s]*(\d+)\s*%'
-    matches = re.finditer(pattern, message, re.IGNORECASE)
-    
-    for match in matches:
+    for match in re.finditer(pattern, message, re.IGNORECASE):
         rank = match.group(1)
         ratio = int(match.group(2))
-        ratios[rank] = ratio
+        if 100 <= ratio <= 200:
+            ratios[rank] = ratio
+    
+    # 패턴 2: "N순위" 키워드가 있는 줄에서 % 추출 (원금 12787 120% 등 중간 텍스트 허용)
+    for line in message.split('\n'):
+        if re.search(r'\d+\s*순위', line):
+            pct_match = re.search(r'(\d+)\s*%', line)
+            if pct_match:
+                pct = int(pct_match.group(1))
+                rank_match = re.search(r'(\d+)\s*순위', line)
+                if rank_match and 100 <= pct <= 200:
+                    rank = rank_match.group(1)
+                    ratios[rank] = pct
     
     return ratios
 
@@ -220,7 +231,7 @@ def extract_manual_principals(message: str) -> Dict[str, int]:
     if not message:
         return result
     
-    # 형식 2 먼저 (순위 기반): "N순위 원금 000" / "N순위 : 원금 000" (콜론·공백 유연)
+    # 형식 2 (순위 기반): "N순위 원금 000" / "N순위 : 원금 000" (콜론·공백 유연)
     pattern_rank = r'(\d+)\s*순위\s*[:：\s]*원금\s*[:：\s]*([\d,]+)\s*만?\s*원?'
     for match in re.finditer(pattern_rank, message, re.IGNORECASE):
         rank = match.group(1)
@@ -231,6 +242,23 @@ def extract_manual_principals(message: str) -> Dict[str, int]:
                 result[rank] = num
         except ValueError:
             pass
+    
+    # 형식 2-2: "N순위" 키워드가 있는 줄에서 원금 추출 (1순위 원금 12787 120% 등)
+    for line in message.split('\n'):
+        if re.search(r'\d+\s*순위', line) and re.search(r'원금', line, re.IGNORECASE):
+            rank_match = re.search(r'(\d+)\s*순위', line)
+            if rank_match:
+                rank = rank_match.group(1)
+                # 원금 뒤의 숫자 (만원 단위, 4자리 이상)
+                num_match = re.search(r'원금\s*[:：\s]*([\d,]+)', line, re.IGNORECASE)
+                if num_match:
+                    num_str = num_match.group(1).replace(',', '')
+                    try:
+                        num = int(num_str)
+                        if num > 0 and num < 100000:
+                            result[rank] = num
+                    except ValueError:
+                        pass
     
     # 형식 1-2: "N.금융사명 X만(Y만)" - 순위+금융사별 원금 (동일 금융사 여러 순위 구분)
     # "1.주식회사국민은행 36,850만(33,500만)/110%" → 순위1=33,500
