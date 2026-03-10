@@ -52,7 +52,14 @@ def extract_tenant_info(text: str, parse_amount_fn=None) -> Optional[Dict[str, A
         return None
     
     deposit_patterns = [
-        (r'1순위\s*(?:전세|월세)?입자[^\d]*(\d{4,})', 1),
+        # 1순위 : 전세입자 / 1순위 전세입자 (콜론 유무, 줄바꿈 후 금액)
+        (r'(?:1|2)순위\s*[:：]?\s*(?:전세|월세)?입자[^\d]*(\d{4,})', 1),
+        (r'(?:1|2)순위\s*(?:전세|월세)?입자[^\d]*(\d{4,})', 1),
+        # 전세입자 5000만원 / 전세입자 5000 (5000)만원(100%)
+        (r'(?:전세|월세)?입자[^\d]*(\d{4,})\s*(?:\([\d,]+\))?\s*만원', 1),
+        (r'(?:전세|월세)?입자[^\d]*(\d{4,})', 1),
+        (r'(?:전세|월세)?세입자[^\d]*(\d{4,})', 1),
+        # 보증금/임차보증금/원금
         (r'보증금\s*[:：]?\s*([\d,.\s억천만원]+)', 1),
         (r'(?:전세|월세)?세입자[^\d]*보증금\s*[:：]?\s*([\d,.\s억천만원]+)', 1),
         (r'임차보증금\s*[:：]?\s*([\d,.\s억천만원]+)', 1),
@@ -82,10 +89,17 @@ def extract_tenant_info(text: str, parse_amount_fn=None) -> Optional[Dict[str, A
                 break
     
     if deposit_man:
+        # 표시명: 월세 있으면 월세입자, 전세입자 키워드 있으면 전세입자, 아니면 세입자
+        if monthly_rent_man:
+            display_name = '월세입자'
+        elif re.search(r'전세(?:세)?입자', text):
+            display_name = '전세입자'
+        else:
+            display_name = '세입자'
         return {
             'deposit_man': deposit_man,
             'monthly_rent_man': monthly_rent_man,
-            'display_name': '월세입자' if monthly_rent_man else '세입자',
+            'display_name': display_name,
         }
     return None
 
