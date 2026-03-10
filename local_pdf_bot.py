@@ -616,19 +616,21 @@ async def format_registry_result(result, caption_info, file_name):
                             manual_principal_man = val
                             break
 
+                # 수동 원금 지정 시 항상 반영 (감액등기 여부와 무관, 직접 기재한 원금 사용)
                 if manual_principal_man is not None and not (hasattr(m, '권리종류') and m.권리종류 == "전세권"):
+                    principal_man = manual_principal_man
+                    principal_amounts[-1] = principal_man
                     new_max_claim_man = int(manual_principal_man * used_ratio / 100)
                     diff_man = abs(amount_man - new_max_claim_man)
                     if diff_man >= 1000:
+                        # 감액등기: 채권최고액도 역산하여 표시
                         amount_man = new_max_claim_man
-                        principal_man = manual_principal_man
                         mortgage_amounts[-1] = amount_man
-                        principal_amounts[-1] = principal_man
                         amount_str = f"{amount_man:,}만({principal_man:,})만원({used_ratio}%)"
                         gamak_applied = True
-                    elif manual_principal_man < principal_man:
-                        # 보낸 원금이 계산 원금보다 적을 때만 (감액 의도 있으나 1천만원 미만 차이)
-                        gamak_excluded_creditors.append(creditor)
+                    else:
+                        # 원금만 수동 지정 (채권최고액은 등기부 그대로)
+                        amount_str = f"{amount_man:,} ({principal_man:,})만원({used_ratio}%)"
 
                 if not gamak_applied:
                     if hasattr(m, '권리종류') and m.권리종류 == "전세권":
