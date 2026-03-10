@@ -427,6 +427,10 @@
   "max_age": 64,
   "min_kb_price": 10000,
   "_comment_min_kb_price": "KB시세 1억원 이상",
+  "max_subordinate_grade": 0,
+  "_comment_max_subordinate_grade": "세입자 후순위 취급 불가",
+  "collateral_provider_excluded": true,
+  "_comment_collateral_provider_excluded": "담보제공건(차주·담보제공자 구분) 취급 불가",
   "property_type_conditions": {
     "apartment": {
       "min_household_count": 30
@@ -470,7 +474,10 @@
   },
   "conditions": [
     "상환방식(모든등급 동일): 원리금 균등 60/84/120개월 中 택1, 거치 1년 가능",
-    "4급지 지역 원리금균등 1년거치 선택시 LTV 5% 차감"
+    "4급지 지역 원리금균등 1년거치 선택시 LTV 5% 차감",
+    "세입자 후순위 취급 불가",
+    "담보제공건 취급 불가",
+    "환매특약 취급 불가"
   ],
   "corporate_business_restriction": {
     "enabled": true,
@@ -483,7 +490,7 @@
   "_comment_sort_results_by_grade": "결과를 신용등급 순(1등급→7등급)으로 정렬",
   "show_interest_rate_range": false,
   "validation_rules": {
-    "enabled": false,
+    "enabled": true,
     "occupation_requirements": {
       "required_keywords": [],
       "forbidden_keywords": [],
@@ -498,7 +505,7 @@
         "special_notes",
         "requests"
       ],
-      "keywords": [],
+      "keywords": ["환매특약"],
       "error_message": "특이사항/요청사항에 '{keywords}'가 포함되어 취급 불가합니다"
     },
     "complex_rules": []

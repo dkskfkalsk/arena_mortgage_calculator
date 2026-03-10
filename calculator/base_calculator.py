@@ -655,6 +655,15 @@ class BaseCalculator:
                 comment = corporate_business_config.get("comment", "법인사업자 취급 불가")
                 validation_errors.append(comment)
         
+        # 담보제공건 취급 불가 (JB하이론 등)
+        collateral_provider_excluded = self.config.get("collateral_provider_excluded", False)
+        if collateral_provider_excluded:
+            has_collateral_provider = property_data.get("collateral_provider") is True
+            name_str = str(property_data.get("name") or "")
+            if has_collateral_provider or "(담)" in name_str or "(담보)" in name_str:
+                log_print(f"DEBUG: BaseCalculator.calculate - 담보제공건 취급 불가")
+                validation_errors.append("담보제공건 취급 불가")
+        
         # 금융사별 validation_rules 체크 (설정 파일에서 정의된 제한 조건)
         self._validate_validation_rules(property_data, validation_errors)
         

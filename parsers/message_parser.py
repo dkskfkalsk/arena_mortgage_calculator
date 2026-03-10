@@ -679,6 +679,9 @@ class MessageParser:
                 data["name"] = value.split("(")[0].strip()
             else:
                 data["name"] = value
+            # 담보제공건 인식: "홍길동(차), 김철수(담)" 형식
+            if "(담)" in value or "(담보)" in value:
+                data["collateral_provider"] = True
         
         elif "직업" in key_clean:
             data["occupation"] = value

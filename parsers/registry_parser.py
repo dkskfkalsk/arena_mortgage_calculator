@@ -1268,21 +1268,24 @@ class RegistryParser:
         return auctions
     
     def _extract_special_conditions(self) -> str:
-        """환매특약/전매제한 정보 추출"""
+        """환매특약/전매제한 정보 추출 (요약본 기준 - 말소된 사항 제외, 유효한 사항만)"""
         special_conditions = []
         
-        # 환매특약 패턴 (줄바꿈이 중간에 들어가는 경우도 처리: "환매특\n약")
-        if re.search(r'환매\s*특\s*약', self.text, re.DOTALL):
-            special_conditions.append("환매특약")
-        
-        # 전매제한: 등기 요약본에 "전매제한"이 명시된 경우만 추가
-        # (요약본은 말소된 사항을 제외하고 유효한 사항만 표시함)
+        # 요약본에서 환매특약/전매제한 확인
         summary_pattern = r'주요\s*등기사항\s*요약[\s\S]*?(?=\[\s*참\s*고|출력일시|$)'
         summary_match = re.search(summary_pattern, self.text, re.DOTALL | re.IGNORECASE)
         if summary_match:
             summary_text = summary_match.group(0)
+            # 환매특약 (줄바꿈 허용: "환매특\n약")
+            if re.search(r'환매\s*특\s*약', summary_text, re.DOTALL):
+                special_conditions.append("환매특약")
+            # 전매제한
             if re.search(r'전매\s*제한|전매제한', summary_text):
                 special_conditions.append("전매제한")
+        else:
+            # 요약본이 없으면 전체 텍스트에서 환매특약 확인 (폴백)
+            if re.search(r'환매\s*특\s*약', self.text, re.DOTALL):
+                special_conditions.append("환매특약")
         
         # 금지사항 (소유권 제한) - 줄바꿈 허용
         # 단, 신탁등기가 말소된 경우 또는 소유권 이전이 있으면 제외 (소유권 제한이 해소된 경우)
