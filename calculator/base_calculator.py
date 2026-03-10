@@ -3773,8 +3773,8 @@ class BaseCalculator:
     @classmethod
     def _filter_dsfnc_results(cls, results: list) -> list:
         """DSFNC 디에스론/하이론: 하이론 한도 > 디에스론 한도일 때만 둘 다 표시, 아니면 디에스론만"""
-        dsfnc_desron = next((r for r in results if r.get("bank_name") == "DSFNC 디에스론"), None)
-        dsfnc_hiroon = next((r for r in results if r.get("bank_name") == "DSFNC 하이론"), None)
+        dsfnc_desron = next((r for r in results if r.get("bank_name") in ("DSFNC 디에스론", "디에스론")), None)
+        dsfnc_hiroon = next((r for r in results if r.get("bank_name") in ("DSFNC 하이론", "하이론")), None)
         if not dsfnc_desron or not dsfnc_hiroon:
             return results
         
@@ -3790,7 +3790,7 @@ class BaseCalculator:
         max_hiroon = _get_max_amount(dsfnc_hiroon)
         
         if max_desron >= max_hiroon:
-            results = [r for r in results if r.get("bank_name") != "DSFNC 하이론"]
+            results = [r for r in results if r.get("bank_name") not in ("DSFNC 하이론", "하이론")]
             print(f"DEBUG: BaseCalculator - DSFNC 디에스론 한도({max_desron}만) >= 하이론({max_hiroon}만), 하이론 제외")
         else:
             print(f"DEBUG: BaseCalculator - DSFNC 하이론 한도({max_hiroon}만) > 디에스론({max_desron}만), 둘 다 표시")
@@ -3844,9 +3844,13 @@ class BaseCalculator:
                         products = raw_config.get("products", [])
                         if products:
                             base_name = raw_config.get("bank_name", "Unknown")
+                            show_product_name_only = raw_config.get("show_product_name_only", False)
                             for prod in products:
                                 merged = {**raw_config, **prod}
-                                merged["bank_name"] = f"{base_name} {prod.get('product_name', '')}".strip()
+                                if show_product_name_only:
+                                    merged["bank_name"] = prod.get("product_name", base_name)
+                                else:
+                                    merged["bank_name"] = f"{base_name} {prod.get('product_name', '')}".strip()
                                 del merged["products"]
                                 calculator = cls(merged)
                                 calculators.append(calculator)

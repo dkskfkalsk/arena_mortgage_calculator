@@ -539,16 +539,21 @@ def get_application(force_new=False):
             elif re.search(r'비거주|임대|전세', caption):
                 info['residence'] = '비거주'
             
-            # 세대수 추출 (세대수 700, 700세대 등)
-            households_patterns = [
-                r'세대\s*[수]*\s*[:：]?\s*(\d+)',
-                r'(\d+)\s*세대',
-            ]
-            for pattern in households_patterns:
-                match = re.search(pattern, caption)
-                if match:
-                    info['households'] = match.group(1) + '세대'
-                    break
+            # 세대수 추출 (세대수 700, 700세대, 271 / 5개동 등)
+            households_match = (
+                re.search(r'세대\s*[수]*\s*[:：]?\s*(\d+)\s*(?:/\s*(\d+)\s*개동)?', caption) or
+                re.search(r'(\d+)\s*/\s*(\d+)\s*개동', caption)  # "271 / 5개동" 단독
+            )
+            if households_match:
+                h = households_match.group(1)
+                dong = households_match.group(2) if households_match.lastindex >= 2 else None
+                info['households'] = f"{h}세대" + (f" / {dong}개동" if dong else "")
+            else:
+                for pattern in [r'(\d+)\s*세대', r'세대\s*[수]*\s*[:：]?\s*(\d+)']:
+                    match = re.search(pattern, caption)
+                    if match:
+                        info['households'] = match.group(1) + '세대'
+                        break
             
             # 구분 추출 (아파트, 빌라, 오피스텔 등)
             property_patterns = [
@@ -569,8 +574,9 @@ def get_application(force_new=False):
             # 1. KB시세 추출
             kb_price_found = False
             
-            # 패턴 1: "KB시세 일반가 1억5천만원" 또는 "kb시세 1억5천만원"
+            # 패턴 1: "KB시세 : 일반 87,500만원" 형식 (등기부+시세 함께 보낼 때)
             kb_patterns = [
+                r'kb시세\s*[:：]\s*일반\s*([\d,\s억천만원]+)',  # KB시세 : 일반 87,500만원
                 r'(?:kb\s*)?(?:시세|일반\s*가?)\s*[:：]?\s*([\d,\s억천만원]+)',  # 복합 단위 포함
                 r'kb시세\s*[:：]?\s*([\d,]+)',  # "kb시세 60750" 또는 "KB시세 510,000,000"
             ]
@@ -585,7 +591,7 @@ def get_application(force_new=False):
                         break
             
             # 2. 부동산테크시세 추출 (KB시세가 없을 경우)
-            # "KBx 8400" 또는 "KB x 8400" 또는 "부동산테크 8400" 형식
+            # "KBx 8400", "부동산테크 50,000만" 형식
             if not kb_price_found:
                 tech_patterns = [
                     r'(?:부동산\s*테크|kb\s*x|kbx)\s*[:：/]?\s*([\d,\s억천만원]+)',
@@ -598,13 +604,15 @@ def get_application(force_new=False):
                         price_man = parse_complex_amount(price_text)
                         if price_man:
                             info['kb_price'] = f"{price_man:,}"
+                            info['price_type'] = "부동산테크 시세"
                             kb_price_found = True
                             break
             
             # 3. 하우스머치 중위시세 추출 (KB시세, 부동산테크시세가 없을 경우)
-            # "하머중위 8400" 또는 "하우스머치 중위 8400" 또는 "KBx / 하머중위 8400" 형식
+            # "하우스머치 40,000만", "하머중위 8400", "하우스머치 중위 8400" 형식
             if not kb_price_found:
                 hammer_patterns = [
+                    r'(?:하우스\s*머치|하머)\s*[:：/]?\s*([\d,\s억천만원]+)',  # 하우스머치 40,000만 (중위 없이)
                     r'(?:하우스\s*머치\s*중위|하머\s*중위|하머중위)\s*[:：/]?\s*([\d,\s억천만원]+)',
                     r'(?:하우스\s*머치\s*중위|하머\s*중위|하머중위)\s*[:：/]?\s*([\d,]+)',
                     # "KBx / 하머중위 8400" 형식에서 하머중위 뒤의 숫자 추출
@@ -618,6 +626,7 @@ def get_application(force_new=False):
                         price_man = parse_complex_amount(price_text)
                         if price_man:
                             info['kb_price'] = f"{price_man:,}"
+                            info['price_type'] = "하우스머치 시세"
                             kb_price_found = True
                             break
             
@@ -636,6 +645,7 @@ def get_application(force_new=False):
                         price_man = parse_complex_amount(price_text)
                         if price_man:
                             info['kb_price'] = f"{price_man:,}"
+                            info['price_type'] = "감정가" if re.search(r'감정가', caption, re.IGNORECASE) else "탁감가"
                             kb_price_found = True
                             print(f"[WEBHOOK] parse_caption_info - 감정가/탁감가 추출: {price_text} -> {price_man}만원", file=sys.stderr, flush=True)
                             logger.info(f"parse_caption_info - 감정가/탁감가 추출: {price_text} -> {price_man}만원")
@@ -643,6 +653,7 @@ def get_application(force_new=False):
             
             # KB시세 하한 추출 (복합 단위 지원)
             kb_low_patterns = [
+                r'kb시세\s*[:：]\s*하한\s*([\d,\s억천만원]+)',  # KB시세 : 하한 85,500만원
                 r'(?:kb\s*)?하한\s*[가]?\s*[:：]?\s*([\d,\s억천만원]+)',  # KB하한 1억5천만원
                 r'(?:kb\s*)?하한\s*[가]?\s*[:：]?\s*([\d,]+)',  # KB하한 6500
             ]
@@ -938,6 +949,8 @@ def get_application(force_new=False):
             # KB시세: 캡션에서 추출한 것이 없으면 등기부 주소/면적로 자동 조회
             kb_price = caption_info['kb_price']
             kb_price_low = caption_info['kb_price_low']
+            # 캡션에서 탁감가/감정가로 추출된 경우 표시 라벨용
+            caption_price_type = caption_info.get('price_type')  # '탁감가' 또는 '감정가'
             
             # 면적에서 숫자 추출 (64.08㎡ -> 64.08, "51㎡/37.85㎡" -> 37.85 전용 사용은 get_kb_price_from_registry 내부에서)
             area_value = None
@@ -1047,7 +1060,7 @@ def get_application(force_new=False):
                     logger.error(f"KB 시세 조회 중 오류: {str(e)}", exc_info=True)
             
             # KB 시세가 없으면 캡션에서 대체 시세 추출 시도 (감정가, 탁감가, 테크시세 등)
-            alternative_price_type = None  # 대체 시세 타입 추적 (None이면 KB 시세 사용)
+            alternative_price_type = caption_price_type  # 캡션에서 탁감가/감정가로 추출된 경우
             if not kb_price:
                 from utils.validators import (
                     extract_bank_appraisal_price_from_special_notes,
@@ -1104,7 +1117,7 @@ def get_application(force_new=False):
             
             # 세대수 / 동수, 구분 표시 (KB API 결과로 업데이트된 값 사용)
             buildings = ""
-            if kb_result and kb_result.get('buildings') is not None:
+            if kb_result and kb_result.get('buildings') is not None and '개동' not in (households or ''):
                 buildings = f" / {kb_result.get('buildings')}개동"
             lines.append(f"세대수 : {households}{buildings}")
             lines.append(f"구   분 : {property_type}")

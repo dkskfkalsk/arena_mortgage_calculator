@@ -171,6 +171,18 @@ class MessageParser:
                     if looks_like_address:
                         data["address"] = line
                         print(f"DEBUG: Address inferred from line: '{line}'")
+                # 탁감가/감정가 (콜론 없어도 처리) - "탁감가  270,000만원" 형식
+                if not data.get("kb_price") and ("탁감가" in line or "감정가" in line or "은행감정가" in line or "탁감" in line):
+                    tackgam_match = re.search(r'(탁감가|은행감정가|감정가|탁감)\s*:?\s*(.+)', line, re.IGNORECASE)
+                    if tackgam_match:
+                        keyword = tackgam_match.group(1).strip()
+                        value = tackgam_match.group(2).strip()
+                        if value and re.search(r'[\d,]+', value):
+                            data["kb_price"] = value
+                            # "탁감"은 "탁감가" 약어 → kb_price_raw에 탁감가 사용 (MG캐피탈 감정건 가산금리 인식용)
+                            keyword_for_raw = "탁감가" if keyword == "탁감" else keyword
+                            data["kb_price_raw"] = f"{keyword_for_raw}: {value}"
+                            print(f"DEBUG: Parsed 감정가/탁감가 (no colon) - keyword: {keyword}, value: {value}")
             elif "kb시세" in line.replace(" ", "").lower() and current_section != "mortgages":
                 # "KB시세"가 포함된 줄에서 직접 추출 (콜론이 없어도 처리)
                 # 예: "KB시세 일반 125,000만원" 또는 "KB시세: 일반 125,000만원"

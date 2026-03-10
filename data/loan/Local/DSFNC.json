@@ -1,6 +1,8 @@
 {
   "_comment": "DSFNC 대부사 - 디에스론, 하이론 2개 상품. products 배열의 각 상품별로 계산 수행",
   "bank_name": "DSFNC",
+  "show_product_name_only": true,
+  "_comment_show_product_name_only": "한도 산출 시 상품명만 표시 (디에스론, 하이론)",
   "products": [
     {
       "product_name": "디에스론",
