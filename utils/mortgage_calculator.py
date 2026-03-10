@@ -220,8 +220,8 @@ def extract_manual_principals(message: str) -> Dict[str, int]:
     if not message:
         return result
     
-    # 형식 2 먼저 (순위 기반 - 더 구체적): "N순위 원금 000만원" 또는 "N순위 원금 000만"
-    pattern_rank = r'(\d+)\s*순위\s+원금\s+([\d,]+)\s*만?\s*원?'
+    # 형식 2 먼저 (순위 기반): "N순위 원금 000" / "N순위 : 원금 000" (콜론·공백 유연)
+    pattern_rank = r'(\d+)\s*순위\s*[:：\s]*원금\s*[:：\s]*([\d,]+)\s*만?\s*원?'
     for match in re.finditer(pattern_rank, message, re.IGNORECASE):
         rank = match.group(1)
         num_str = match.group(2).replace(',', '')

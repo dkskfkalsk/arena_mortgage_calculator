@@ -472,6 +472,12 @@
     "상환방식(모든등급 동일): 원리금 균등 60/84/120개월 中 택1, 거치 1년 가능",
     "4급지 지역 원리금균등 1년거치 선택시 LTV 5% 차감"
   ],
+  "corporate_business_restriction": {
+    "enabled": true,
+    "keywords": ["법인사업자"],
+    "comment": "법인사업자 취급 불가"
+  },
+  "_comment_corporate_business_restriction": "직업 또는 특이사항에 '법인사업자' 포함 시 한도 미산출",
   "credit_grade_none_fallback": "1",
   "sort_results_by_grade": true,
   "_comment_sort_results_by_grade": "결과를 신용등급 순(1등급→7등급)으로 정렬",

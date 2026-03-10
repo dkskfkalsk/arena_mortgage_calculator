@@ -533,11 +533,11 @@ def get_application(force_new=False):
                             info['credit_score'] = str(score)
                             break
             
-            # 거주여부 추출
-            if re.search(r'거주|실거주|본인\s*거주', caption):
-                info['residence'] = '거주'
-            elif re.search(r'비거주|임대|전세', caption):
+            # 거주여부 추출 (비거주 먼저 - "비거주(월세동의)"에서 "거주" 오매칭 방지)
+            if re.search(r'비거주|임대|전세', caption):
                 info['residence'] = '비거주'
+            elif re.search(r'거주|실거주|본인\s*거주', caption):
+                info['residence'] = '거주'
             
             # 세대수 추출 (세대수 700, 700세대, 271 / 5개동 등)
             households_match = (
