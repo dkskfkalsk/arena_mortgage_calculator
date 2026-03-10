@@ -1275,16 +1275,13 @@ class RegistryParser:
         if re.search(r'환매\s*특\s*약', self.text, re.DOTALL):
             special_conditions.append("환매특약")
         
-        # 전매제한 (주택법 관련) - 줄바꿈 허용
-        # 단, 전매제한등기가 말소된 경우 제외
-        if re.search(r'주택법.*?제\d+조.*?기간.*?지나기\s*전', self.text, re.DOTALL):
-            # 말소 패턴 확인 (전매제한등기 말소, 기간 경과 등)
-            jeonmae_cancelled = re.search(
-                r'전매제한\s*등\s*기\s*말\s*소|전매제한등기\s*말\s*소|'
-                r'전매제한\s*등기\s*말소|전매제한\s*기간\s*경과',
-                self.text, re.DOTALL | re.IGNORECASE
-            )
-            if not jeonmae_cancelled:
+        # 전매제한: 등기 요약본에 "전매제한"이 명시된 경우만 추가
+        # (요약본은 말소된 사항을 제외하고 유효한 사항만 표시함)
+        summary_pattern = r'주요\s*등기사항\s*요약[\s\S]*?(?=\[\s*참\s*고|출력일시|$)'
+        summary_match = re.search(summary_pattern, self.text, re.DOTALL | re.IGNORECASE)
+        if summary_match:
+            summary_text = summary_match.group(0)
+            if re.search(r'전매\s*제한|전매제한', summary_text):
                 special_conditions.append("전매제한")
         
         # 금지사항 (소유권 제한) - 줄바꿈 허용
