@@ -40,6 +40,8 @@ class MessageParser:
             "total_floors": None,  # 건물 총층수
             "property_type": None,
             "kb_price": None,
+            "housematch_price": None,  # 하우스머치 시세 (별도 저장, 금융사별 price_sources에서 처리)
+            "price_type": None,  # 시세 유형: "housematch" | "kb" | "탁감가" 등
             "mortgages": [],
             "special_notes": None,
             "requests": None,
@@ -732,6 +734,14 @@ class MessageParser:
             data["kb_price"] = value
             data["kb_price_raw"] = f"{key.strip()}: {value}"
             print(f"DEBUG: Parsed 감정가/탁감가 - key: {key}, value: {value}")
+        
+        elif "하우스머치" in key_clean:
+            # 하우스머치 시세 - 별도 저장 (kb_price에 넣지 않음, 금융사별 price_sources에서 처리)
+            validated = validate_kb_price(value)
+            if validated is not None:
+                data["housematch_price"] = validated
+                data["price_type"] = "housematch"
+                print(f"DEBUG: Parsed 하우스머치 시세 - value: {value}, validated: {validated}")
         
         elif "kb시세" in key_clean or "시세" in key_clean:
             # "KB시세 참고" + URL은 시세가 아님 → 덮어쓰지 않음 (기존 일반/하한 시세 유지)

@@ -319,6 +319,22 @@ class BaseCalculator:
                 "min_amount": self.config.get("min_amount", 3000)
             }
         
+        # 하우스머치 시세만 있고 해당 금융사가 취급하지 않을 경우
+        is_housematch_only = (
+            property_data.get("price_type") == "housematch" or property_data.get("housematch_price") is not None
+        )
+        if is_housematch_only and price_sources.get("housematch_price", 0) == 0:
+            log_print(f"DEBUG: BaseCalculator.calculate - 하우스머치 시세 입력됨 but 금융사가 하우스머치 시세 미사용: {self.bank_name}")
+            logger.warning(f"BaseCalculator.calculate - 하우스머치 시세 입력됨 but 금융사가 하우스머치 시세 미사용: {self.bank_name}")
+            validation_errors.append("하우스머치 시세 적용 불가")
+            return {
+                "bank_name": self.bank_name,
+                "results": [],
+                "conditions": self.config.get("conditions", []),
+                "errors": validation_errors,
+                "min_amount": self.config.get("min_amount", 3000)
+            }
+        
         # price_sources 설정에 따라 시세 추출 시도 (KB시세가 없을 경우)
         if kb_price is None:
             price_sources = self.config.get("price_sources", {})
@@ -406,7 +422,7 @@ class BaseCalculator:
                     property_data["kb_price"] = kb_price  # property_data 업데이트
             
             if kb_price is None and price_sources.get("housematch_price", 0) == 1:
-                housematch_price = extract_housematch_price_from_special_notes(special_notes)
+                housematch_price = property_data.get("housematch_price") or extract_housematch_price_from_special_notes(special_notes)
                 if housematch_price is not None:
                     log_print(f"DEBUG: BaseCalculator.calculate - 하우스머치 시세 추출: {housematch_price}만원")
                     logger.info(f"BaseCalculator.calculate - 하우스머치 시세 추출: {housematch_price}만원")
@@ -446,13 +462,19 @@ class BaseCalculator:
                         has_appraisal_price = True
                         log_print(f"DEBUG: 탁감가 추출됨 (special_notes): {appraisal_price}만원")
             
-            # 탁감가 정보가 있으면 "탁감가 취급 불가", 없으면 "KB시세 정보가 없어 취급 불가합니다"
+            # 탁감가 정보가 있으면 "탁감가 취급 불가", 하우스머치만 있으면 "하우스머치 시세 적용 불가", 없으면 "KB시세 정보가 없어 취급 불가합니다"
             if has_appraisal_price:
                 validation_errors.append("탁감가 취급 불가")
                 log_print(f"DEBUG: 탁감가 취급 불가 메시지 추가")
             else:
-                validation_errors.append("KB시세 정보가 없어 취급 불가합니다")
-                log_print(f"DEBUG: KB시세 정보 없음 메시지 추가")
+                # special_notes에 하우스머치 시세만 있는 경우 (금융사가 housematch 미사용 시)
+                housematch_in_notes = extract_housematch_price_from_special_notes(special_notes)
+                if housematch_in_notes is not None and price_sources.get("housematch_price", 0) == 0:
+                    validation_errors.append("하우스머치 시세 적용 불가")
+                    log_print(f"DEBUG: 하우스머치 시세 적용 불가 메시지 추가 (special_notes에서 추출)")
+                else:
+                    validation_errors.append("KB시세 정보가 없어 취급 불가합니다")
+                    log_print(f"DEBUG: KB시세 정보 없음 메시지 추가")
             
             return {
                 "bank_name": self.bank_name,

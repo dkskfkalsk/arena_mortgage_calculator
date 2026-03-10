@@ -574,14 +574,16 @@ def get_application(force_new=False):
             # 1. KB시세 추출
             kb_price_found = False
             
-            # 패턴 1: "KB시세 : 일반 87,500만원" 형식 (등기부+시세 함께 보낼 때)
+            # 패턴 1: "KB 시세 일반가 7억 6,500만", "KB 시세\n일반가 7억 6,500만" (줄바꿈 허용)
             kb_patterns = [
+                r'(?:kb\s*)?시세\s*[\s\S]*?(?:일반\s*가?|일반가)\s*([\d,\s억천만원]+)',  # KB 시세 (줄바꿈) 일반가 7억 6,500만
+                r'(?:kb\s*)?시세\s*(?:일반\s*가?|일반가)\s*([\d,\s억천만원]+)',  # 같은 줄
                 r'kb시세\s*[:：]\s*일반\s*([\d,\s억천만원]+)',  # KB시세 : 일반 87,500만원
                 r'(?:kb\s*)?(?:시세|일반\s*가?)\s*[:：]?\s*([\d,\s억천만원]+)',  # 복합 단위 포함
                 r'kb시세\s*[:：]?\s*([\d,]+)',  # "kb시세 60750" 또는 "KB시세 510,000,000"
             ]
             for pattern in kb_patterns:
-                match = re.search(pattern, caption, re.IGNORECASE)
+                match = re.search(pattern, caption, re.IGNORECASE | re.DOTALL)
                 if match:
                     price_text = match.group(1).strip()
                     price_man = parse_complex_amount(price_text)
@@ -651,14 +653,17 @@ def get_application(force_new=False):
                             logger.info(f"parse_caption_info - 감정가/탁감가 추출: {price_text} -> {price_man}만원")
                             break
             
-            # KB시세 하한 추출 (복합 단위 지원)
+            # KB시세 하한 추출 (복합 단위 지원, 줄바꿈 허용)
             kb_low_patterns = [
+                r'(?:kb\s*)?시세\s*[\s\S]*?(?:하한\s*가?|하한가)\s*([\d,\s억천만원]+)',  # KB 시세 (줄바꿈) 하한가
+                r'하위\s*평균\s*가\s*([\d,\s억천만원]+)',  # 하위평균가 7억 3,000만
+                r'하위평균가\s*([\d,\s억천만원]+)',  # 하위평균가7억 3,000만 (공백 없음)
                 r'kb시세\s*[:：]\s*하한\s*([\d,\s억천만원]+)',  # KB시세 : 하한 85,500만원
                 r'(?:kb\s*)?하한\s*[가]?\s*[:：]?\s*([\d,\s억천만원]+)',  # KB하한 1억5천만원
                 r'(?:kb\s*)?하한\s*[가]?\s*[:：]?\s*([\d,]+)',  # KB하한 6500
             ]
             for pattern in kb_low_patterns:
-                match = re.search(pattern, caption, re.IGNORECASE)
+                match = re.search(pattern, caption, re.IGNORECASE | re.DOTALL)
                 if match:
                     price_text = match.group(1).strip()
                     price_man = parse_complex_amount(price_text)
@@ -1500,6 +1505,7 @@ def get_application(force_new=False):
                 # 파싱된 데이터가 의미 없는 경우 무시
                 has_meaningful_data = any([
                     property_data.get("kb_price") is not None,
+                    property_data.get("housematch_price") is not None,
                     property_data.get("address"),
                     property_data.get("property_type"),
                     bool(property_data.get("mortgages"))

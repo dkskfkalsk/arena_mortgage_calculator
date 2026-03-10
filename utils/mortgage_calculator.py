@@ -216,6 +216,7 @@ def extract_manual_principals(message: str) -> Dict[str, int]:
     메시지에서 감액등기용 수동 원금 추출
     
     형식 예시:
+    - "기대출" 섹션: "국민 50,490/45,900" (금융사 채권최고액/원금, 슬래시 뒤가 원금)
     - "신한 16900/리드코프 4000" (금융사명 + 공백 + 원금만원, 슬래시 구분)
     - "2순위 원금 4000만원" 또는 "2순위 원금 4000만"
     
@@ -230,6 +231,25 @@ def extract_manual_principals(message: str) -> Dict[str, int]:
     
     if not message:
         return result
+    
+    # 형식 0: "기대출" 섹션 - "금융사 채권최고액/원금" (슬래시 뒤가 원금, 등장 순서=순위)
+    gidaechul_match = re.search(r'기대출\s*\n([\s\S]*?)(?=\n\n|\n기대출|\n요청사항|\n특이사항|$)', message, re.IGNORECASE)
+    if gidaechul_match:
+        section = gidaechul_match.group(1)
+        # "국민 50,490/45,900" 또는 "한투캐 13,680/11,400" 패턴
+        pattern_slash = r'([가-힣a-zA-Z]{2,})\s+([\d,]+)/([\d,]+)'
+        for rank, match in enumerate(re.finditer(pattern_slash, section), 1):
+            name = match.group(1).strip()
+            if any(kw in name for kw in ['등급', '점수', '신용', '원금', '합계']):
+                continue
+            principal_str = match.group(3).replace(',', '')
+            try:
+                principal = int(principal_str)
+                if principal >= 100 and principal < 100000:
+                    result[str(rank)] = principal
+                    result[name] = principal  # 금융사명으로도 매칭 가능
+            except ValueError:
+                pass
     
     # 형식 2 (순위 기반): "N순위 원금 000" / "N순위 : 원금 000" (콜론·공백 유연)
     pattern_rank = r'(\d+)\s*순위\s*[:：\s]*원금\s*[:：\s]*([\d,]+)\s*만?\s*원?'
