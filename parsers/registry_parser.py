@@ -969,18 +969,20 @@ class RegistryParser:
             # - "1번근저당권설정등기말소"
             # - "1번근저당권설정\n등기말소"
             rank_num = m.순위번호
+            # (?<!\d)로 앞자리 숫자 제외: "4번"이 "14번"에 오매칭되는 것 방지
+            rank_boundary = r'(?<!\d)' if rank_num.isdigit() else ''
             cancel_patterns = [
                 # 기본 패턴들 (정확한 매칭)
-                rf'{rank_num}번\s*근저당권\s*설정\s*등\s*기\s*말\s*소',  # "16번근저당권설정등기말소"
-                rf'{rank_num}번\s*근저당권\s*설정\s*등.*?\n\s*기\s*말\s*소',  # 줄바꿈으로 분리된 경우
-                rf'{rank_num}번\s*근저당권\s*설정\s*등\s*기.*?말\s*소',  # 설정등기 뒤 말소
+                rf'{rank_boundary}{rank_num}번\s*근저당권\s*설정\s*등\s*기\s*말\s*소',  # "16번근저당권설정등기말소"
+                rf'{rank_boundary}{rank_num}번\s*근저당권\s*설정\s*등.*?\n\s*기\s*말\s*소',  # 줄바꿈으로 분리된 경우
+                rf'{rank_boundary}{rank_num}번\s*근저당권\s*설정\s*등\s*기.*?말\s*소',  # 설정등기 뒤 말소
                 # 여러 순위가 함께 말소되는 경우: "1번근저당권설정, 2번근저당권설정등기말소"
-                rf'{rank_num}번\s*근저당권\s*설정[,\s]*.*?등\s*기\s*말\s*소',
+                rf'{rank_boundary}{rank_num}번\s*근저당권\s*설정[,\s]*.*?등\s*기\s*말\s*소',
                 # 순위번호가 나열된 후 말소: "1번, 2번근저당권설정등기말소"
                 # .*? 대신 [,\s\d번]* 사용: 주소 "9번 30" 등과의 오매칭 방지
-                rf'{rank_num}번[,\s]*(?:[,\s]|\d+번)*근저당권\s*설정\s*등\s*기\s*말\s*소',
+                rf'{rank_boundary}{rank_num}번[,\s]*(?:[,\s]|\d+번)*근저당권\s*설정\s*등\s*기\s*말\s*소',
                 # "16번근저당권말소" (설정 없이 직접 말소)
-                rf'{rank_num}번\s*근저당권\s*말\s*소(?!\s*[가-힣a-zA-Z])',  # 말소 뒤에 다른 텍스트가 오지 않는 경우
+                rf'{rank_boundary}{rank_num}번\s*근저당권\s*말\s*소(?!\s*[가-힣a-zA-Z])',  # 말소 뒤에 다른 텍스트가 오지 않는 경우
             ]
             
             is_cancelled = False
