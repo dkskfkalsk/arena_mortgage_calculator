@@ -2925,6 +2925,18 @@ class BaseCalculator:
         if floor is None:
             return False
         
+        # 총층수 조건이 있는 규칙들 (total_floors_min/max가 하나라도 있는 규칙)
+        rules_with_total_floors = [r for r in rules if r.get("total_floors_min") is not None or r.get("total_floors_max") is not None]
+
+        # 총층수 미입력 시 폴백: 모든 총층수 규칙에서 공통으로 하한가 적용되는 층이면 적용
+        if total_floors is None and rules_with_total_floors:
+            all_lower_floors = [set(r.get("lower_bound_floors", [])) for r in rules_with_total_floors if r.get("lower_bound_floors")]
+            if all_lower_floors:
+                intersection = set.intersection(*all_lower_floors)
+                if floor in intersection:
+                    log_print(f"DEBUG: _check_lower_bound_rules - 총층수 미입력 폴백: floor={floor} (공통 적용층 {sorted(intersection)})")
+                    return True
+
         for rule in rules:
             # 총층수 조건 확인
             total_floors_min = rule.get("total_floors_min")
@@ -2934,7 +2946,7 @@ class BaseCalculator:
             # 총층수 조건이 있는 경우
             if total_floors_min is not None or total_floors_max is not None:
                 if total_floors is None:
-                    # 총층수 정보가 없으면 이 규칙은 건너뜀
+                    # 총층수 정보가 없으면 이 규칙은 건너뜀 (폴백은 위에서 이미 처리)
                     continue
                 
                 # 최소 총층수 조건 확인

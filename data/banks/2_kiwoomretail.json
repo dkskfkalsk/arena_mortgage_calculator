@@ -459,6 +459,36 @@
     ],
     "residential_commercial_max_ltv": 100
   },
+  "lower_bound_price": {
+    "enabled": true,
+    "apartment": {
+      "rules": [
+        {
+          "total_floors_min": 21,
+          "lower_bound_floors": [1, 2, 3]
+        },
+        {
+          "total_floors_min": 6,
+          "total_floors_max": 20,
+          "lower_bound_floors": [1, 2]
+        },
+        {
+          "total_floors_min": 5,
+          "total_floors_max": 5,
+          "lower_bound_floors": [1]
+        }
+      ]
+    },
+    "residential_commercial": {
+      "rules": [
+        {
+          "total_floors_max": 9,
+          "lower_bound_floors": [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        }
+      ]
+    },
+    "description": "아파트: 21층 이상 1~3층, 6~20층 1~2층, 5층 1층 / 주상복합: 10층 미만 하한가"
+  },
   "price_application_rules": {
     "apartment": {
       "over_20_floors": {
