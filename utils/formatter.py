@@ -366,8 +366,17 @@ def _format_result_with_label(
     if promotion_rejection_reason and "MG캐피탈" in bank_name:
         lines.append(f"(프로모션 미적용: {promotion_rejection_reason})")
     
-    # 특이 조건 추가
-    if conditions:
+    # 특이 조건 추가 - 한도가 나온 결과가 있을 때만 표시 (한도 미산출만 있으면 캡션 생략)
+    all_results = bank_result.get("results", [])
+    has_actual_limit = any(
+        r for r in all_results
+        if not r.get("limit_not_calculated", False)
+        and (
+            (r.get("is_refinance", False) and ((r.get("available_amount") or 0) > 0 or (r.get("total_amount") or 0) > 0))
+            or (not r.get("is_refinance", False) and (r.get("amount") or 0) > 0)
+        )
+    )
+    if conditions and has_actual_limit:
         for condition in conditions[:4]:  # 최대 4개만 표시
             lines.append(f"- {condition}")
     
