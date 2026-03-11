@@ -2582,11 +2582,12 @@ class BaseCalculator:
             result = self._apply_kiwoom_ltv_adjustments(result, property_data)
             return result
         
-        # 1급지인 경우 A/B 그룹 구분
+        # 1급지인 경우 A/B/C 그룹 구분
         if grade == 1 and region:
             region_clean = region.replace(" ", "")
             grade_1_group_a = self.config.get("grade_1_group_a", [])
             grade_1_group_b = self.config.get("grade_1_group_b", [])
+            grade_1_group_c = self.config.get("grade_1_group_c", [])
             
             # A 그룹 확인
             for a_region in grade_1_group_a:
@@ -2606,9 +2607,18 @@ class BaseCalculator:
                     result = self._apply_kiwoom_ltv_adjustments(result, property_data)
                     return result
             
-            # 1급지이지만 A/B 그룹에 없으면 기본값 (A 그룹)
-            result = max_ltv_by_grade.get("1")
-            print(f"DEBUG: get_max_ltv_by_grade - 1급지 (기본값 A그룹): {region} -> LTV {result}%")
+            # C 그룹 확인 (또는 A/B 외 1급지 → C그룹)
+            for c_region in grade_1_group_c:
+                if c_region.replace(" ", "") == region_clean:
+                    result = max_ltv_by_grade.get("1_c")
+                    print(f"DEBUG: get_max_ltv_by_grade - 1급지 C그룹: {region} -> LTV {result}%")
+                    # 키움저축-리테일 LTV 차감 적용
+                    result = self._apply_kiwoom_ltv_adjustments(result, property_data)
+                    return result
+            
+            # 1급지이지만 A/B/C 그룹에 없으면 기본값 (C 그룹)
+            result = max_ltv_by_grade.get("1_c", max_ltv_by_grade.get("1"))
+            print(f"DEBUG: get_max_ltv_by_grade - 1급지 (기본값 C그룹): {region} -> LTV {result}%")
             # 키움저축-리테일 LTV 차감 적용
             result = self._apply_kiwoom_ltv_adjustments(result, property_data)
             return result
