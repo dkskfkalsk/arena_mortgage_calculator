@@ -211,6 +211,8 @@ def format_result(bank_result: Dict[str, Any], requests: str = "") -> str:
                 parts.append(formatted)
         if parts:
             return "\n\n".join(parts)
+        # 창업/일반 모두 한도 없으면 금융사 표시 안 함
+        return ""
     
     return _format_result_with_label(bank_result, requests)
 
@@ -268,6 +270,9 @@ def _format_result_with_label(
     # 부족자금 요청이 없으면 한도 미산출 항목 제외 (표시하지 않음)
     if "부족자금" not in requests:
         results = [r for r in results if not r.get("limit_not_calculated", False)]
+        # 한도가 하나도 없으면 금융사명도 표시하지 않음
+        if not results:
+            return ""
     
     # 등급별 산출 시: 한도가 나온 등급(구간 포함)의 한도 미산출 항목 제외
     # 예: 1~2등급에 한도 있으면, 1~5·1~3 등 1,2를 포함하는 구간의 한도 미산출도 제외
