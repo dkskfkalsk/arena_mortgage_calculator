@@ -529,10 +529,12 @@ class RegistryParser:
             matches = list(re.finditer(floor_area_pattern, table_text))
             non_basement = []
             for m in matches:
-                # "지하N층" 앞의 "지하" 제외: 매치 직전 2~3자 확인
+                # "지하N층", "지1층", "지2층" 등 지하층 제외
                 start = max(0, m.start() - 3)
                 prefix = table_text[start:m.start()]
-                if '지하' not in prefix:
+                # "지하" 또는 "지" + 숫자 (지1층, 지2층 축약형) 제외
+                is_basement = '지하' in prefix or (m.start() > 0 and table_text[m.start() - 1] == '지')
+                if not is_basement:
                     non_basement.append(m)
             use_matches = non_basement if non_basement else matches
             

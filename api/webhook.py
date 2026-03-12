@@ -461,6 +461,7 @@ def get_application(force_new=False):
                 'collateral_provider': '', # 담보제공자 이름
                 'name_display': '',  # 최종 표시할 이름 형식
                 'area': '',          # 면적 (캡션에서 입력한 경우)
+                'total_floor': '',   # 총층수 (캡션에서 입력한 경우)
                 'trust_amount': '',  # 신탁 금액 (만원 단위 문자열)
                 'tenant': None,      # 세입자 정보 {deposit_man, monthly_rent_man, display_name} 또는 None
             }
@@ -669,6 +670,21 @@ def get_application(force_new=False):
                     price_man = parse_complex_amount(price_text)
                     if price_man:
                         info['kb_price_low'] = f"{price_man:,}"
+                        break
+            
+            # 총층수 추출 (콜론·공백·띄어쓰기 유연)
+            total_floor_patterns = [
+                r'총\s*층\s*수\s*[:：\s]*(\d+)\s*층?',   # 총 층 수 : 20층
+                r'총층수\s*[:：\s]*(\d+)\s*층?',        # 총층수 : 20층, 총층수: 20
+                r'총\s*층수\s*[:：\s]*(\d+)\s*층?',    # 총 층수 20층
+                r'(?:총\s*)?층수\s*[:：\s]*(\d+)\s*층?', # 층수 20층
+            ]
+            for pattern in total_floor_patterns:
+                match = re.search(pattern, caption, re.IGNORECASE)
+                if match:
+                    num = match.group(1).strip()
+                    if num.isdigit() and 1 <= int(num) <= 200:
+                        info['total_floor'] = f"{num}층"
                         break
             
             # 면적 추출 (전용 83.89, 83.89㎡ 등)
@@ -911,20 +927,19 @@ def get_application(force_new=False):
             address = result.부동산_주소 or "확인불가"
             floor_info = result.층수정보 or ""
             
-            # 층수 정보에서 총층수 추출
-            total_floor = ""
-            unit_info = ""
-            if floor_info:
+            # 총층수: 캡션 우선, 없으면 PDF(등기부)에서 추출
+            total_floor = caption_info.get('total_floor') or ""
+            if not total_floor and floor_info:
                 # "15층 중 2층 203호" 또는 "17층 1802호" 또는 "18층" 형태에서 파싱
-                # 총층수: 첫번째 숫자+층
                 floor_match = re.search(r'(\d+)층\s*중', floor_info)
                 if floor_match:
                     total_floor = f"{floor_match.group(1)}층"
                 else:
-                    # "17층 1802호" 또는 "18층" 형태에서 첫 번째 숫자+층 추출
                     floor_match = re.search(r'^(\d+)층', floor_info)
                     if floor_match:
                         total_floor = f"{floor_match.group(1)}층"
+            unit_info = ""
+            if floor_info:
                 
                 # 호수 정보
                 unit_match = re.search(r'(\d+)호', floor_info)

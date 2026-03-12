@@ -97,6 +97,7 @@ def parse_caption_info(caption):
         'collateral_provider': '',
         'request': '',
         'trust_amount': '',   # 신탁 금액 (만원 단위 문자열)
+        'total_floor': '',    # 총층수 (캡션에서 입력한 경우)
         'special_notes': [],  # 특이사항
     }
     
@@ -151,6 +152,21 @@ def parse_caption_info(caption):
         info['residence'] = '비거주'
     elif re.search(r'거주|실거주|본인\s*거주', caption):
         info['residence'] = '거주'
+
+    # 총층수 추출 (콜론·공백·띄어쓰기 유연)
+    total_floor_patterns = [
+        r'총\s*층\s*수\s*[:：\s]*(\d+)\s*층?',
+        r'총층수\s*[:：\s]*(\d+)\s*층?',
+        r'총\s*층수\s*[:：\s]*(\d+)\s*층?',
+        r'(?:총\s*)?층수\s*[:：\s]*(\d+)\s*층?',
+    ]
+    for pattern in total_floor_patterns:
+        match = re.search(pattern, caption, re.IGNORECASE)
+        if match:
+            num = match.group(1).strip()
+            if num.isdigit() and 1 <= int(num) <= 200:
+                info['total_floor'] = f"{num}층"
+                break
 
     # 신탁 금액 추출 (신탁금액, 신탁원금, 신탁대환, 신탁 뒤에 금액) - 웹훅과 동일
     trust_patterns = [
@@ -371,8 +387,9 @@ async def format_registry_result(result, caption_info, file_name):
     address = result.부동산_주소 or "확인불가"
     floor_info = result.층수정보 or ""
     
-    total_floor = ""
-    if floor_info:
+    # 총층수: 캡션 우선, 없으면 PDF(등기부)에서 추출
+    total_floor = caption_info.get('total_floor') or ""
+    if not total_floor and floor_info:
         floor_match = re.search(r'(\d+)층\s*중', floor_info)
         if floor_match:
             total_floor = f"{floor_match.group(1)}층"
