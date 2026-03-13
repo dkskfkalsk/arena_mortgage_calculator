@@ -569,6 +569,9 @@ def format_all_results(
         body_parts = output_parts[1:]
         # 빈 문자열은 섹션 구분이므로 \n\n\n으로 연결, 나머지는 \n\n
         body_str = "\n\n".join(p for p in body_parts if p != "")
-        return f"{header}\n\n{body_str}" if body_str else header
+        if body_str:
+            return f"{header}\n\n{body_str}"
+        # 금융사별 결과가 모두 비어 있으면 (한도 미산출만 있는 경우)
+        return "한도 산출 불가"
     return "\n\n".join(format_br(br) for br in all_results)
 
