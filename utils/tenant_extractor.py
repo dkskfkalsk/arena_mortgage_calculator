@@ -31,43 +31,67 @@ def extract_tenant_info(text: str, parse_amount_fn=None) -> Optional[Dict[str, A
     def _parse_deposit(txt):
         if not txt:
             return None
-        txt = txt.strip().replace(',', '').replace(' ', '')
+        txt = txt.strip().replace(',', '').replace(' ', '').replace('，', '')
+        # 억 단위: 1억 → 10000만원
         m = re.search(r'(\d+\.?\d*)\s*억', txt)
         if m:
             try:
                 return int(float(m.group(1)) * 10000)
             except ValueError:
                 pass
+        # 천만 단위: 3천만 → 3000만원
+        m = re.search(r'(\d+)\s*천\s*만', txt)
+        if m:
+            try:
+                return int(m.group(1)) * 1000
+            except ValueError:
+                pass
+        # 만 단위: 3000만, 3,000만 → 3000만원 (parse_amount_fn이 있으면 복합 형식 지원)
         if parse_amount_fn:
-            return parse_amount_fn(txt)
+            val = parse_amount_fn(txt)
+            if val is not None:
+                return val
         m = re.search(r'^(\d+)$', txt)
         if m:
             return int(m.group(1))
-        m = re.search(r'[\d,]+', txt)
+        m = re.search(r'(\d+)\s*만', txt)
+        if m:
+            return int(m.group(1))
+        m = re.search(r'[\d]+', txt)
         if m:
             try:
-                return int(m.group(0).replace(',', ''))
+                return int(m.group(0))
             except ValueError:
                 pass
         return None
     
+    # 보증금 패턴 (콤마 포함 숫자 [\d,]+ 지원, 다양한 형식)
     deposit_patterns = [
+        # 1순위 월세입자 3,000만 / 월세 120만원 (콤마 포함, 만 단위)
+        (r'(?:1|2)순위\s*[:：\s]*(?:전세|월세)?입자[^\d]*([\d,]+)\s*만\s*원?', 1),
+        (r'(?:1|2)순위\s*(?:전세|월세)?입자[^\d]*([\d,]+)\s*만\s*원?', 1),
         # 월세입자(40만) 원금 5000 / 전세입자(30만) 원금 3000 - 괄호 안 월세, 원금 뒤 보증금
-        (r'(?:전세|월세)?입자\s*\([^)]*\)\s*원금\s*[:：]?\s*(\d[\d,.\s]*)', 1),
-        # 1순위 : 전세입자 / 1순위 전세입자 (콜론·공백 유연, 줄바꿈 후 금액)
-        (r'(?:1|2)순위\s*[:：\s]*(?:전세|월세)?입자\s*\([^)]*\)\s*원금\s*[:：]?\s*(\d[\d,.\s]*)', 1),
-        (r'(?:1|2)순위\s*[:：\s]*(?:전세|월세)?입자[^\d]*(?:원금\s*[:：]?\s*)?(\d{4,})', 1),
-        (r'(?:1|2)순위\s*(?:전세|월세)?입자[^\d]*(?:원금\s*[:：]?\s*)?(\d{4,})', 1),
+        (r'(?:전세|월세)?입자\s*\([^)]*\)\s*원금\s*[:：]?\s*([\d,.\s]+)', 1),
+        (r'(?:1|2)순위\s*[:：\s]*(?:전세|월세)?입자\s*\([^)]*\)\s*원금\s*[:：]?\s*([\d,.\s]+)', 1),
+        # 1순위 월세입자 3000 / 1순위 월세입자 3,000 (숫자만, 4자리 이상)
+        (r'(?:1|2)순위\s*[:：\s]*(?:전세|월세)?입자[^\d]*(?:원금\s*[:：]?\s*)?([\d,]+)', 1),
+        (r'(?:1|2)순위\s*(?:전세|월세)?입자[^\d]*(?:원금\s*[:：]?\s*)?([\d,]+)', 1),
+        # 월세입자 3,000만 / 전세입자 5000만원 (입자 뒤 금액+만)
+        (r'(?:전세|월세)?입자[^\d]*([\d,]+)\s*만\s*원?', 1),
+        (r'(?:전세|월세)?세입자[^\d]*([\d,]+)\s*만\s*원?', 1),
         # 전세입자 5000만원 / 전세입자 5000 (5000)만원(100%)
-        (r'(?:전세|월세)?입자[^\d]*(\d{4,})\s*(?:\([\d,]+\))?\s*만원', 1),
-        (r'(?:전세|월세)?입자[^\d]*(\d{4,})', 1),
-        (r'(?:전세|월세)?세입자[^\d]*(\d{4,})', 1),
+        (r'(?:전세|월세)?입자[^\d]*([\d,]+)\s*(?:\([\d,]+\))?\s*만원', 1),
+        (r'(?:전세|월세)?입자[^\d]*([\d,]+)(?:\s*[/(]|$)', 1),
+        (r'(?:전세|월세)?세입자[^\d]*([\d,]+)', 1),
         # 보증금/임차보증금/원금 (콜론·공백 유연)
         (r'보증금\s*[:：\s]*([\d,.\s억천만원]+)', 1),
         (r'(?:전세|월세)?세입자[^\d]*보증금\s*[:：\s]*([\d,.\s억천만원]+)', 1),
-        (r'(?:전세|월세)?입자[^\d]*원금\s*[:：\s]*(\d[\d,.\s]*)', 1),
+        (r'(?:전세|월세)?입자[^\d]*원금\s*[:：\s]*([\d,.\s]+)', 1),
         (r'임차보증금\s*[:：\s]*([\d,.\s억천만원]+)', 1),
-        (r'(?:전세|월세)?세입자[^\d]*원금\s*[:：\s]*(\d[\d,.\s]*)', 1),
+        (r'(?:전세|월세)?세입자[^\d]*원금\s*[:：\s]*([\d,.\s]+)', 1),
+        # 3천만, 5천만원 (1순위 월세입자 3천만) - 캡처 전체를 _parse_deposit에 전달
+        (r'(?:1|2)순위\s*(?:전세|월세)?입자[^\d]*(\d+\s*천\s*만)\s*원?', 1),
+        (r'(?:전세|월세)?입자[^\d]*(\d+\s*천\s*만)\s*원?', 1),
         (r'(\d+\.?\d*)\s*억\s*원?', 1),
     ]
     for dp, grp in deposit_patterns:
@@ -79,15 +103,21 @@ def extract_tenant_info(text: str, parse_amount_fn=None) -> Optional[Dict[str, A
                 break
     
     monthly_patterns = [
-        r'\((\d+)\s*만\s*원?\)',
-        r'월세\s*[:：]?\s*\(?\s*(\d+)\s*만\s*원?\)?',
-        r'월세\s*[:：]?\s*(\d+)',
-        r'(\d+)\s*만\s*원?\s*월세',
+        r'\((\d+)\s*만\s*원?\)',           # (120만원)
+        r'월세\s*[:：]?\s*\(?\s*([\d,]+)\s*만\s*원?\)?',  # 월세 120만원, 월세 1,200만
+        r'월세\s*[/／]\s*([\d,]+)\s*만',    # / 월세 120만
+        r'월세\s*[:：]?\s*([\d,]+)',        # 월세 120
+        r'([\d,]+)\s*만\s*원?\s*월세',     # 120만원 월세
     ]
     for mp in monthly_patterns:
         m = re.search(mp, text)
         if m:
-            num = int(re.search(r'\d+', m.group(1) if m.lastindex else m.group(0)).group(0))
+            raw = m.group(1) if m.lastindex else m.group(0)
+            num_str = re.sub(r'[^\d]', '', raw) or raw
+            try:
+                num = int(num_str) if num_str else 0
+            except ValueError:
+                continue
             if 1 <= num <= 9999:
                 monthly_rent_man = num
                 break
