@@ -186,9 +186,9 @@ class MessageParser:
                             data["kb_price_raw"] = f"{keyword_for_raw}: {value}"
                             print(f"DEBUG: Parsed 감정가/탁감가 (no colon) - keyword: {keyword}, value: {value}")
             elif "kb시세" in line.replace(" ", "").lower() and current_section != "mortgages":
-                # "KB시세"가 포함된 줄에서 직접 추출 (콜론이 없어도 처리)
-                # 예: "KB시세 일반 125,000만원" 또는 "KB시세: 일반 125,000만원"
-                kb_match = re.search(r'kb시세\s*:?\s*(.+)', line, re.IGNORECASE)
+                # "KB시세" 또는 "KB 시세" (공백 유연) 포함된 줄에서 직접 추출
+                # 예: "KB시세 일반 125,000만원", "KB 시세 24,400만원"
+                kb_match = re.search(r'kb\s*시세\s*:?\s*(.+)', line, re.IGNORECASE)
                 if kb_match:
                     kb_value = kb_match.group(1).strip()
                     # 다음 줄도 확인 - 최대 2줄까지 확인
@@ -285,9 +285,9 @@ class MessageParser:
         
         # KB시세 검증 (전체 텍스트에서 추출한 것이 없으면 기존 방식 사용)
         if not data["kb_price"]:
-            # 기존 방식으로 다시 시도
+            # 기존 방식으로 다시 시도 (공백 유연: "KB시세", "KB 시세")
             for i, line in enumerate(lines):
-                if "kb시세" in line.lower():
+                if "kb시세" in line.replace(" ", "").lower():
                     # KB시세 줄과 다음 줄 모두 포함
                     kb_value = line
                     if i + 1 < len(lines):
@@ -298,7 +298,7 @@ class MessageParser:
                     if ":" in kb_value:
                         kb_value = kb_value.split(":", 1)[1].strip()
                     else:
-                        kb_value = re.sub(r'kb시세\s*', '', kb_value, flags=re.IGNORECASE).strip()
+                        kb_value = re.sub(r'kb\s*시세\s*', '', kb_value, flags=re.IGNORECASE).strip()
                     data["kb_price"] = kb_value
                     print(f"DEBUG: KB price from line parsing: {kb_value}")
                     break
@@ -858,8 +858,8 @@ class MessageParser:
                         kb_value = parts[1].strip()
                         print(f"DEBUG: Extracted from colon: {kb_value}")
                 else:
-                    # "KB시세 일반 125,000만원" 형식
-                    kb_match = re.search(r'kb시세\s+(.+)', line, re.IGNORECASE)
+                    # "KB시세 일반 125,000만원" 또는 "KB 시세 24,400만원" (공백 유연)
+                    kb_match = re.search(r'kb\s*시세\s*(?::\s*)?(.+)', line, re.IGNORECASE)
                     if kb_match:
                         kb_value = kb_match.group(1).strip()
                         print(f"DEBUG: Extracted from regex: {kb_value}")
@@ -906,16 +906,16 @@ class MessageParser:
                 print(f"DEBUG: KB price extracted from KB일반/하한 패턴: {kb_value}")
                 return kb_value
         
-        # 패턴 매칭으로 재시도 (더 강력한 패턴)
+        # 패턴 매칭으로 재시도 (공백 유연: kb\s*시세 = "KB시세" 또는 "KB 시세")
         kb_patterns = [
-            r'kb시세\s*:?\s*일반\s*([\d,]+)\s*억',  # KB시세 : 일반 20억
-            r'kb시세\s*:?\s*([\d,]+)\s*억',  # KB시세 : 20억
-            r'kb시세\s*:?\s*일반\s*([\d,]+)\s*만원',  # KB시세 : 일반 125,000만원
-            r'kb시세\s*:?\s*([\d,]+)\s*만원',  # KB시세 : 125,000만원
-            r'kb시세\s*:?\s*일반\s*([\d,]+)',  # KB시세 : 일반 125,000
-            r'kb시세\s*:?\s*([\d,]+)',  # KB시세 : 125,000
-            r'kb시세[^:]*:?\s*일반\s*([\d,]+)',  # KB시세 일반 125,000
-            r'kb시세[^:]*:?\s*([\d,]+)',  # KB시세 125,000
+            r'kb\s*시세\s*:?\s*일반\s*([\d,]+)\s*억',  # KB시세 : 일반 20억
+            r'kb\s*시세\s*:?\s*([\d,]+)\s*억',  # KB시세 : 20억
+            r'kb\s*시세\s*:?\s*일반\s*([\d,]+)\s*만원',  # KB시세 : 일반 125,000만원
+            r'kb\s*시세\s*:?\s*([\d,]+)\s*만원',  # KB 시세 24,400만원
+            r'kb\s*시세\s*:?\s*일반\s*([\d,]+)',  # KB시세 : 일반 125,000
+            r'kb\s*시세\s*:?\s*([\d,]+)',  # KB시세 : 125,000
+            r'kb\s*시세[^:]*:?\s*일반\s*([\d,]+)',  # KB시세 일반 125,000
+            r'kb\s*시세[^:]*:?\s*([\d,]+)',  # KB시세 125,000
         ]
         
         for pattern in kb_patterns:
@@ -937,13 +937,13 @@ class MessageParser:
                         except ValueError:
                             pass
                     
-                    # 전체 컨텍스트를 찾아서 반환
-                    kb_context = re.search(r'kb시세[^:]*:?\s*(.+?)(?=\n|$)', text, re.IGNORECASE | re.MULTILINE | re.DOTALL)
+                    # 전체 컨텍스트를 찾아서 반환 (공백 유연)
+                    kb_context = re.search(r'kb\s*시세[^:]*:?\s*(.+?)(?=\n|$)', text, re.IGNORECASE | re.MULTILINE | re.DOTALL)
                     if kb_context:
                         kb_value = kb_context.group(1).strip()
                         # 다음 줄도 포함 (하한 정보 등). URL(참고 링크)은 제외
                         for i, line in enumerate(lines):
-                            if 'kb시세' in line.lower():
+                            if 'kb시세' in line.replace(" ", "").lower():
                                 for j in range(1, 3):  # 다음 1-2줄 확인
                                     if i + j < len(lines):
                                         next_line = lines[i + j].strip()

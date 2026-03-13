@@ -962,6 +962,16 @@ class RegistryParser:
                 mortgages.append(mortgage)
         
         # 말소된 근저당권 제외
+        # 별도등기(다른 토지) 문맥 제외: "1토지(을구 3번 근저당권 설정등기" 등은 현재 건물의 을구가 아님
+        # → 【 을 구 】 섹션 + (근)저당권 요약에서만 검색하여 오매칭 방지
+        eulgu_section_pattern = r'【\s*을\s*구\s*】[\s\S]*?(?=출력일시|$)'
+        eulgu_section_match = re.search(eulgu_section_pattern, self.text, re.DOTALL | re.IGNORECASE)
+        eulgu_for_cancel = eulgu_section_match.group(0) if eulgu_section_match else eulgu_text
+        if not eulgu_for_cancel:
+            eulgu_for_cancel = self.text
+        summary_for_cancel = summary_match.group(0) if summary_match else ""
+        cancel_search_text = (eulgu_for_cancel + "\n" + summary_for_cancel) if summary_for_cancel else eulgu_for_cancel
+
         active_mortgages = []
         for m in mortgages:
             # 해당 순위번호의 근저당권말소 여부 확인
@@ -972,27 +982,29 @@ class RegistryParser:
             # - "1번근저당권설정\n등기말소"
             rank_num = m.순위번호
             # (?<!\d)로 앞자리 숫자 제외: "4번"이 "14번"에 오매칭되는 것 방지
+            # (?<!을구\s): "1토지(을구 3번 근저당권 설정등기" 등 별도등기 문맥 제외 (다른 토지 참조)
             rank_boundary = r'(?<!\d)' if rank_num.isdigit() else ''
+            exclude_other_land = r'(?<!을구\s)'  # "을구 3번" = 다른 토지의 을구 3번
             cancel_patterns = [
                 # 기본 패턴들 (정확한 매칭)
-                rf'{rank_boundary}{rank_num}번\s*근저당권\s*설정\s*등\s*기\s*말\s*소',  # "16번근저당권설정등기말소"
-                rf'{rank_boundary}{rank_num}번\s*근저당권\s*설정\s*등.*?\n\s*기\s*말\s*소',  # 줄바꿈으로 분리된 경우
-                rf'{rank_boundary}{rank_num}번\s*근저당권\s*설정\s*등\s*기.*?말\s*소',  # 설정등기 뒤 말소
+                rf'{exclude_other_land}{rank_boundary}{rank_num}번\s*근저당권\s*설정\s*등\s*기\s*말\s*소',  # "16번근저당권설정등기말소"
+                rf'{exclude_other_land}{rank_boundary}{rank_num}번\s*근저당권\s*설정\s*등.*?\n\s*기\s*말\s*소',  # 줄바꿈으로 분리된 경우
+                rf'{exclude_other_land}{rank_boundary}{rank_num}번\s*근저당권\s*설정\s*등\s*기.*?말\s*소',  # 설정등기 뒤 말소
                 # 여러 순위가 함께 말소되는 경우: "1번근저당권설정, 2번근저당권설정등기말소"
-                rf'{rank_boundary}{rank_num}번\s*근저당권\s*설정[,\s]*.*?등\s*기\s*말\s*소',
+                rf'{exclude_other_land}{rank_boundary}{rank_num}번\s*근저당권\s*설정[,\s]*.*?등\s*기\s*말\s*소',
                 # 순위번호가 나열된 후 말소: "1번, 2번근저당권설정등기말소"
                 # .*? 대신 [,\s\d번]* 사용: 주소 "9번 30" 등과의 오매칭 방지
-                rf'{rank_boundary}{rank_num}번[,\s]*(?:[,\s]|\d+번)*근저당권\s*설정\s*등\s*기\s*말\s*소',
+                rf'{exclude_other_land}{rank_boundary}{rank_num}번[,\s]*(?:[,\s]|\d+번)*근저당권\s*설정\s*등\s*기\s*말\s*소',
                 # "16번근저당권말소" (설정 없이 직접 말소)
-                rf'{rank_boundary}{rank_num}번\s*근저당권\s*말\s*소(?!\s*[가-힣a-zA-Z])',  # 말소 뒤에 다른 텍스트가 오지 않는 경우
+                rf'{exclude_other_land}{rank_boundary}{rank_num}번\s*근저당권\s*말\s*소(?!\s*[가-힣a-zA-Z])',  # 말소 뒤에 다른 텍스트가 오지 않는 경우
             ]
-            
+
             is_cancelled = False
             for pattern in cancel_patterns:
-                if re.search(pattern, self.text, re.DOTALL | re.IGNORECASE):
+                if re.search(pattern, cancel_search_text, re.DOTALL | re.IGNORECASE):
                     is_cancelled = True
                     break
-            
+
             if not is_cancelled:
                 active_mortgages.append(m)
         
