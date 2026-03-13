@@ -811,16 +811,20 @@ class MessageParser:
             max_amount = amount * 1.2
             print(f"DEBUG: _parse_mortgage_line - max_amount(채권최고액) estimated from amount: {max_amount}")
         
-        # 기관명/유형 추출
-        institution_match = re.search(r":\s*([^0-9\n]+?)(?=\s*\d|\s*$)", line)
+        # 기관명/유형 추출 (봉덕3동새마을금고은행 등 숫자 포함 기관명 전체 인식)
+        # 콜론 뒤 ~ 금액 패턴(27,000 또는 32280 등) 직전까지가 기관명
+        amount_start_pattern = r'\s+\d{1,3}(?:,\d{3})*(?:\s*만)?|\s+\d{4,}(?:\s*만)?'
+        institution_match = re.search(r":\s*(.+?)(?=" + amount_start_pattern + r"|\s*$)", line)
         if institution_match:
             institution = institution_match.group(1).strip()
         else:
             # 숫자 앞 부분을 기관명으로 추정 (예: "1.주식회사하나은행 22,000만(20,000만)")
             trimmed_line = re.sub(r'^\s*\d+\s*(?:순위|[\.\)])\s*', '', line)
-            first_amount_match = re.search(r'\d{1,3}(?:,\d{3})*\s*만?', trimmed_line)
+            first_amount_match = re.search(r'\d{1,3}(?:,\d{3})*\s*만?|\d{4,}\s*만?', trimmed_line)
             if first_amount_match:
                 institution = trimmed_line[:first_amount_match.start()].strip()
+                if institution.startswith(':'):
+                    institution = institution[1:].strip()
             else:
                 institution = None
         
