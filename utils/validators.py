@@ -62,6 +62,28 @@ def validate_kb_price(kb_price):
             print(f"DEBUG: validate_kb_price - extracted price from 억: {price}만원")
             return price
         
+        # "원" 단위 처리 (만원/만 없이 "원"만 있는 경우: 원 단위 -> 만원으로 변환)
+        # 예: "445000000원", "445,000,000원" -> 44,500만원
+        won_match = re.search(r'([\d,]+)\s*원\b', price_str_clean)
+        if won_match and '만' not in price_str_clean.replace('만원', ''):
+            won_value = float(won_match.group(1).replace(',', ''))
+            if won_value >= 10000:  # 1만원 이상
+                price = won_value / 10000  # 원 -> 만원
+                print(f"DEBUG: validate_kb_price - extracted price from 원: {won_value}원 -> {price}만원")
+                return price
+        
+        def _maybe_convert_won_to_manwon(price_val: float, raw_str: str) -> float:
+            """
+            원 단위인지 판단하여 만원으로 변환.
+            - 1억원(100,000,000) 이상의 숫자이고, '만'/'만원' 표기가 없으면 원 단위로 간주.
+            - PDF 스크래핑 등에서 "KB시세: 445000000" (원) 형식으로 들어오는 경우 처리.
+            """
+            if price_val >= 100000000 and '만' not in raw_str:
+                converted = price_val / 10000
+                print(f"DEBUG: validate_kb_price - 원 단위로 판단, 변환: {price_val}원 -> {converted}만원")
+                return converted
+            return price_val
+        
         # 숫자만 추출 (만원 단위)
         # 방법 1: 정규식으로 숫자 추출 (쉼표 포함) - 첫 번째 큰 숫자 사용
         numbers = re.findall(r'[\d,]+', price_str_clean)
@@ -77,6 +99,7 @@ def validate_kb_price(kb_price):
                         continue
             if number_values:
                 price = max(number_values)
+                price = _maybe_convert_won_to_manwon(price, price_str_clean)
                 print(f"DEBUG: validate_kb_price - extracted price (method 1): {price}")
                 return price
         
@@ -87,6 +110,7 @@ def validate_kb_price(kb_price):
             price_str_num = numbers2[0].replace(",", "").strip()
             if price_str_num and len(price_str_num) >= 3:
                 price = float(price_str_num)
+                price = _maybe_convert_won_to_manwon(price, price_str_clean)
                 print(f"DEBUG: validate_kb_price - extracted price (method 2): {price}")
                 return price
         
@@ -96,6 +120,7 @@ def validate_kb_price(kb_price):
         price_str_final = re.sub(r'[^\d]', '', price_str_final)
         if price_str_final and len(price_str_final) >= 3:
             price = float(price_str_final)
+            price = _maybe_convert_won_to_manwon(price, price_str_clean)
             print(f"DEBUG: validate_kb_price - extracted price (method 3): {price}")
             return price
         
