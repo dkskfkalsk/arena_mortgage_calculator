@@ -498,11 +498,15 @@
   "show_interest_rate_range": false,
   "validation_rules": {
     "_comment": "금융사별 제한 조건 설정 (enabled: true일 때만 적용)",
-    "enabled": false,
+    "enabled": true,
     "occupation_requirements": {
-      "_comment": "직업 요구사항 (required_keywords: 필수 키워드, forbidden_keywords: 금지 키워드, check_fields: 체크할 필드)",
-      "required_keywords": [],
+      "_comment": "사업자 등록 3개월 이상 개인사업자 - 사업자/사업자보유만 취급",
+      "required_keywords": [
+        "사업자",
+        "사업자보유"
+      ],
       "forbidden_keywords": [],
+      "error_message": "사업자 또는 사업자보유인 경우만 취급 가능합니다 (현재 직업: '{occupation}')",
       "check_fields": [
         "occupation",
         "special_notes",

@@ -493,8 +493,13 @@
   "validation_rules": {
     "enabled": true,
     "occupation_requirements": {
-      "required_keywords": [],
+      "_comment": "사업자/사업자보유만 취급, 직장인은 애큐온캐피탈만 가능",
+      "required_keywords": [
+        "사업자",
+        "사업자보유"
+      ],
       "forbidden_keywords": [],
+      "error_message": "사업자 또는 사업자보유인 경우만 취급 가능합니다 (현재 직업: '{occupation}')",
       "check_fields": [
         "occupation",
         "special_notes",
