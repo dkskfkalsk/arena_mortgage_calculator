@@ -261,10 +261,15 @@ class MessageParser:
             i += 1
         
         # 세입자 추출 (전체 텍스트) - 공통 유틸 사용, 신탁 1순위 시 2순위, 없으면 1순위
+        # 설정내역에 이미 전세입자/월세입자가 1순위로 있으면 중복 삽입하지 않음 (순위 밀림 방지)
         from utils.tenant_extractor import extract_tenant_info, tenant_to_mortgage
         from utils.validators import parse_amount
         tenant = extract_tenant_info(message_text, parse_amount_fn=lambda t: parse_amount(t) if t else None)
-        if tenant:
+        has_tenant_in_mortgages = any(
+            (m.get("institution") or "").strip() in ("전세입자", "월세입자", "세입자")
+            for m in data["mortgages"]
+        )
+        if tenant and not has_tenant_in_mortgages:
             trust_idx = next((i for i, m in enumerate(data["mortgages"]) if (m.get("institution") or "").strip() == "신탁"), -1)
             has_trust = trust_idx >= 0
             tenant_priority = 2 if has_trust else 1
@@ -449,7 +454,7 @@ class MessageParser:
                                 institution_keyword = institution_keyword.replace(" ", "")
                                 print(f"DEBUG: Found refinance - priority: {priority}, institution_keyword: '{institution_keyword}'")
                                 
-                                # 해당 순위의 근저당권 찾기
+                                # 해당 순위의 근저당권 찾기 (순위+기관명 일치)
                                 found = False
                                 for mortgage in data["mortgages"]:
                                     if mortgage.get("priority") == priority:
@@ -461,6 +466,17 @@ class MessageParser:
                                             mortgage["is_refinance"] = True
                                             found = True
                                             print(f"DEBUG: Set is_refinance=True for mortgage: priority={priority}, institution='{institution}', keyword='{institution_keyword}'")
+                                            break
+                                
+                                # 순위로 못 찾았으면 기관명으로 fallback (세입자 삽입 등으로 순위가 밀린 경우)
+                                if not found and len(institution_keyword) >= 2:
+                                    for mortgage in data["mortgages"]:
+                                        institution = mortgage.get("institution", "")
+                                        institution_clean = institution.replace(" ", "")
+                                        if institution_keyword in institution_clean or institution_clean in institution_keyword:
+                                            mortgage["is_refinance"] = True
+                                            found = True
+                                            print(f"DEBUG: Set is_refinance=True for mortgage (institution fallback): priority={mortgage.get('priority')}, institution='{institution}', keyword='{institution_keyword}'")
                                             break
                                 
                                 if not found:
@@ -588,15 +604,15 @@ class MessageParser:
                             # 순위가 명시된 경우: 해당 순위만 대환
                             priority = int(groups[0])
                             institution_keyword = groups[1].strip()
+                            institution_keyword_clean = institution_keyword.replace(" ", "")
                             print(f"DEBUG: Found refinance condition in full text (with priority) - priority: {priority}, institution_keyword: '{institution_keyword}'")
                             
-                            # 해당 순위의 근저당권 찾기
+                            # 해당 순위의 근저당권 찾기 (순위+기관명 일치)
                             found = False
                             for mortgage in data["mortgages"]:
                                 if mortgage.get("priority") == priority:
                                     institution = mortgage.get("institution", "")
                                     institution_clean = institution.replace(" ", "")
-                                    institution_keyword_clean = institution_keyword.replace(" ", "")
                                     
                                     # 기관명에 키워드가 포함되어 있는지 확인 (양방향 확인)
                                     if institution_keyword_clean in institution_clean or institution_clean in institution_keyword_clean or \
@@ -604,6 +620,17 @@ class MessageParser:
                                         mortgage["is_refinance"] = True
                                         found = True
                                         print(f"DEBUG: Set is_refinance=True for mortgage: priority={priority}, institution='{institution}', keyword='{institution_keyword}'")
+                                        break
+                            
+                            # 순위로 못 찾았으면 기관명으로 fallback (세입자 삽입 등으로 순위가 밀린 경우)
+                            if not found and len(institution_keyword_clean) >= 2:
+                                for mortgage in data["mortgages"]:
+                                    institution = mortgage.get("institution", "")
+                                    inst_clean = institution.replace(" ", "")
+                                    if institution_keyword_clean in inst_clean or inst_clean in institution_keyword_clean:
+                                        mortgage["is_refinance"] = True
+                                        found = True
+                                        print(f"DEBUG: Set is_refinance=True for mortgage (institution fallback): priority={mortgage.get('priority')}, institution='{institution}', keyword='{institution_keyword}'")
                                         break
                             
                             if found:
