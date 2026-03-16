@@ -110,10 +110,13 @@ class MessageParser:
             elif "특이사항" in line:
                 current_section = "special_notes"
                 # "특이사항 : 내용" 형식인 경우 즉시 내용 추가
+                # "특이사항 : 요청사항 : 내용" (한 줄에 붙은 경우) 방지: 요청사항으로 시작하면 특이사항 비움
                 if ":" in line:
                     parts = line.split(":", 1)
-                    if len(parts) == 2 and parts[1].strip():
-                        data["special_notes"] = parts[1].strip()
+                    if len(parts) == 2:
+                        content = parts[1].strip()
+                        if content and not re.match(r'^\s*요청사항\s*[:：]', content):
+                            data["special_notes"] = content
                 i += 1
                 continue
             elif "요청사항" in line:

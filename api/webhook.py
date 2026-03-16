@@ -761,7 +761,8 @@ def get_application(force_new=False):
             
             # 특이사항 추출 (캡션에서 "특이사항" 키워드 뒤의 내용)
             # 패턴: "특이사항 : 내용" 또는 "특이사항: 내용" 또는 "특이사항 내용"
-            special_notes_match = re.search(r'특이사항\s*[:：]?\s*(.+?)(?=\n요청사항|\n\n|$)', caption, re.IGNORECASE | re.DOTALL)
+            # "특이사항 : 요청사항 : 내용" (한 줄에 붙은 경우) 방지: \n요청사항 또는 같은 줄 요청사항에서 중단
+            special_notes_match = re.search(r'특이사항\s*[:：]?\s*(.+?)(?=\s*요청사항\s*[:：]|\n요청사항|\n\n|$)', caption, re.IGNORECASE | re.DOTALL)
             if special_notes_match:
                 special_note_text = special_notes_match.group(1).strip()
                 # 여러 줄일 수 있으므로 줄바꿈 제거하고 공백으로 대체
