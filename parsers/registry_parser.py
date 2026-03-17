@@ -588,13 +588,32 @@ class RegistryParser:
         
         return ""
     
+    def _get_summary_section(self) -> str:
+        """요약본(주요 등기사항 요약) 섹션 추출 - 소유지분현황(갑구) 포함"""
+        summary_text = ""
+        for page_text in reversed(self.pages_text):
+            if '소유지분현황' in page_text or '등기명의인' in page_text:
+                summary_text = page_text + ("\n" + summary_text if summary_text else "")
+        if not summary_text:
+            summary_text = self.text
+        # 소유지분현황 ( 갑구 ) 블록만 추출
+        m = re.search(
+            r'소유지분현황\s*\(\s*갑\s*구\s*\)[\s\S]*?(?=소유지분을\s*제외|\(근\)저당권|\[\s*참\s*고|출력일시|$)',
+            summary_text, re.IGNORECASE
+        )
+        if m:
+            return m.group(0)
+        return summary_text
+    
     def _extract_owners(self) -> List[OwnerInfo]:
-        """소유자 정보 추출 - 간단하고 명확한 패턴만 사용"""
+        """소유자 정보 추출 - 요약본 우선, 요약본에서 (수탁자)인 경우만 건너뜀"""
         logger.debug("🔍 소유자 정보 추출 시작")
         
-        # 수탁자 여부 확인 (신탁인 경우)
-        if '수탁자' in self.text:
-            logger.debug("⚠️ 수탁자 감지 - 빈 리스트 반환")
+        summary_section = self._get_summary_section()
+        
+        # 요약본에서 현재 등기명의인이 (수탁자)인 경우만 건너뜀 (말소된 과거 신탁 기록은 무시)
+        if re.search(r'[가-힣]{2,4}\s*\(\s*수탁자\s*\)', summary_section):
+            logger.debug("⚠️ 요약본에서 수탁자(현재 신탁) 감지 - 빈 리스트 반환")
             return []
         
         owner_matches = []
@@ -615,15 +634,16 @@ class RegistryParser:
                     return False
             return True
         
-        # 패턴 1: "이름 (소유자)" 또는 "이름 (공유자)" 패턴 - 가장 명확함
-        # 예: "김지은 (소유자)", "김연정 (공유자)"
+        # 패턴: "이름 (소유자)" 또는 "이름 (공유자)"
         owner_patterns = [
             r'([가-힣]{2,4})\s*\(\s*소유자\s*\)',  # "김지은 (소유자)"
             r'([가-힣]{2,4})\s*\(\s*공유자\s*\)',  # "이름 (공유자)"
         ]
         
+        # 1순위: 요약본에서 추출 (나이/주민번호 인식용)
+        search_text = summary_section
         for pattern in owner_patterns:
-            matches = re.finditer(pattern, self.text)
+            matches = re.finditer(pattern, search_text)
             for match in matches:
                 name = match.group(1).strip()
                 logger.debug(f"🔍 패턴 매칭 발견: '{name}' (패턴: {pattern})")
@@ -631,8 +651,8 @@ class RegistryParser:
                 if is_valid_name(name):
                     # 이름 근처에서 주민번호 찾기 (매치 위치 기준 앞뒤 200자)
                     start = max(0, match.start() - 200)
-                    end = min(len(self.text), match.end() + 200)
-                    context = self.text[start:end]
+                    end = min(len(search_text), match.end() + 200)
+                    context = search_text[start:end]
                     
                     resident_match = re.search(r'(\d{6})-[\d\*]+', context)
                     if resident_match:
@@ -654,6 +674,34 @@ class RegistryParser:
                         logger.debug(f"⚠️ '{name}' 근처에서 주민번호를 찾을 수 없음")
                 else:
                     logger.debug(f"⚠️ '{name}' 이름 유효성 검사 실패")
+        
+        # 2순위: 요약본에서 못 찾으면 전체 텍스트에서 검색 (수탁자 과거 기록만 있는 경우 대비)
+        if not owner_matches and search_text != self.text:
+            search_text = self.text
+            for pattern in owner_patterns:
+                matches = re.finditer(pattern, search_text)
+                for match in matches:
+                    name = match.group(1).strip()
+                    if is_valid_name(name):
+                        start = max(0, match.start() - 200)
+                        end = min(len(search_text), match.end() + 200)
+                        context = search_text[start:end]
+                        resident_match = re.search(r'(\d{6})-[\d\*]+', context)
+                        if resident_match:
+                            resident_num = resident_match.group(1)
+                            if len(resident_num) == 6 and resident_num.isdigit():
+                                try:
+                                    mm, dd = int(resident_num[2:4]), int(resident_num[4:6])
+                                    if 1 <= mm <= 12 and 1 <= dd <= 31:
+                                        if not any(n == name and r == resident_num for n, r in owner_matches):
+                                            owner_matches.append((name, resident_num))
+                                            logger.info(f"✅ 소유자 추출 성공(전체): {name} (주민번호: {resident_num}-*******)")
+                                except Exception:
+                                    pass
+                    if owner_matches:
+                        break
+                if owner_matches:
+                    break
         
         # OwnerInfo로 변환
         owners = []
