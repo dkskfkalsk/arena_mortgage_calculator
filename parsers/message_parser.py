@@ -858,6 +858,13 @@ class MessageParser:
             else:
                 institution = None
         
+        # 전세입자/월세입자/세입자: 원금·채권최고액 구분 불필요 → 원금 없거나 LTV(%)로 잘못 인식된 경우 채권최고액을 원금으로 사용
+        tenant_types = ("전세입자", "월세입자", "세입자")
+        if (institution or "").strip() in tenant_types:
+            if amount is None or (max_amount and amount < max_amount * 0.1):
+                amount = max_amount
+                print(f"DEBUG: _parse_mortgage_line - tenant: amount(원금) = max_amount(채권최고액): {amount}")
+        
         print(f"DEBUG: _parse_mortgage_line - institution: {institution}, amount(원금): {amount}, max_amount(채권최고액): {max_amount}")
         
         is_refinance = False
