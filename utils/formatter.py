@@ -228,7 +228,17 @@ def _format_result_with_label(
     conditions = bank_result.get("conditions", [])
     min_amount = bank_result.get("min_amount", 3000)
     lower_bound_applied = bank_result.get("lower_bound_applied", False)
-    lower_bound_suffix = " (하한가 적용)" if lower_bound_applied else ""
+    kb_price_used = bank_result.get("kb_price_used")
+    price_type_used = bank_result.get("price_type_used", "일반")
+    # 하한가/탁감가 적용 시 금융사명 옆에 시세 적용 정보 표시
+    if price_type_used in ("하한", "탁감가") and kb_price_used is not None:
+        price_str = f"{int(kb_price_used):,}"
+        if price_type_used == "하한":
+            lower_bound_suffix = f" (KB시세 하한 {price_str}만원 적용)"
+        else:
+            lower_bound_suffix = f" (탁감가 {price_str}만원 적용)"
+    else:
+        lower_bound_suffix = " (하한가 적용)" if lower_bound_applied else ""
     
     # 모든 결과가 최소진행금액 부족인지 확인 (한도 미산출 결과는 제외)
     non_limit_results = [r for r in results if not r.get("limit_not_calculated", False)]
@@ -487,26 +497,39 @@ def format_all_results(
                     # 근저당권이 없는 경우
                     priority_text = "선순위"
     
-    # 탁감가 정보 확인 (property_data에서 kb_price_raw 확인)
+    # 시세 적용 정보 확인 (property_data에서 kb_price_raw 확인)
     appraisal_price_info = None
     if property_data:
+        import re
         kb_price_raw = property_data.get("kb_price_raw", "")
         kb_price = property_data.get("kb_price")
+        kb_price_num = float(kb_price) if kb_price is not None else None
         
         # kb_price_raw에 탁감가 또는 감정가 키워드가 있는지 확인
         if kb_price_raw and ("탁감가" in str(kb_price_raw) or "감정가" in str(kb_price_raw)):
             # 탁감가 금액 추출 (kb_price 사용 또는 kb_price_raw에서 추출)
             if kb_price:
-                # 숫자 포맷팅 (쉼표 추가)
                 price_str = f"{int(kb_price):,}"
-                appraisal_price_info = f"탁감가 {price_str}만"
+                appraisal_price_info = f"탁감가 {price_str}만원 적용"
             else:
-                # kb_price_raw에서 숫자 추출 시도
-                import re
                 price_match = re.search(r'([\d,]+)', str(kb_price_raw))
                 if price_match:
                     price_str = price_match.group(1)
-                    appraisal_price_info = f"탁감가 {price_str}만"
+                    appraisal_price_info = f"탁감가 {price_str}만원 적용"
+        # KB시세 (일반/하한) 적용 정보
+        elif kb_price_num is not None and kb_price_raw:
+            raw_str = str(kb_price_raw)
+            general_match = re.search(r'(?:일반|일)\s*[:\s]*([\d,]+)', raw_str, re.IGNORECASE)
+            lower_match = re.search(r'(?:하한|하)\s*[:\s]*([\d,]+)', raw_str, re.IGNORECASE)
+            general_val = float(general_match.group(1).replace(",", "")) if general_match else None
+            lower_val = float(lower_match.group(1).replace(",", "")) if lower_match else None
+            price_str = f"{int(kb_price_num):,}"
+            if general_val is not None and abs(kb_price_num - general_val) < 1:
+                appraisal_price_info = f"KB시세 일반 {price_str}만원 적용"
+            elif lower_val is not None and abs(kb_price_num - lower_val) < 1:
+                appraisal_price_info = f"KB시세 하한 {price_str}만원 적용"
+            else:
+                appraisal_price_info = f"KB시세 {price_str}만원 적용"
     
     # 대환/후순위 그룹별로 금융사 묶기 (bank_name 기준 중복 제거, dict는 hash 불가라 fromkeys 사용 불가)
     def _dedupe_by_name(bank_list):

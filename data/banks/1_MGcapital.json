@@ -432,7 +432,8 @@
   "bank_appraisal_additional_rate": 1.0,
   "_comment_bank_appraisal_additional_rate": "탁감가(감정건) 시 가산금리 1%p",
   "min_amount": 3000,
-  "min_kb_price": 0,
+  "min_kb_price": 10000,
+  "_comment_min_kb_price": "KB시세 1억원 이상",
   "price_sources": {
     "_comment": "시세 소스 사용 여부 설정 (1: 사용, 0: 사용안함). 우선순위: kb_price > kb_ai_price > bank_appraisal_price > realestatetech_price > korea_realestate_price > housematch_price",
     "kb_price": 1,

@@ -2088,6 +2088,15 @@ class BaseCalculator:
             if "탁감가" in kb_price_raw_str or "감정가" in kb_price_raw_str or "은행감정가" in kb_price_raw_str:
                 conditions.append("※ 표시금리는 감정건(탁감가) 가산금리 1%p가 적용된 금리입니다")
         
+        # 적용 시세 타입 및 금액 (금융사별 시세 표시용)
+        if lower_bound_applied:
+            price_type_used = "하한"
+        elif property_data and ("탁감가" in str(property_data.get("kb_price_raw") or "") or "감정가" in str(property_data.get("kb_price_raw") or "") or "은행감정가" in str(property_data.get("kb_price_raw") or "")):
+            price_type_used = "탁감가"
+        else:
+            price_type_used = "일반"
+        kb_price_used = kb_price  # 계산에 사용된 최종 시세
+        
         return {
             "bank_name": final_bank_name,
             "results": results,
@@ -2096,6 +2105,8 @@ class BaseCalculator:
             "min_amount": effective_min_amount if effective_min_amount is not None else self.config.get("min_amount", 3000),
             "promotion_rejection_reason": promotion_rejection_reason,  # 프로모션 미적용 사유 (1,2급지만)
             "lower_bound_applied": lower_bound_applied,  # 하한가 적용 여부
+            "kb_price_used": kb_price_used,  # 적용된 시세 금액 (만원)
+            "price_type_used": price_type_used,  # 적용된 시세 타입: 일반/하한/탁감가
             "region_grade": grade,  # 급지 (show_region_grade 시 헤더에 N급지 표시)
             "hide_credit_grade": self.config.get("hide_credit_grade", False),
             "show_region_grade": self.config.get("show_region_grade", False)
