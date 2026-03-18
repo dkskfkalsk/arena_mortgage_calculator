@@ -890,7 +890,8 @@ class MessageParser:
         
         # 전세입자/월세입자/세입자: 원금·채권최고액 구분 불필요 → 원금 없거나 LTV(%)로 잘못 인식된 경우 채권최고액을 원금으로 사용
         tenant_types = ("전세입자", "월세입자", "세입자")
-        if (institution or "").strip() in tenant_types:
+        is_tenant = (institution or "").strip() in tenant_types
+        if is_tenant:
             if amount is None or (max_amount and amount < max_amount * 0.1):
                 amount = max_amount
                 print(f"DEBUG: _parse_mortgage_line - tenant: amount(원금) = max_amount(채권최고액): {amount}")
@@ -899,13 +900,16 @@ class MessageParser:
         
         is_refinance = False
         
-        return {
+        result = {
             "priority": priority,
             "amount": amount,  # 원금 (기존 호환성 유지)
             "max_amount": max_amount,  # 채권최고액 (새로 추가)
             "institution": institution,
             "is_refinance": is_refinance
         }
+        if is_tenant:
+            result["is_tenant"] = True
+        return result
     
     def _extract_kb_price_from_text(self, text: str) -> Optional[str]:
         """

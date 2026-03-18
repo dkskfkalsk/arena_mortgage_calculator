@@ -1235,23 +1235,48 @@ class BaseCalculator:
                         "min_amount": self.config.get("min_amount", 3000)
                     }
         
-        # 세입자 후순위 급지 제한 (세입자 있을 때만: 4급지 이상에서는 후순위 취급 불가)
-        has_tenant = any(m.get("is_tenant") for m in other_mortgages)
-        max_subordinate_grade = self.config.get("max_subordinate_grade")
-        if max_subordinate_grade is not None and has_tenant and self._is_subordinate and grade is not None:
-            try:
-                grade_int = int(grade)
-            except (ValueError, TypeError):
-                grade_int = None
-            if grade_int is not None and grade_int > max_subordinate_grade:
-                print(f"DEBUG: BaseCalculator.calculate - 세입자 후순위 대출, 급지 {grade_int} > max_subordinate_grade {max_subordinate_grade}, 취급 불가")
+        # OK저축은행: 오피스텔인 경우 선순위만 산출 (세입자 1순위 있어도 2순위 불가)
+        is_ok_bank = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
+        if is_ok_bank and self._is_subordinate:
+            property_type = property_data.get("property_type", "")
+            if property_type and "오피스텔" in property_type:
+                print(f"DEBUG: BaseCalculator.calculate - OK 저축은행, 오피스텔인 경우 선순위만 산출 가능 (후순위 불가)")
                 return {
                     "bank_name": self.bank_name,
                     "results": [],
                     "conditions": self.config.get("conditions", []),
-                    "errors": [f"세입자 후순위는 1~{max_subordinate_grade}급지까지 가능합니다 (현재: {grade_int}급지)"],
+                    "errors": ["오피스텔인 경우 선순위만 산출 가능 (세입자 1순위 시 2순위 불가)"],
                     "min_amount": self.config.get("min_amount", 3000)
                 }
+        
+        # 세입자 후순위 급지 제한 (세입자 있을 때만: 4급지 이상에서는 후순위 취급 불가)
+        # max_subordinate_grade=0: 세입자 후순위 취급 불가 (JB하이론 등)
+        has_tenant = any(m.get("is_tenant") for m in other_mortgages)
+        max_subordinate_grade = self.config.get("max_subordinate_grade")
+        if max_subordinate_grade is not None and has_tenant and self._is_subordinate:
+            if max_subordinate_grade == 0:
+                print(f"DEBUG: BaseCalculator.calculate - 세입자 후순위 취급 불가 (max_subordinate_grade=0)")
+                return {
+                    "bank_name": self.bank_name,
+                    "results": [],
+                    "conditions": self.config.get("conditions", []),
+                    "errors": ["세입자 후순위 취급 불가"],
+                    "min_amount": self.config.get("min_amount", 3000)
+                }
+            if grade is not None:
+                try:
+                    grade_int = int(grade)
+                except (ValueError, TypeError):
+                    grade_int = None
+                if grade_int is not None and grade_int > max_subordinate_grade:
+                    print(f"DEBUG: BaseCalculator.calculate - 세입자 후순위 대출, 급지 {grade_int} > max_subordinate_grade {max_subordinate_grade}, 취급 불가")
+                    return {
+                        "bank_name": self.bank_name,
+                        "results": [],
+                        "conditions": self.config.get("conditions", []),
+                        "errors": [f"세입자 후순위는 1~{max_subordinate_grade}급지까지 가능합니다 (현재: {grade_int}급지)"],
+                        "min_amount": self.config.get("min_amount", 3000)
+                    }
         
         # 신용점수/등급 확인
         credit_score = property_data.get("credit_score")
