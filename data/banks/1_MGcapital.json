@@ -432,6 +432,8 @@
   "bank_appraisal_additional_rate": 1.0,
   "_comment_bank_appraisal_additional_rate": "탁감가(감정건) 시 가산금리 1%p",
   "min_amount": 3000,
+  "max_amount_limit": 200000,
+  "_comment_max_amount_limit": "최대 한도 20억원",
   "min_kb_price": 10000,
   "_comment_min_kb_price": "KB시세 1억원 이상",
   "price_sources": {
