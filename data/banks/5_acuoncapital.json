@@ -331,7 +331,7 @@
     "apartment_no_land_registry": 1,
     "residential_commercial": 1,
     "villa": 1,
-    "officetel": 1,
+    "officetel": 0,
     "detached_house": 0,
     "multi_family_house": 0
   },
