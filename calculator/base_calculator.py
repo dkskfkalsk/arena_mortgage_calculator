@@ -319,6 +319,23 @@ class BaseCalculator:
                 "min_amount": self.config.get("min_amount", 3000)
             }
         
+        # KB AI시세만 있고 해당 금융사가 취급하지 않을 경우
+        is_kb_ai_only = (
+            (property_data.get("price_type") == "kb_ai" or property_data.get("kb_ai_price"))
+            and not property_data.get("kb_price")
+        )
+        if is_kb_ai_only and price_sources.get("kb_ai_price", 0) == 0:
+            log_print(f"DEBUG: BaseCalculator.calculate - KB AI시세 입력됨 but 금융사가 KB AI시세 미사용: {self.bank_name}")
+            logger.warning(f"BaseCalculator.calculate - KB AI시세 입력됨 but 금융사가 KB AI시세 미사용: {self.bank_name}")
+            validation_errors.append("KB AI시세 적용 불가")
+            return {
+                "bank_name": self.bank_name,
+                "results": [],
+                "conditions": self.config.get("conditions", []),
+                "errors": validation_errors,
+                "min_amount": self.config.get("min_amount", 3000)
+            }
+        
         # 하우스머치 시세만 있고 해당 금융사가 취급하지 않을 경우
         is_housematch_only = (
             property_data.get("price_type") == "housematch" or property_data.get("housematch_price") is not None
@@ -382,7 +399,11 @@ class BaseCalculator:
             # 우선순위에 따라 시세 추출 시도
             # kb_price는 이미 위에서 확인했으므로 제외
             if price_sources.get("kb_ai_price", 0) == 1:
-                kb_ai_price = extract_kb_ai_price_from_special_notes(special_notes)
+                kb_ai_price = None
+                if property_data.get("kb_ai_price"):
+                    kb_ai_price = self.validate_kb_price(property_data.get("kb_ai_price"))
+                if kb_ai_price is None:
+                    kb_ai_price = extract_kb_ai_price_from_special_notes(special_notes)
                 if kb_ai_price is not None:
                     log_print(f"DEBUG: BaseCalculator.calculate - KB AI시세 추출: {kb_ai_price}만원")
                     logger.info(f"BaseCalculator.calculate - KB AI시세 추출: {kb_ai_price}만원")

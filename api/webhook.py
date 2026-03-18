@@ -1522,6 +1522,7 @@ def get_application(force_new=False):
                 # 파싱된 데이터가 의미 없는 경우 무시
                 has_meaningful_data = any([
                     property_data.get("kb_price") is not None,
+                    property_data.get("kb_ai_price") is not None,
                     property_data.get("housematch_price") is not None,
                     property_data.get("address"),
                     property_data.get("property_type"),

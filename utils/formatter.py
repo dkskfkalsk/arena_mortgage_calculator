@@ -505,8 +505,18 @@ def format_all_results(
         kb_price = property_data.get("kb_price")
         kb_price_num = float(kb_price) if kb_price is not None else None
         
+        # kb_price_raw에 KB AI시세 키워드가 있는지 확인
+        if kb_price_raw and ("KB AI" in str(kb_price_raw) or "kbaise" in str(kb_price_raw).lower().replace(" ", "")):
+            if kb_price:
+                price_str = f"{int(kb_price):,}"
+                appraisal_price_info = f"KB AI시세 일반 {price_str}만원 적용"
+            else:
+                price_match = re.search(r'([\d,]+)', str(kb_price_raw))
+                if price_match:
+                    price_str = price_match.group(1)
+                    appraisal_price_info = f"KB AI시세 일반 {price_str}만원 적용"
         # kb_price_raw에 탁감가 또는 감정가 키워드가 있는지 확인
-        if kb_price_raw and ("탁감가" in str(kb_price_raw) or "감정가" in str(kb_price_raw)):
+        elif kb_price_raw and ("탁감가" in str(kb_price_raw) or "감정가" in str(kb_price_raw)):
             # 탁감가 금액 추출 (kb_price 사용 또는 kb_price_raw에서 추출)
             if kb_price:
                 price_str = f"{int(kb_price):,}"
