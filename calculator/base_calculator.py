@@ -2134,6 +2134,16 @@ class BaseCalculator:
             if "탁감가" in kb_price_raw_str or "감정가" in kb_price_raw_str or "은행감정가" in kb_price_raw_str:
                 conditions.append("※ 표시금리는 감정건(탁감가) 가산금리 1%p가 적용된 금리입니다")
         
+        # 총액(대환/추가대출) N억 이상 시 안내 문구 추가 (amount_condition_threshold, amount_condition_message)
+        amount_condition_threshold = self.config.get("amount_condition_threshold")
+        amount_condition_message = self.config.get("amount_condition_message")
+        if amount_condition_threshold is not None and amount_condition_message and results:
+            for r in results:
+                total = r.get("total_amount") or r.get("available_amount") or r.get("amount") or 0
+                if total >= amount_condition_threshold:
+                    conditions.append(amount_condition_message)
+                    break
+        
         # 적용 시세 타입 및 금액 (금융사별 시세 표시용)
         if lower_bound_applied:
             price_type_used = "하한"
