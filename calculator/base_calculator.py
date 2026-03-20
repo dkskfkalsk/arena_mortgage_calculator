@@ -275,6 +275,10 @@ class BaseCalculator:
         self._promotion_name = None
         self._promotion_rejection_reason = None
         
+        # config에 product_type이 있으면 product_type 파라미터가 없을 때 사용 (팀엑스대부 등)
+        if product_type is None:
+            product_type = self.config.get("product_type")
+        
         # 모든 검증 오류를 수집
         validation_errors = []
         
@@ -521,8 +525,10 @@ class BaseCalculator:
                 # product_type이 없으면 기본적으로 가계자금 설정 사용
                 property_types_config = self.config.get("household_property_types", self.config.get("property_types", {}))
         else:
-            # 일반 금융사: 사업자금 상품은 business_property_types 우선, 없으면 property_types (하위 호환)
-            if product_type == "business":
+            # 일반 금융사: product_type에 따라 설정 선택 (팀엑스대부 등)
+            if product_type == "household":
+                property_types_config = self.config.get("household_property_types", self.config.get("property_types", {}))
+            elif product_type == "business":
                 property_types_config = self.config.get("business_property_types", self.config.get("property_types", {}))
             else:
                 property_types_config = self.config.get("property_types", {})
@@ -1005,6 +1011,22 @@ class BaseCalculator:
                         # 본인 금융사 대환 불가이므로 후순위로 처리
                         other_mortgages.append(mortgage)
                         continue
+                    
+                    # refinance_rules 적용 (팀엑스대부 등: 사업자->가계 대환불가, 가계->사업자 대환가능)
+                    refinance_rules = self.config.get("refinance_rules", {})
+                    if refinance_rules:
+                        if product_type == "business" and "household" in refinance_rules.get("business_cannot_refinance", []):
+                            if "가계" in institution or "가계자금" in institution:
+                                other_mortgages.append(mortgage)
+                                print(f"DEBUG: BaseCalculator.calculate - {self.bank_name} 사업자: '{institution}'는 가계자금이라 대환 불가, 후순위로 처리")
+                                continue
+                        if product_type == "household" and "business" in refinance_rules.get("household_can_refinance", []):
+                            rr_business_names = self._get_business_product_names()
+                            can_refinance_rr = any(ref_inst.replace(" ", "") in institution_clean for ref_inst in rr_business_names) or "사업자금" in institution
+                            if not can_refinance_rr:
+                                other_mortgages.append(mortgage)
+                                print(f"DEBUG: BaseCalculator.calculate - {self.bank_name} 가계자금: '{institution}'는 사업자금이 아니라 대환 불가, 후순위로 처리")
+                                continue
                     
                     # BNK캐피탈, OK저축은행, 애큐온저축은행, MG캐피탈인 경우 대환 가능 기관 체크
                     can_refinance = False
@@ -2153,7 +2175,7 @@ class BaseCalculator:
             price_type_used = "일반"
         kb_price_used = kb_price  # 계산에 사용된 최종 시세
         
-        return {
+        out = {
             "bank_name": final_bank_name,
             "results": results,
             "conditions": conditions,
@@ -2167,6 +2189,11 @@ class BaseCalculator:
             "hide_credit_grade": self.config.get("hide_credit_grade", False),
             "show_region_grade": self.config.get("show_region_grade", False)
         }
+        # 펀딩상품 금리 (팀엑스대부 등 - 일반 한도와 동일, 금리만 추가 표시)
+        funding_rate = self.config.get("funding_rate")
+        if funding_rate:
+            out["funding_rate"] = funding_rate
+        return out
     
     def credit_score_to_grade(self, credit_score: Optional[int]) -> Optional[int]:
         """

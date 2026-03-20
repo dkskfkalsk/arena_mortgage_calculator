@@ -328,6 +328,10 @@ def _format_result_with_label(
         
         # 금리 포맷팅
         rate_str = format_interest_rate(interest_rate, interest_rate_range)
+        # 펀딩상품 금리 추가 (팀엑스대부 등 - 일반 한도와 동일, 금리만 추가 표시)
+        funding_rate = bank_result.get("funding_rate")
+        if funding_rate:
+            rate_str = f"{rate_str} / 펀딩 {funding_rate}"
         
         # 금액 포맷팅
         amount_str = format_amount(amount)
