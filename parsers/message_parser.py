@@ -836,24 +836,23 @@ class MessageParser:
         max_amount = None  # 채권최고액
         amount = None  # 원금
         
-        # 괄호 안의 금액 (원금) 추출
+        # 괄호 안의 금액 (원금) 추출 - 쉼표 있든 없든 인식 (예: "10,500만", "10500만")
         amount_match = re.search(r"\(([\d,]+)\s*만?\)", line)
         if amount_match:
             amount_str = amount_match.group(1)
             amount = parse_amount(amount_str)
             print(f"DEBUG: _parse_mortgage_line - amount(원금) from parentheses: {amount_str} -> {amount}")
         
-        # 괄호 밖의 금액 (채권최고액) 추출
-        # "44,200 (34,000)만원" 형식에서 괄호 앞의 숫자 추출
-        # 패턴: 1~3자리 숫자로 시작하고, 쉼표와 3자리 숫자가 반복되는 형식 (예: "2,900", "31,700", "6,000")
-        max_amount_match = re.search(r"(\d{1,3}(?:,\d{3})*)\s*만?\s*\([\d,]+\s*만?\)", line)
+        # 괄호 밖의 금액 (채권최고액) 추출 - 쉼표 있든 없든 인식 (예: "44,200만", "12600만")
+        # 패턴: (쉼표포함) \d{1,3}(?:,\d{3})* 또는 (쉼표없음) \d+
+        max_amount_match = re.search(r"(\d{1,3}(?:,\d{3})*|\d+)\s*만?\s*\([\d,]+\s*만?\)", line)
         if max_amount_match:
             max_amount_str = max_amount_match.group(1)
             max_amount = parse_amount(max_amount_str)
             print(f"DEBUG: _parse_mortgage_line - max_amount(채권최고액) from pattern: {max_amount_str} -> {max_amount}")
         else:
-            # 괄호가 없으면 첫 번째 큰 숫자를 채권최고액으로 사용
-            amount_matches = re.findall(r"(\d{1,3}(?:,\d{3})*)", line)
+            # 괄호가 없으면 금액처럼 보이는 숫자(4자리 이상 또는 쉼표포함)를 채권최고액으로 사용 (1순위의 "1" 등 제외)
+            amount_matches = re.findall(r"(\d{1,3}(?:,\d{3})+|\d{4,})", line)
             if amount_matches:
                 max_amount_str = amount_matches[0]
                 max_amount = parse_amount(max_amount_str)
