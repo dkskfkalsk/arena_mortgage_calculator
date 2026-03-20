@@ -899,38 +899,28 @@ class RegistryParser:
                 if not creditor or len(creditor) < 2:
                     continue  # 근저당권자 못 찾으면 해당 순위 제외
                 
-                # 채무자: 을구에서 해당 순위의 채무자 찾기 (우선)
-                # 을구에서는 "채무자" 뒤에 이름만 나오고, 그 다음 줄에 주소가 나옴
-                debtor = ""
-                if eulgu_text:
+                # 채무자: 요약본 대상소유자 우선 (채무 인수/계약인수 반영된 최종 채무자)
+                # 요약본 없거나 못 찾으면 을구 본문 → rank_block 순으로 fallback
+                debtor = self._find_target_owner_in_section(summary_text, rank)
+                if not debtor and eulgu_text:
                     # 을구에서 해당 순위의 블록 찾기
                     eulgu_rank_match = re.search(rf'^{rank}\s+근저당권설정', eulgu_text, re.MULTILINE)
                     if eulgu_rank_match:
                         eulgu_start = eulgu_rank_match.start()
-                        # 다음 순위번호나 변경 항목 전까지
                         next_rank_match = re.search(rf'^{int(rank)+1}\s+근저당권설정|^{rank}\s*-\s*\d+\s*근저당권', eulgu_text[eulgu_start+1:], re.MULTILINE)
                         if next_rank_match:
                             eulgu_end = eulgu_start + 1 + next_rank_match.start()
                         else:
                             eulgu_end = min(eulgu_start + 1000, len(eulgu_text))
-                        
                         eulgu_rank_block = eulgu_text[eulgu_start:eulgu_end]
-                        # 을구 블록에서 채무자 찾기 (이름만, 주소 제외)
-                        # 패턴: "채무자 이름" (줄바꿈 전까지, 또는 주소 패턴 전까지)
                         debtor_pattern = r'채무자\s+([가-힣]{2,4}(?:\s+[가-힣]{2,4})*?)(?=\s*\n\s*[가-힣]{2,4}\s*(?:시|도|구|동|로|길)|$|\n\s*\d+|\n\s*[가-힣]+\s*근저당권|\n\s*제\d+호)'
                         debtor_match = re.search(debtor_pattern, eulgu_rank_block, re.DOTALL)
                         if debtor_match:
                             debtor = debtor_match.group(1).strip()
-                            # 공백 정리
                             debtor = re.sub(r'\s+', ' ', debtor)
-                            # 이름이 너무 길면 (주소 포함 가능성) 첫 줄만
                             if len(debtor) > 10:
                                 debtor = debtor.split('\n')[0].strip()
                                 debtor = re.sub(r'\s+', ' ', debtor)
-                
-                # 을구에서 못 찾으면 요약의 대상소유자 사용
-                if not debtor:
-                    debtor = self._find_target_owner_in_section(summary_text, rank)
                 
                 # 그래도 못 찾으면 순위 블록에서 찾기
                 if not debtor:
