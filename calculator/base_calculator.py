@@ -120,6 +120,59 @@ def _grades_fully_covered(credit_grade: str, grades_with_limit: Set[int]) -> boo
     return bool(grades_in_range) and grades_in_range <= grades_with_limit
 
 
+def get_property_type_key(property_type: str, special_notes: str = "") -> Optional[str]:
+    """
+    한글 물건유형·특이사항 → config 키(apartment, villa, …).
+    property_type_conditions / household_property_types 등과 동일한 키 체계.
+    """
+    if not property_type:
+        return None
+    notes = special_notes or ""
+    has_no_land_registry = "대지권" in notes and ("미등기" in notes or "미 등기" in notes)
+    if "아파트" in property_type:
+        return "apartment_no_land_registry" if has_no_land_registry else "apartment"
+    if "주상복합" in property_type:
+        return "residential_commercial"
+    if "빌라" in property_type:
+        return "villa"
+    if "오피스텔" in property_type:
+        return "officetel"
+    if "단독주택" in property_type:
+        return "detached_house"
+    if "공동주택" in property_type:
+        return "multi_family_house"
+    return None
+
+
+def infer_fractional_ownership(property_data: Dict[str, Any]) -> Optional[bool]:
+    """
+    지분/공유지분 여부 추정.
+    True: 지분·공동소유 등으로 취급 제한 대상으로 볼 수 있음.
+    False: 단독소유 등 명확히 전체 지분.
+    None: 정보 부족 (해당 config로 판단 보류)
+    """
+    explicit = property_data.get("is_fractional_share")
+    if explicit is True:
+        return True
+    if explicit is False:
+        return False
+    ownership = (property_data.get("ownership") or "").strip()
+    notes = (property_data.get("special_notes") or "") or ""
+    if not ownership and not notes:
+        return None
+    o = ownership.replace(" ", "")
+    n = notes.replace(" ", "")
+    if o and ("단독소유" in o or o == "단독") and "분의" not in o:
+        return False
+    if "분의" in o or "분의" in n:
+        return True
+    if "공동소유" in o or "공동소유" in notes:
+        return True
+    if "지분" in o and "단독" not in o:
+        return True
+    return None
+
+
 class BaseCalculator:
     """
     금융사 계산기 베이스 클래스
@@ -533,42 +586,13 @@ class BaseCalculator:
             else:
                 property_types_config = self.config.get("property_types", {})
         
-        if property_type and property_types_config:
-            # 대지권 미등기 여부 확인
-            has_no_land_registry = "대지권" in special_notes and ("미등기" in special_notes or "미 등기" in special_notes)
-            
-            # 물건 타입 매핑
-            property_type_lower = property_type.lower()
-            is_allowed = False
-            property_type_key = None
-            
-            # 아파트 체크 (대지권 미등기 포함)
-            if "아파트" in property_type:
-                if has_no_land_registry:
-                    property_type_key = "apartment_no_land_registry"
-                    is_allowed = property_types_config.get("apartment_no_land_registry", 1) == 1
-                else:
-                    property_type_key = "apartment"
-                    is_allowed = property_types_config.get("apartment", 1) == 1
-            elif "주상복합" in property_type:
-                property_type_key = "residential_commercial"
-                is_allowed = property_types_config.get("residential_commercial", 1) == 1
-            elif "빌라" in property_type:
-                property_type_key = "villa"
-                is_allowed = property_types_config.get("villa", 1) == 1
-            elif "오피스텔" in property_type:
-                property_type_key = "officetel"
-                is_allowed = property_types_config.get("officetel", 1) == 1
-            elif "단독주택" in property_type:
-                property_type_key = "detached_house"
-                is_allowed = property_types_config.get("detached_house", 1) == 1
-            elif "공동주택" in property_type:
-                property_type_key = "multi_family_house"
-                is_allowed = property_types_config.get("multi_family_house", 1) == 1
-            
-            # 설정이 있으면 체크, 없으면 기본값(취급 가능)으로 처리
-            if property_type_key and not is_allowed:
-                log_print(f"DEBUG: BaseCalculator.calculate - 취급 불가 물건 타입: {property_type} (key: {property_type_key})")
+        # 한글 물건유형 → apartment 등 config 키 (물건취급·세대수 조건 공통)
+        ptype_key = get_property_type_key(property_type, special_notes)
+        
+        if property_type and property_types_config and ptype_key:
+            is_allowed = property_types_config.get(ptype_key, 1) == 1
+            if not is_allowed:
+                log_print(f"DEBUG: BaseCalculator.calculate - 취급 불가 물건 타입: {property_type} (key: {ptype_key})")
                 logger.warning(f"BaseCalculator.calculate - 취급 불가 물건 타입: {property_type}")
                 validation_errors.append(f"{property_type}은(는) 취급 불가 물건 타입입니다")
                 return {
@@ -579,39 +603,49 @@ class BaseCalculator:
                     "min_amount": self.config.get("min_amount", 3000)
                 }
         
-        # property_type_conditions 체크 (부동산 타입별 조건 확인)
+        # property_type_conditions 체크 (부동산 타입별 조건 — 키는 apartment 등 영문, bank/loan JSON과 동일)
         property_type_conditions = self.config.get("property_type_conditions", {})
-        if property_type_conditions and property_type:
-            # 부동산 타입별 조건 확인
-            for prop_type, conditions in property_type_conditions.items():
-                if prop_type in property_type:
-                    # min_household_count 체크
-                    min_household_count = conditions.get("min_household_count")
-                    if min_household_count is not None:
-                        household_count = property_data.get("household_count")
-                        if household_count is None or household_count < min_household_count:
-                            log_print(f"DEBUG: BaseCalculator.calculate - {prop_type} 세대수 {household_count} < min_household_count {min_household_count}, 취급 불가")
-                            logger.warning(f"BaseCalculator.calculate - {prop_type} 세대수 {household_count} < min_household_count {min_household_count}, 취급 불가")
-                            validation_errors.append(f"{prop_type}은(는) 최소 {min_household_count}세대 이상이어야 취급 가능합니다 (현재: {household_count or '정보없음'}세대)")
-                    
-                    # min_kb_price 체크 (property_type_conditions의 min_kb_price가 우선)
-                    min_kb_price_for_type = conditions.get("min_kb_price")
-                    if min_kb_price_for_type is not None and kb_price < min_kb_price_for_type:
-                        log_print(f"DEBUG: BaseCalculator.calculate - {prop_type} KB price {kb_price}만원 < min_kb_price {min_kb_price_for_type}만원, 취급 불가")
-                        logger.warning(f"BaseCalculator.calculate - {prop_type} KB price {kb_price}만원 < min_kb_price {min_kb_price_for_type}만원, 취급 불가")
-                        validation_errors.append(f"{prop_type}은(는) KB시세 {kb_price:,.0f}만원이 최소 {min_kb_price_for_type:,.0f}만원 이상이어야 취급 가능합니다 (현재: {kb_price:,.0f}만원, 부족: {min_kb_price_for_type - kb_price:,.0f}만원)")
-                    break  # 첫 번째 매칭되는 타입만 체크
+        if property_type_conditions and ptype_key:
+            conditions_for_ptype = property_type_conditions.get(ptype_key)
+            if conditions_for_ptype:
+                prop_label = property_type or ptype_key
+                min_household_count = conditions_for_ptype.get("min_household_count")
+                if min_household_count is not None:
+                    household_count = property_data.get("household_count")
+                    if household_count is None or household_count < min_household_count:
+                        log_print(f"DEBUG: BaseCalculator.calculate - {ptype_key} 세대수 {household_count} < min_household_count {min_household_count}, 취급 불가")
+                        logger.warning(f"BaseCalculator.calculate - {ptype_key} 세대수 {household_count} < min_household_count {min_household_count}, 취급 불가")
+                        validation_errors.append(f"{prop_label}은(는) 최소 {min_household_count}세대 이상이어야 취급 가능합니다 (현재: {household_count or '정보없음'}세대)")
+                min_kb_price_for_type = conditions_for_ptype.get("min_kb_price")
+                if min_kb_price_for_type is not None and kb_price < min_kb_price_for_type:
+                    log_print(f"DEBUG: BaseCalculator.calculate - {ptype_key} KB price {kb_price}만원 < min_kb_price {min_kb_price_for_type}만원, 취급 불가")
+                    logger.warning(f"BaseCalculator.calculate - {ptype_key} KB price {kb_price}만원 < min_kb_price {min_kb_price_for_type}만원, 취급 불가")
+                    validation_errors.append(f"{prop_label}은(는) KB시세 {kb_price:,.0f}만원이 최소 {min_kb_price_for_type:,.0f}만원 이상이어야 취급 가능합니다 (현재: {kb_price:,.0f}만원, 부족: {min_kb_price_for_type - kb_price:,.0f}만원)")
+        
+        # 지분/공유지분 (data/banks·data/loan 공통: fractional_share_allowed)
+        frac_cfg = self.config.get("fractional_share_allowed")
+        if frac_cfg is not None:
+            frac = infer_fractional_ownership(property_data)
+            if frac is True and frac_cfg is False:
+                log_print("DEBUG: BaseCalculator.calculate - 지분/공유지분 물건, fractional_share_allowed=false")
+                validation_errors.append("지분·공유지분 물건은 취급 불가입니다")
+                return {
+                    "bank_name": self.bank_name,
+                    "results": [],
+                    "conditions": self.config.get("conditions", []),
+                    "errors": validation_errors,
+                    "min_amount": self.config.get("min_amount", 3000)
+                }
         
         # KB시세 최소 금액 확인 (property_type_conditions에 없으면 전역 min_kb_price 사용)
         min_kb_price = self.config.get("min_kb_price")
         if min_kb_price is not None:
             # property_type_conditions에서 이미 체크했는지 확인
             already_checked = False
-            if property_type_conditions and property_type:
-                for prop_type, conditions in property_type_conditions.items():
-                    if prop_type in property_type and conditions.get("min_kb_price") is not None:
-                        already_checked = True
-                        break
+            if property_type_conditions and ptype_key:
+                c = property_type_conditions.get(ptype_key)
+                if c and c.get("min_kb_price") is not None:
+                    already_checked = True
             
             if not already_checked and kb_price < min_kb_price:
                 log_print(f"DEBUG: BaseCalculator.calculate - KB price {kb_price}만원 < min_kb_price {min_kb_price}만원, 취급 불가")
@@ -1311,6 +1345,22 @@ class BaseCalculator:
             if mg_internal_grade is not None:
                 credit_grade = mg_internal_grade
                 print(f"DEBUG: BaseCalculator.calculate - MG캐피탈 내부 등급 적용: {credit_grade}등급")
+        
+        # 최대 신용등급 (애큐온캐피탈·data/loan 등 bank_name별 max_credit_grade)
+        max_credit_grade_cfg = self.config.get("max_credit_grade")
+        if max_credit_grade_cfg is not None and credit_grade is not None:
+            try:
+                if int(credit_grade) > int(max_credit_grade_cfg):
+                    print(f"DEBUG: BaseCalculator.calculate - 신용등급 {credit_grade} > max_credit_grade {max_credit_grade_cfg}")
+                    return {
+                        "bank_name": self.bank_name,
+                        "results": [],
+                        "conditions": self.config.get("conditions", []),
+                        "errors": [f"신용등급 {credit_grade}등급은 취급 불가입니다 (최대 {max_credit_grade_cfg}등급까지)"],
+                        "min_amount": self.config.get("min_amount", 3000)
+                    }
+            except (TypeError, ValueError):
+                pass
         
         # 택시 관련 한도 제한 확인
         taxi_limit_config = self.config.get("taxi_limit", {})

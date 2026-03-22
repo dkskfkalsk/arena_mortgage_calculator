@@ -22,6 +22,7 @@
   "min_kb_price": 0,
   "hide_credit_grade": true,
   "show_region_grade": true,
+  "_comment_validation": "물건조건(property_type_conditions) 키는 data/banks와 동일하게 apartment 등 영문. max_credit_grade·fractional_share_allowed는 BaseCalculator에서 검증.",
   "products": [
     {
       "product_name": "사업자",
@@ -336,6 +337,7 @@
         "440-579": 8
       },
       "max_credit_grade": 7,
+      "_comment_max_credit_grade": "신용매핑 등급이 이 값 초과면 산출 불가(애큐온캐피탈 등 bank JSON과 동일)",
       "business_property_types": {
         "apartment": 1,
         "apartment_no_land_registry": 1,
@@ -346,6 +348,7 @@
         "multi_family_house": 0
       },
       "property_type_conditions": {},
+      "_comment_fractional_share": "false면 소유현황·공동소유·분의 지분 등은 취급 불가",
       "fractional_share_allowed": false,
       "conditions": [
         "즉발사업자 조건"
@@ -665,6 +668,7 @@
           "min_household_count": 200
         }
       },
+      "_comment_property_type_conditions": "아파트·대지권미등기 아파트에 min_household_count 적용(한글 물건유형은 자동 매핑)",
       "fractional_share_allowed": true,
       "funding_rate": "9.9~10.5% 플3%",
       "conditions": [
