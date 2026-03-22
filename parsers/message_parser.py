@@ -744,7 +744,7 @@ class MessageParser:
             data["credit_score"] = value
             data["credit_score_raw"] = value  # 원본 값 저장 (MG캐피탈 등급 파싱용)
         
-        elif "거주여부" in key_clean:
+        elif "거주여부" in key_clean or ("거주" in key_clean and "비거주" not in key_clean):
             data["residence"] = value
         
         elif "소유현황" in key_clean or "소유권" in key_clean:

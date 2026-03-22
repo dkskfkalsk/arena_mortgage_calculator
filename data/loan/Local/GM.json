@@ -1,0 +1,166 @@
+{
+  "_comment": "GM대부 가계 — 아파트·빌라·오피스텔 3상품. 지역은 region_grade_prefix_rules 로 서울/경기·인천/그 외 구분. 시세는 KB·AI·탁감가·부동산테크 등 전부 허용.",
+  "bank_name": "GM대부",
+  "show_product_name_only": true,
+  "price_sources": {
+    "kb_price": 1,
+    "kb_ai_price": 1,
+    "bank_appraisal_price": 1,
+    "realestatetech_price": 1,
+    "korea_realestate_price": 1,
+    "housematch_price": 1
+  },
+  "min_amount": 1000,
+  "min_kb_price": 0,
+  "hide_credit_grade": true,
+  "show_region_grade": false,
+  "show_interest_rate_range": true,
+  "products": [
+    {
+      "product_name": "아파트",
+      "product_type": "household",
+      "household_property_types": {
+        "apartment": 1,
+        "apartment_no_land_registry": 1,
+        "residential_commercial": 0,
+        "villa": 0,
+        "officetel": 0,
+        "detached_house": 0,
+        "multi_family_house": 0
+      },
+      "region_grade_prefix_rules": [
+        { "starts_with": "서울특별시", "grade": "S" },
+        { "starts_with": "경기도", "grade": "M" },
+        { "starts_with": "인천광역시", "grade": "M" },
+        { "starts_with": "", "grade": "P" }
+      ],
+      "max_ltv_by_grade": {
+        "S": 80,
+        "M": 75,
+        "P": 70
+      },
+      "ltv_steps": [80],
+      "ltv_kb_price_override": [
+        {
+          "property_type_keys": ["apartment"],
+          "under_kb_price": 20000,
+          "ltv_min": 60,
+          "ltv_max": 65
+        }
+      ],
+      "interest_rate_range_by_profile": [
+        {
+          "match": {
+            "property_type_keys": ["apartment"],
+            "region_grades": ["S"],
+            "kb_price_gte": 20000
+          },
+          "range": [12, 18]
+        },
+        {
+          "match": {
+            "property_type_keys": ["apartment"],
+            "region_grades": ["S"],
+            "kb_price_lt": 20000
+          },
+          "range": [15.6, 18]
+        },
+        {
+          "match": { "property_type_keys": ["apartment"], "region_grades": ["M", "P"] },
+          "range": [15.6, 18]
+        }
+      ],
+      "primary_interest_rates_by_ltv": {
+        "80": { "1": 15 },
+        "70": { "1": 15 }
+      },
+      "conditions": [
+        "가계자금",
+        "아파트 LTV: 서울 80%, 경기·인천 75%, 그 외 70%",
+        "시세 2억 미만 아파트 LTV 60~65%",
+        "금리구간: 서울·시세 2억 이상 12~18%, 그 외 아파트 15.6~18%"
+      ]
+    },
+    {
+      "product_name": "빌라",
+      "product_type": "household",
+      "min_kb_price": 15000,
+      "household_property_types": {
+        "apartment": 0,
+        "apartment_no_land_registry": 0,
+        "residential_commercial": 0,
+        "villa": 1,
+        "officetel": 0,
+        "detached_house": 0,
+        "multi_family_house": 0
+      },
+      "region_grade_prefix_rules": [
+        { "starts_with": "서울특별시", "grade": "V1" },
+        { "starts_with": "경기도", "grade": "V1" },
+        { "starts_with": "인천광역시", "grade": "V1" },
+        { "starts_with": "", "grade": "V2" }
+      ],
+      "max_ltv_by_grade": {
+        "V1": 60,
+        "V2": 50
+      },
+      "ltv_steps": [55, 60, 50],
+      "interest_rate_range_by_profile": [
+        {
+          "match": { "property_type_keys": ["villa"], "region_grades": ["V1", "V2"] },
+          "range": [15.6, 18]
+        }
+      ],
+      "primary_interest_rates_by_ltv": {
+        "60": { "1": 16 },
+        "50": { "1": 16 }
+      },
+      "conditions": [
+        "가계자금",
+        "빌라 LTV: 수도권(서울·경기·인천) 55~60%, 그 외 50%",
+        "시세 1억 5천 미만 빌라 취급 불가",
+        "금리구간 15.6~18%"
+      ]
+    },
+    {
+      "product_name": "오피스텔",
+      "product_type": "household",
+      "household_property_types": {
+        "apartment": 0,
+        "apartment_no_land_registry": 0,
+        "residential_commercial": 0,
+        "villa": 0,
+        "officetel": 1,
+        "detached_house": 0,
+        "multi_family_house": 0
+      },
+      "region_grade_prefix_rules": [
+        { "starts_with": "서울특별시", "grade": "V1" },
+        { "starts_with": "경기도", "grade": "V1" },
+        { "starts_with": "인천광역시", "grade": "V1" },
+        { "starts_with": "", "grade": "V2" }
+      ],
+      "max_ltv_by_grade": {
+        "V1": 60,
+        "V2": 50
+      },
+      "ltv_steps": [55, 60, 50],
+      "interest_rate_range_by_profile": [
+        {
+          "match": { "property_type_keys": ["officetel"], "region_grades": ["V1", "V2"] },
+          "range": [15.6, 18]
+        }
+      ],
+      "primary_interest_rates_by_ltv": {
+        "60": { "1": 16 },
+        "50": { "1": 16 }
+      },
+      "conditions": [
+        "가계자금",
+        "오피스텔 LTV: 수도권 55~60%, 그 외 50% (빌라와 동일)",
+        "서울·수도권·지방 금리구간 15.6~18%",
+        "주거용 오피스텔 기준(구분 입력 시 검토)"
+      ]
+    }
+  ]
+}

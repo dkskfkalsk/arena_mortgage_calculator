@@ -395,6 +395,10 @@ def _format_result_with_label(
             or (not r.get("is_refinance", False) and (r.get("amount") or 0) > 0)
         )
     )
+    # 세입자 시 캡션 (투맨금융대부 등 - 한도 밑에 전,월세 동의·미동의 안내)
+    tenant_caption = bank_result.get("tenant_consent_caption")
+    if tenant_caption and has_actual_limit:
+        lines.append(tenant_caption)
     if conditions and has_actual_limit:
         for condition in conditions[:4]:  # 최대 4개만 표시
             lines.append(f"- {condition}")

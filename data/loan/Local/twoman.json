@@ -1,0 +1,63 @@
+{
+  "_comment": "투맨금융대부 가계 — 아파트만, 전국(제주 제외). KB시세 기준 LTV: 서울 75%, 경기·인천 72%, 그 외 68%. 근저당 3순위까지 가능.",
+  "bank_name": "투맨금융대부",
+  "product_type": "household",
+  "price_sources": {
+    "kb_price": 1,
+    "kb_ai_price": 0,
+    "bank_appraisal_price": 0,
+    "realestatetech_price": 0,
+    "korea_realestate_price": 0,
+    "housematch_price": 0
+  },
+  "min_amount": 1000,
+  "min_kb_price": 0,
+  "hide_credit_grade": true,
+  "show_region_grade": false,
+  "show_interest_rate_range": true,
+  "max_priority_limit": 3,
+  "tenant_consent_caption": "※ 전,월세 동의·미동의 진행 가능",
+  "household_property_types": {
+    "apartment": 1,
+    "apartment_no_land_registry": 1,
+    "residential_commercial": 0,
+    "villa": 0,
+    "officetel": 0,
+    "detached_house": 0,
+    "multi_family_house": 0
+  },
+  "region_grade_prefix_rules": [
+    { "starts_with": "서울특별시", "grade": "S" },
+    { "starts_with": "제주특별자치도", "grade": "9" },
+    { "starts_with": "경기도", "grade": "M" },
+    { "starts_with": "인천광역시", "grade": "M" },
+    { "starts_with": "", "grade": "P" }
+  ],
+  "max_ltv_by_grade": {
+    "S": 75,
+    "M": 72,
+    "P": 68,
+    "9": 0
+  },
+  "ltv_steps": [75],
+  "primary_interest_rates_by_ltv": {
+    "75": { "1": 17.5 },
+    "72": { "1": 17.5 },
+    "68": { "1": 17.5 }
+  },
+  "interest_rate_range_by_profile": [
+    {
+      "match": { "property_type_keys": ["apartment"], "region_grades": ["S", "M", "P"] },
+      "range": [17, 18]
+    }
+  ],
+  "conditions": [
+    "가계자금",
+    "아파트만 취급",
+    "전국 (제주도 제외)",
+    "LTV: 서울 75%, 경기·인천 72%, 그 외 68%",
+    "대출금리 17~18%",
+    "중도상환 수수료 2~3%",
+    "근저당 3순위까지 설정 가능"
+  ]
+}

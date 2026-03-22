@@ -144,6 +144,18 @@ def get_property_type_key(property_type: str, special_notes: str = "") -> Option
     return None
 
 
+def has_tenant_in_property(property_data: Dict[str, Any]) -> bool:
+    """
+    거주 또는 특이사항에 세입자 관련 키워드가 있으면 True.
+    키워드: 전세입자, 월세입자, 세입자, 전세세입자, 월세세입자
+    """
+    keywords = ("전세입자", "월세입자", "세입자", "전세세입자", "월세세입자")
+    residence = (property_data.get("residence") or "") or ""
+    notes = (property_data.get("special_notes") or "") or ""
+    combined = f"{residence} {notes}"
+    return any(kw in combined for kw in keywords)
+
+
 def infer_fractional_ownership(property_data: Dict[str, Any]) -> Optional[bool]:
     """
     지분/공유지분 여부 추정.
@@ -327,6 +339,7 @@ class BaseCalculator:
         self._promotion_applied = False
         self._promotion_name = None
         self._promotion_rejection_reason = None
+        self._gm_ltv_steps_override = None
         
         # config에 product_type이 있으면 product_type 파라미터가 없을 때 사용 (팀엑스대부 등)
         if product_type is None:
@@ -757,6 +770,26 @@ class BaseCalculator:
                 except (ValueError, TypeError):
                     pass  # 신용평점이 숫자가 아니면 무시
         
+        # 투맨금융대부 등: 근저당 3순위까지 가능 (동일 금융사·연속 순위는 하나로 합산)
+        max_priority_limit = self.config.get("max_priority_limit")
+        if max_priority_limit is not None:
+            mortgages_raw = property_data.get("mortgages", [])
+            liens = [
+                m for m in mortgages_raw
+                if not m.get("is_tenant", False)
+                and (m.get("institution") or "").strip() not in ("전세입자", "월세입자", "세입자")
+            ]
+            liens_sorted = sorted(liens, key=lambda x: x.get("priority", 999))
+            groups = []
+            prev_inst = None
+            for m in liens_sorted:
+                inst = (m.get("institution") or "").replace(" ", "")
+                if prev_inst is None or inst != prev_inst:
+                    groups.append(inst)
+                    prev_inst = inst
+            if len(groups) >= max_priority_limit:
+                validation_errors.append(f"근저당권 {max_priority_limit}순위 초과로 진행 불가입니다 (현재 {len(groups)}순위, 동일 금융사 연속은 합산)")
+        
         # 검증 오류가 있으면 즉시 반환
         if validation_errors:
             return {
@@ -876,8 +909,8 @@ class BaseCalculator:
             print(f"DEBUG: BaseCalculator.calculate - grade is None for region: {region}, 취급 불가지역")
             region_errors.append("취급 불가지역")
         
-        # 9급지인 경우 취급 불가지역으로 처리
-        if grade == 9:
+        # 9급지인 경우 취급 불가지역으로 처리 (grade는 config에 따라 9 또는 "9"로 올 수 있음)
+        if grade in (9, "9"):
             print(f"DEBUG: BaseCalculator.calculate - grade 9 for region: {region}, 취급 불가지역")
             region_errors.append("9급지로 취급 불가")
         
@@ -958,6 +991,22 @@ class BaseCalculator:
         if is_below_standard:
             max_ltv = below_standard_ltv
             print(f"DEBUG: BaseCalculator.calculate - 기준 LTV 이하 지역: {region}, 적용 LTV: {max_ltv}%")
+        
+        # GM대부 등: 시세 N억 미만 물건유형별 LTV 상한·스텝 (예: 아파트 2억 미만 60~65%)
+        ltv_kb_rules = self.config.get("ltv_kb_price_override")
+        if ltv_kb_rules and ptype_key is not None and kb_price is not None:
+            for rule in ltv_kb_rules:
+                if ptype_key not in rule.get("property_type_keys", []):
+                    continue
+                under = rule.get("under_kb_price")
+                if under is not None and float(kb_price) < float(under):
+                    lmin = float(rule.get("ltv_min", 60))
+                    lmax = float(rule.get("ltv_max", 65))
+                    if max_ltv is not None:
+                        max_ltv = min(float(max_ltv), lmax)
+                    self._gm_ltv_steps_override = sorted({int(lmin), int(lmax)}, reverse=True)
+                    print(f"DEBUG: BaseCalculator.calculate - ltv_kb_price_override kb<{under}: max_ltv={max_ltv}, steps={self._gm_ltv_steps_override}")
+                    break
         
         # 면적 초과 시 LTV 제한 (max_ltv_when_exceeded: 85㎡ 초과 시 LTV 85% 등)
         if area_limit_config.get("enabled", False) and area_limit_config.get("max_ltv_when_exceeded"):
@@ -2243,6 +2292,10 @@ class BaseCalculator:
         funding_rate = self.config.get("funding_rate")
         if funding_rate:
             out["funding_rate"] = funding_rate
+        # 투맨금융대부 등: 세입자 있을 때 한도 밑 캡션 (전,월세 동의·미동의 진행 가능)
+        tenant_caption = self.config.get("tenant_consent_caption")
+        if tenant_caption and property_data and has_tenant_in_property(property_data):
+            out["tenant_consent_caption"] = tenant_caption
         return out
     
     def credit_score_to_grade(self, credit_score: Optional[int]) -> Optional[int]:
@@ -2282,6 +2335,11 @@ class BaseCalculator:
         신용등급별 LTV steps 조회
         ltv_by_priority_business_type_grade 설정이 있으면 사용하고, 없으면 기존 로직 사용
         """
+        gm_ov = getattr(self, "_gm_ltv_steps_override", None)
+        if gm_ov:
+            print(f"DEBUG: _get_ltv_steps_by_grade - ltv_kb_price_override steps: {gm_ov}")
+            return list(gm_ov)
+        
         ltv_by_priority = self.config.get("ltv_by_priority_business_type_grade", {})
         if ltv_by_priority:
             # 신용등급별 LTV steps 사용
@@ -2505,12 +2563,31 @@ class BaseCalculator:
         print(f"DEBUG: BaseCalculator.validate_kb_price - output: {result}")
         return result
     
-    def get_region_grade(self, region: str) -> Optional[int]:
+    def get_region_grade(self, region: str) -> Optional[Union[int, str]]:
         """
         지역별 급지 조회
         region_grades에 명시된 지역만 처리 (fallback 없음)
         명시되지 않은 지역은 None 반환하여 취급 불가지역으로 처리
+        region_grade_prefix_rules 가 있으면 starts_with 순으로 먼저 매칭 (GM대부 등)
         """
+        prefix_rules = self.config.get("region_grade_prefix_rules")
+        if prefix_rules:
+            region_clean = region.replace(" ", "")
+            default_grade = None
+            for rule in prefix_rules:
+                sw = rule.get("starts_with")
+                gr = rule.get("grade")
+                if sw is None or sw == "":
+                    default_grade = gr
+                    continue
+                sw_clean = sw.replace(" ", "")
+                if region.startswith(sw) or region_clean.startswith(sw_clean):
+                    print(f"DEBUG: get_region_grade - prefix rule '{sw}' -> {gr}")
+                    return gr
+            if default_grade is not None:
+                print(f"DEBUG: get_region_grade - prefix default -> {default_grade}")
+                return default_grade
+        
         region_grades = self.config.get("region_grades", {})
         
         # 공백 제거 버전으로도 확인
@@ -3367,6 +3444,39 @@ class BaseCalculator:
                 "credit_grade": 신용등급
             }
         """
+        # GM대부 등: 물건유형·지역급(S/M/P)·시세 구간별 금리 범위 (신용 미사용, show_interest_rate_range)
+        profiles = self.config.get("interest_rate_range_by_profile")
+        pdat = getattr(self, "_current_property_data", None)
+        if profiles and pdat and self.config.get("show_interest_rate_range"):
+            ptk = get_property_type_key(
+                (pdat.get("property_type") or ""),
+                (pdat.get("special_notes") or ""),
+            )
+            kb_v = float(pdat.get("kb_price") or 0)
+            rg_str = str(region_grade) if region_grade is not None else ""
+            for pr in profiles:
+                m = pr.get("match") or {}
+                pts = m.get("property_type_keys")
+                if pts and ptk not in pts:
+                    continue
+                rgs = m.get("region_grades")
+                if rgs is not None and rg_str not in rgs:
+                    continue
+                if m.get("kb_price_gte") is not None and kb_v < float(m["kb_price_gte"]):
+                    continue
+                if m.get("kb_price_lt") is not None and kb_v >= float(m["kb_price_lt"]):
+                    continue
+                rng = pr.get("range")
+                if rng and len(rng) >= 2:
+                    lo, hi = float(rng[0]), float(rng[1])
+                    print(f"DEBUG: get_interest_rate - interest_rate_range_by_profile -> {lo}~{hi}%")
+                    return {
+                        "interest_rate": None,
+                        "interest_rate_range": (round(lo, 2), round(hi, 2)),
+                        "credit_grade": None,
+                        "promotion_applied": False,
+                    }
+        
         # 애큐온캐피탈: 급지별·창업/일반사업자별·선후순위별 금리
         rates_by_group = self.config.get("interest_rates_by_region_group_priority_business", {})
         if rates_by_group and credit_grade is not None:
