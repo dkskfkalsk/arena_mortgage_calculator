@@ -368,8 +368,8 @@ class MessageParser:
             print(f"DEBUG: Parsing refinance info from requests: {data['requests']}")
             
             # "N순위 한도 확인" 패턴을 대환 요청으로 처리
-            # 예: "2순위 한도 확인", "2순위 한도확인", "2순위 한도"
-            limit_check_match = re.search(r'(\d+)순위\s*한도', data["requests"])
+            # 예: "2순위 한도 확인", "2순위 한도확인", "1순위 전세퇴거자금 대환 한도 확인"
+            limit_check_match = re.search(r'(\d+)순위.*?한도', data["requests"])
             if limit_check_match:
                 priority = int(limit_check_match.group(1))
                 print(f"DEBUG: Found '한도 확인' pattern - priority: {priority}, treating as refinance request")
@@ -495,6 +495,15 @@ class MessageParser:
                                                 mortgage["is_refinance"] = True
                                                 found = True
                                                 print(f"DEBUG: Set is_refinance=True for mortgage (institution fallback): priority={mortgage.get('priority')}, institution='{mortgage.get('institution')}', keyword='{institution_keyword}'")
+                                                break
+                                    # 전세퇴거자금/전세퇴거 → 전세입자/월세입자/세입자 매칭
+                                    if not found and "전세퇴거" in institution_keyword_clean:
+                                        tenant_types = ("전세입자", "월세입자", "세입자")
+                                        for mortgage in data["mortgages"]:
+                                            if mortgage.get("priority") == priority and (mortgage.get("institution", "") or "").strip() in tenant_types:
+                                                mortgage["is_refinance"] = True
+                                                found = True
+                                                print(f"DEBUG: Set is_refinance=True for mortgage (전세퇴거자금→전세입자): priority={priority}, institution='{mortgage.get('institution')}'")
                                                 break
                                     if not found:
                                         print(f"DEBUG: Warning - Could not find matching mortgage for priority {priority} with keyword '{institution_keyword}'")

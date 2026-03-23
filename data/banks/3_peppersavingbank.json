@@ -431,7 +431,9 @@
     "_comment_multi_family_house": "공동주택"
   },
   "min_amount": 2000,
-  "conditions": [],
+  "conditions": [
+    "전세퇴거자금 불가"
+  ],
   "lower_bound_price": {
     "enabled": true,
     "apartment": {
@@ -529,7 +531,11 @@
         "부가세 누락",
         "즉발",
         "즉발보유",
-        "부가세"
+        "부가세",
+        "세입자퇴거자금",
+        "전세퇴거",
+        "퇴거자금",
+        "전세퇴거자금"
       ],
       "error_message": "특이사항/요청사항에 '{keywords}'가 포함되어 취급 불가합니다"
     },

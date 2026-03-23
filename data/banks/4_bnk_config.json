@@ -488,6 +488,7 @@
     "_comment_multi_family_house": "공동주택"
   },
   "conditions": [
+    "전세퇴거자금 불가",
     "사업자 등록된 3개월 이상 개인사업자",
     "KB시세 5천만원 미만 아파트 불가",
     "소유권 이전 3개월 미만 불가",
@@ -520,7 +521,12 @@
         "special_notes",
         "requests"
       ],
-      "keywords": [],
+      "keywords": [
+        "세입자퇴거자금",
+        "전세퇴거",
+        "퇴거자금",
+        "전세퇴거자금"
+      ],
       "error_message": "특이사항/요청사항에 '{keywords}'가 포함되어 취급 불가합니다"
     },
     "complex_rules": []
