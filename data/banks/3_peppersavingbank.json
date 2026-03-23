@@ -431,9 +431,7 @@
     "_comment_multi_family_house": "공동주택"
   },
   "min_amount": 2000,
-  "conditions": [
-    "전세퇴거자금 불가"
-  ],
+  "conditions": [],
   "lower_bound_price": {
     "enabled": true,
     "apartment": {
