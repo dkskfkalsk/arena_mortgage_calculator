@@ -339,7 +339,7 @@
         "bank_appraisal_price": 1,
         "realestatetech_price": 1,
         "korea_realestate_price": 0,
-        "housematch_price": 0
+        "housematch_price": 1
       },
       "business_property_types": {
         "apartment": 1,
@@ -522,7 +522,7 @@
         "bank_appraisal_price": 1,
         "realestatetech_price": 1,
         "korea_realestate_price": 0,
-        "housematch_price": 0
+        "housematch_price": 1
       },
       "business_property_types": {
         "apartment": 1,

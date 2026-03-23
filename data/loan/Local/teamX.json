@@ -17,7 +17,7 @@
     "bank_appraisal_price": 1,
     "realestatetech_price": 1,
     "korea_realestate_price": 0,
-    "housematch_price": 0
+    "housematch_price": 1
   },
   "min_amount": 1000,
   "min_kb_price": 0,
