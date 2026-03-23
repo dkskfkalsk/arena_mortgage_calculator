@@ -734,7 +734,9 @@ class BaseCalculator:
         if collateral_provider_excluded:
             has_collateral_provider = property_data.get("collateral_provider") is True
             name_str = str(property_data.get("name") or "")
-            if has_collateral_provider or "(담)" in name_str or "(담보)" in name_str:
+            special_notes_str = (special_notes if isinstance(special_notes, str) else " ".join(str(x) for x in (special_notes or [])))
+            has_collateral_in_notes = "담보제공" in special_notes_str or "담제자" in special_notes_str
+            if has_collateral_provider or "(담)" in name_str or "(담보)" in name_str or has_collateral_in_notes:
                 log_print(f"DEBUG: BaseCalculator.calculate - 담보제공건 취급 불가")
                 validation_errors.append("담보제공건 취급 불가")
         
