@@ -65,7 +65,7 @@ def get_application(force_new=False):
         from parsers.message_parser import MessageParser
         from calculator.base_calculator import BaseCalculator
         from utils.formatter import format_all_results
-        from utils.validators import extract_bank_appraisal_price_from_special_notes
+        from utils.validators import extract_bank_appraisal_price_from_special_notes, extract_kb_ai_price_from_special_notes
 
         # 환경변수에서 토큰 가져오기
         TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -1594,17 +1594,21 @@ def get_application(force_new=False):
                             print(f"[WEBHOOK] ❌ KB 시세 조회 중 오류: {str(e)}", file=sys.stderr, flush=True)
                             logger.error(f"KB 시세 조회 중 오류: {str(e)}", exc_info=True)
                     
-                    # KB API 검색 후에도 KB시세가 없으면 특이사항에서 탁감가 추출 시도
+                    # KB API 검색 후에도 KB시세가 없으면 특이사항에서 탁감가·KB AI시세 추출 시도
                     if not property_data.get("kb_price"):
                         special_notes = property_data.get("special_notes", "") or ""
                         bank_appraisal_price = extract_bank_appraisal_price_from_special_notes(special_notes)
+                        kb_ai_price = extract_kb_ai_price_from_special_notes(special_notes)
                         if bank_appraisal_price is not None:
                             # 탁감가가 있으면 필수 정보 체크는 통과 (탁감가를 사용하는 금융사가 있을 수 있음)
-                            # property_data에 탁감가 정보 저장하여 base_calculator에서 사용할 수 있도록 함
                             print(f"[WEBHOOK] 탁감가 추출됨 (필수 정보 체크용): {bank_appraisal_price}만원", file=sys.stderr, flush=True)
                             logger.info(f"handle_message - 탁감가 추출됨 (필수 정보 체크용): {bank_appraisal_price}만원")
-                            # special_notes에 탁감가 정보가 이미 있으므로 property_data는 그대로 유지
-                            # kb_price는 None으로 유지하여 base_calculator에서 각 금융사별 설정에 따라 처리되도록 함
+                        elif kb_ai_price is not None:
+                            # KB AI시세가 있으면 property_data에 저장하고 한도 산출 진행 (kb_ai_price 사용 금융사만 결과 나옴)
+                            property_data["kb_ai_price"] = kb_ai_price
+                            property_data["price_type"] = "kb_ai"
+                            print(f"[WEBHOOK] KB AI시세 추출됨 (특이사항): {int(kb_ai_price):,}만원", file=sys.stderr, flush=True)
+                            logger.info(f"handle_message - KB AI시세 추출됨 (특이사항): {int(kb_ai_price):,}만원")
                         else:
                             # KB API 검색을 했는지, 실패했는지, 결과가 없었는지 구분
                             if kb_api_searched:

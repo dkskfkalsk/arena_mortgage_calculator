@@ -2288,7 +2288,8 @@ class BaseCalculator:
             "price_type_used": price_type_used,  # 적용된 시세 타입: 일반/하한/탁감가
             "region_grade": grade,  # 급지 (show_region_grade 시 헤더에 N급지 표시)
             "hide_credit_grade": self.config.get("hide_credit_grade", False),
-            "show_region_grade": self.config.get("show_region_grade", False)
+            "show_region_grade": self.config.get("show_region_grade", False),
+            "hide_conditions": self.config.get("hide_conditions", False)
         }
         # 펀딩상품 금리 (팀엑스대부 등 - 일반 한도와 동일, 금리만 추가 표시)
         funding_rate = self.config.get("funding_rate")
@@ -4087,9 +4088,9 @@ class BaseCalculator:
     
     @classmethod
     def _filter_dsfnc_results(cls, results: list) -> list:
-        """DSFNC 디에스론/하이론: 하이론 한도 > 디에스론 한도일 때만 둘 다 표시, 아니면 디에스론만"""
+        """DSFNC 디에스론/디에스-하이론: 하이론 한도 > 디에스론 한도일 때만 둘 다 표시, 아니면 디에스론만"""
         dsfnc_desron = next((r for r in results if r.get("bank_name") in ("DSFNC 디에스론", "디에스론")), None)
-        dsfnc_hiroon = next((r for r in results if r.get("bank_name") in ("DSFNC 하이론", "하이론")), None)
+        dsfnc_hiroon = next((r for r in results if r.get("bank_name") in ("DSFNC 하이론", "하이론", "디에스-하이론")), None)
         if not dsfnc_desron or not dsfnc_hiroon:
             return results
         
@@ -4105,7 +4106,7 @@ class BaseCalculator:
         max_hiroon = _get_max_amount(dsfnc_hiroon)
         
         if max_desron >= max_hiroon:
-            results = [r for r in results if r.get("bank_name") not in ("DSFNC 하이론", "하이론")]
+            results = [r for r in results if r.get("bank_name") not in ("DSFNC 하이론", "하이론", "디에스-하이론")]
             print(f"DEBUG: BaseCalculator - DSFNC 디에스론 한도({max_desron}만) >= 하이론({max_hiroon}만), 하이론 제외")
         else:
             print(f"DEBUG: BaseCalculator - DSFNC 하이론 한도({max_hiroon}만) > 디에스론({max_desron}만), 둘 다 표시")

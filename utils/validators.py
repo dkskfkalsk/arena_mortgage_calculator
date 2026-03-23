@@ -209,11 +209,10 @@ def extract_kb_ai_price_from_special_notes(special_notes):
         notes_str = str(special_notes).strip()
         
         # "KB AI시세" 또는 "KB AI 시세" 패턴 찾기
-        # 다양한 형식 지원: "KB AI시세: 25,000만원", "KB AI시세 25,000만원", "KB AI 시세 25,000만원" 등
+        # 형식: "KB AI시세 39400-38000(26.02.25)" (범위 시 첫 숫자=일반), "KB AI시세: 25,000만원"
         patterns = [
-            r'KB\s*AI\s*시세\s*[:\s]*([\d,]+(?:\s*만원)?)',
-            r'KB\s*AI시세\s*[:\s]*([\d,]+(?:\s*만원)?)',
-            r'KB\s*AI\s*시세\s*[:\s]*([\d,]+)',
+            r'KB\s*AI\s*시세\s*[:\s]*([\d,]+)(?:[-~][\d,]+)?(?:\s*만원)?',
+            r'KB\s*AI시세\s*[:\s]*([\d,]+)(?:[-~][\d,]+)?(?:\s*만원)?',
         ]
         
         for pattern in patterns:

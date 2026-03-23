@@ -59,5 +59,7 @@
     "대출금리 17~18%",
     "중도상환 수수료 2~3%",
     "근저당 3순위까지 설정 가능"
-  ]
+  ],
+  "_comment_hide_conditions": "한도 회신 시 conditions 노출 생략 (내용은 유지)",
+  "hide_conditions": true
 }

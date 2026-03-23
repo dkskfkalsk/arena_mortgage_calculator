@@ -399,7 +399,7 @@ def _format_result_with_label(
     tenant_caption = bank_result.get("tenant_consent_caption")
     if tenant_caption and has_actual_limit:
         lines.append(tenant_caption)
-    if conditions and has_actual_limit:
+    if conditions and has_actual_limit and not bank_result.get("hide_conditions", False):
         for condition in conditions[:4]:  # 최대 4개만 표시
             lines.append(f"- {condition}")
     
