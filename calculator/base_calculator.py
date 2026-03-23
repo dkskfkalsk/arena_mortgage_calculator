@@ -4061,20 +4061,20 @@ class BaseCalculator:
                 if is_ok_bank:
                     # 가계자금 계산
                     household_result = calculator.calculate(property_data, product_type="household")
-                    if household_result is not None:
+                    if household_result is not None and not cls._should_exclude_property_type_mismatch(household_result):
                         household_result["bank_name"] = "OK저축은행 가계자금"
                         results.append(household_result)
                     
                     # 사업자금 계산
                     business_result = calculator.calculate(property_data, product_type="business")
-                    if business_result is not None:
+                    if business_result is not None and not cls._should_exclude_property_type_mismatch(business_result):
                         business_result["bank_name"] = "OK저축은행 사업자금"
                         results.append(business_result)
                 else:
                     # 일반 금융사: config의 product_type이 있으면 전달 (사업자 상품은 business로 계산)
                     cfg_product_type = calculator.config.get("product_type")
                     result = calculator.calculate(property_data, product_type=cfg_product_type)
-                    if result is not None:
+                    if result is not None and not cls._should_exclude_property_type_mismatch(result):
                         # 취급 불가지역인 경우도 포함 (errors에 "취급 불가지역"이 있으면)
                         results.append(result)
             except Exception as e:
@@ -4086,6 +4086,19 @@ class BaseCalculator:
         
         return results
     
+    @classmethod
+    def _should_exclude_property_type_mismatch(cls, result: Dict) -> bool:
+        """물건 타입 불일치로 인한 취급 불가 결과는 출력에서 제외 (GM대부 빌라/오피스텔 + 아파트 등)"""
+        if not result:
+            return False
+        if result.get("results"):
+            return False  # 한도 산출 결과가 있으면 포함
+        errors = result.get("errors") or []
+        for err in errors:
+            if "취급 불가 물건 타입" in str(err):
+                return True
+        return False
+
     @classmethod
     def _filter_dsfnc_results(cls, results: list) -> list:
         """DSFNC 디에스론/디에스-하이론: 하이론 한도 > 디에스론 한도일 때만 둘 다 표시, 아니면 디에스론만"""
@@ -4189,19 +4202,19 @@ class BaseCalculator:
                 if is_ok_bank:
                     # 가계자금 계산
                     household_result = calculator.calculate(property_data, product_type="household")
-                    if household_result is not None:
+                    if household_result is not None and not cls._should_exclude_property_type_mismatch(household_result):
                         household_result["bank_name"] = "OK저축은행 가계자금"
                         results.append(household_result)
                     
                     # 사업자금 계산
                     business_result = calculator.calculate(property_data, product_type="business")
-                    if business_result is not None:
+                    if business_result is not None and not cls._should_exclude_property_type_mismatch(business_result):
                         business_result["bank_name"] = "OK저축은행 사업자금"
                         results.append(business_result)
                 else:
                     # 일반 금융사는 기존대로 계산
                     result = calculator.calculate(property_data)
-                    if result is not None:
+                    if result is not None and not cls._should_exclude_property_type_mismatch(result):
                         # 취급 불가지역인 경우도 포함 (errors에 "취급 불가지역"이 있으면)
                         results.append(result)
             except Exception as e:
