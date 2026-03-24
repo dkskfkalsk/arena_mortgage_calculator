@@ -185,6 +185,16 @@ def infer_fractional_ownership(property_data: Dict[str, Any]) -> Optional[bool]:
     return None
 
 
+def fractional_share_condition_requested(property_data: Dict[str, Any]) -> bool:
+    """
+    요청사항에 「지분조건」이 있으면 True (공백·전각공백 무시).
+    한도 산출 시 최대 LTV 50%로 제한·최소진행 1000만원 하한에 사용.
+    """
+    requests = (property_data.get("requests") or "").strip()
+    normalized = requests.replace(" ", "").replace("\u3000", "")
+    return "지분조건" in normalized
+
+
 class BaseCalculator:
     """
     금융사 계산기 베이스 클래스
@@ -302,6 +312,15 @@ class BaseCalculator:
         """
         return (int(amount) // 100) * 100
     
+    def _fractional_share_ltv_cap_applies(self, property_data: Dict[str, Any]) -> bool:
+        """
+        요청사항에 지분조건 + JSON fractional_share_request_enabled 가 true일 때만
+        최대 LTV 50%·최소진행 1000만원 하한 적용.
+        """
+        if not self.config.get("fractional_share_request_enabled", False):
+            return False
+        return fractional_share_condition_requested(property_data)
+    
     def calculate(self, property_data: Dict[str, Any], product_type: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         담보대출 한도 및 금리 계산 (범용 구현)
@@ -340,6 +359,7 @@ class BaseCalculator:
         self._promotion_name = None
         self._promotion_rejection_reason = None
         self._gm_ltv_steps_override = None
+        self._fractional_share_min_floor = None
         
         # config에 product_type이 있으면 product_type 파라미터가 없을 때 사용 (팀엑스대부 등)
         if product_type is None:
@@ -1475,6 +1495,20 @@ class BaseCalculator:
             max_ltv = 70
             print(f"DEBUG: BaseCalculator.calculate - 가계자금: LTV 70% 고정")
         
+        # 요청사항 「지분조건」+ config fractional_share_request_enabled: 최대 LTV 50% (급지·후순위·OK가계 등 반영 후)
+        if self._fractional_share_ltv_cap_applies(property_data):
+            if max_ltv is not None:
+                max_ltv = min(int(max_ltv), 50)
+            self._fractional_share_min_floor = 1000
+            if self._gm_ltv_steps_override:
+                self._gm_ltv_steps_override = [s for s in self._gm_ltv_steps_override if s <= 50]
+                if not self._gm_ltv_steps_override:
+                    self._gm_ltv_steps_override = [50]
+            log_print(
+                f"DEBUG: BaseCalculator.calculate - 지분조건(LTV cap) → 최대 LTV 50%, min진행 1000만원, "
+                f"max_ltv={max_ltv}%, gm_steps={self._gm_ltv_steps_override}"
+            )
+        
         # 선순위일 때 max_amount_limit_primary 적용 (디에스론: 선순위 5억, 후순위 3억)
         max_amount_limit_primary = self.config.get("max_amount_limit_primary")
         if max_amount_limit_primary is not None and not self._is_subordinate:
@@ -1489,6 +1523,15 @@ class BaseCalculator:
             if grade_str in min_amount_by_grade:
                 effective_min_amount = min_amount_by_grade[grade_str]
                 print(f"DEBUG: BaseCalculator.calculate - 급지 {grade} 최소진행금액: {effective_min_amount}만원")
+        
+        # 요청사항 「지분조건」: 가용 1000만 미만이면 한도 미산출 (기존 min_amount보다 큰 쪽 적용)
+        if getattr(self, "_fractional_share_min_floor", None) is not None:
+            fm = self._fractional_share_min_floor
+            if effective_min_amount is None:
+                effective_min_amount = fm
+            else:
+                effective_min_amount = max(effective_min_amount, fm)
+            print(f"DEBUG: BaseCalculator.calculate - 지분조건 요청 → 최소진행금액 하한 {fm}만원 (큰 값 적용): {effective_min_amount}만원")
         
         # JB하이론 / DSFNC 하이론: 대환 원금이 한도 초과 시 한도 미산출 (결과 전체 없음)
         is_jb = "JB" in self.bank_name or "제이비" in self.bank_name
