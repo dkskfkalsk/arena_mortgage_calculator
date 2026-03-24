@@ -897,6 +897,12 @@ class BaseCalculator:
             for target in target_regions:
                 # 약자 매핑 적용
                 target_full = region_abbreviation_map.get(target, target)
+                # "광주": 광주광역시만 매칭, 경기도광주시 제외 (경기도광주시에 "광주" 포함으로 인한 오매칭 방지)
+                if target == "광주":
+                    if region.startswith("광주광역시"):
+                        is_target_region = True
+                        break
+                    continue
                 if target_full in region or target in region:  # "서울" in "서울특별시광진구" 또는 "경상북도" in "경상북도구미시"
                     is_target_region = True
                     break
