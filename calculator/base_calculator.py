@@ -4064,6 +4064,12 @@ class BaseCalculator:
             if filename.endswith("_config.json") or filename.endswith(".json"):
                 config_path = os.path.join(banks_dir, filename)
                 try:
+                    with open(config_path, "r", encoding="utf-8") as f:
+                        raw_config = json.load(f)
+                    # enabled: false면 한도 산출 제외 (금융사별 on/off)
+                    if raw_config.get("enabled", True) is False:
+                        print(f"⏭️ banks/{filename} 한도 산출 비활성화 (enabled: false)")
+                        continue
                     calculator = cls(config_path)
                     calculators.append(calculator)
                 except Exception as e:
@@ -4188,6 +4194,10 @@ class BaseCalculator:
                     try:
                         with open(config_path, "r", encoding="utf-8") as f:
                             raw_config = json.load(f)
+                        # enabled: false면 한도 산출 제외 (금융사별 on/off)
+                        if raw_config.get("enabled", True) is False:
+                            print(f"⏭️ {subfolder}/{filename} 한도 산출 비활성화 (enabled: false)")
+                            continue
                         # products 배열이 있으면 다중 상품 (DSFNC 등)
                         products = raw_config.get("products", [])
                         if products:

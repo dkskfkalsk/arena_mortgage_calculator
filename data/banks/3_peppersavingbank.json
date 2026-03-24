@@ -1,5 +1,6 @@
 {
   "bank_name": "페퍼저축은행-사업자",
+  "enabled": true,
   "target_regions": [
     "서울",
     "경기",

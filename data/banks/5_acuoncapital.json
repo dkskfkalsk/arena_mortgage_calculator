@@ -1,5 +1,6 @@
 {
   "bank_name": "애큐온캐피탈",
+  "enabled": true,
   "target_regions": [
     "서울",
     "경기",

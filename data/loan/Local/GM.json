@@ -1,6 +1,7 @@
 {
   "_comment": "GM대부 가계 — 아파트·빌라·오피스텔 3상품. 지역은 region_grade_prefix_rules 로 서울/경기·인천/그 외 구분. 시세는 KB·AI·탁감가·부동산테크 등 전부 허용.",
   "bank_name": "GM대부",
+  "enabled": true,
   "refinance_all_requested": true,
   "max_limit_only": true,
   "show_product_name_only": false,

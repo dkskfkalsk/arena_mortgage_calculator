@@ -1,5 +1,6 @@
 {
   "bank_name": "키움저축-리테일",
+  "enabled": true,
   "target_regions": [
     "서울",
     "경기",

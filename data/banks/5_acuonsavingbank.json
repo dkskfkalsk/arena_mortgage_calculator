@@ -1,5 +1,6 @@
 {
   "bank_name": "애큐온저축은행",
+  "enabled": true,
   "target_regions": [
     "서울",
     "경기",

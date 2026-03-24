@@ -1,6 +1,7 @@
 {
   "_comment": "투맨금융대부 가계 — 아파트만, 전국(제주 제외). KB시세 기준 LTV: 서울 75%, 경기·인천 72%, 그 외 68%. 근저당 3순위까지 가능.",
   "bank_name": "투맨금융대부",
+  "enabled": true,
   "refinance_all_requested": true,
   "product_type": "household",
   "price_sources": {

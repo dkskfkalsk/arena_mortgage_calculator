@@ -1,5 +1,6 @@
 {
   "bank_name": "미래하우스론",
+  "enabled": false,
   "refinance_all_requested": true,
   "target_regions": ["서울", "경기", "인천", "부산", "대구", "광주", "대전"],
   "region_grades": {

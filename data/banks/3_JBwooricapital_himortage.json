@@ -1,5 +1,6 @@
 {
   "bank_name": "JB하이론",
+  "enabled": true,
   "target_regions": [
     "서울",
     "경기",

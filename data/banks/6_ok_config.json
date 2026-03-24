@@ -1,5 +1,6 @@
 {
   "bank_name": "OK저축은행",
+  "enabled": true,
   "target_regions": [
     "서울",
     "경기",
