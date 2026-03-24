@@ -1025,7 +1025,7 @@ class BaseCalculator:
                     max_ltv = cap_ltv
                     print(f"DEBUG: BaseCalculator.calculate - 면적 {area}㎡ > {area_limit_config.get('max_area')}㎡, max_ltv 제한: {max_ltv}%")
         
-        # 기존 근저당권 총액 계산 (채권최고액 기준)
+        # 기존 근저당권 총액 (config: use_principal_for_calculation → 원금 합, 아니면 채권최고액 합)
         mortgages = property_data.get("mortgages", [])
         
         # 대환할 근저당권 찾기 (여러 개 대비하여 누적합으로 처리)
@@ -1161,18 +1161,13 @@ class BaseCalculator:
                 else:
                     other_mortgages.append(mortgage)
         
-        # 나머지 근저당권의 채권최고액만 합산
-        total_mortgage = self.calculate_total_mortgage(other_mortgages)
-        
-        # OK저축은행인 경우 원금 기준으로 차감하는지 확인
-        is_ok_bank = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
-        use_principal_for_ok = self.config.get("use_principal_for_calculation", False)  # 원금 기준 계산 여부
-        
-        if is_ok_bank and use_principal_for_ok:
-            # OK저축은행이고 원금 기준 계산이 설정된 경우: 원금 합계 사용
-            total_mortgage_principal = sum(float(m.get("amount", 0) or 0) for m in other_mortgages)
-            print(f"DEBUG: BaseCalculator.calculate - OK저축은행 원금 기준 계산: total_mortgage_principal={total_mortgage_principal}만원 (기존 채권최고액: {total_mortgage}만원)")
-            total_mortgage = total_mortgage_principal
+        # 나머지 근저당 합산: use_principal_for_calculation (JSON 루트, _comment_use_principal_for_calculation 참고)
+        use_principal = self.config.get("use_principal_for_calculation", False)
+        if use_principal:
+            total_mortgage = self.calculate_total_mortgage_principal(other_mortgages)
+            print(f"DEBUG: BaseCalculator.calculate - 원금 기준(use_principal_for_calculation): {total_mortgage}만원")
+        else:
+            total_mortgage = self.calculate_total_mortgage(other_mortgages)
         
         print(f"DEBUG: BaseCalculator.calculate - mortgages: {mortgages}")  # 추가
         print(f"DEBUG: BaseCalculator.calculate - refinance_principal(대환 원금 합계): {refinance_principal}만원, total_mortgage(차감할 금액): {total_mortgage}")  # 추가
@@ -3207,6 +3202,18 @@ class BaseCalculator:
         
         return False
     
+    def calculate_total_mortgage_principal(self, mortgages: List[Dict[str, Any]]) -> float:
+        """
+        기존 근저당권 원금 합계 (만원 단위). use_principal_for_calculation 시 사용.
+        """
+        total = 0.0
+        for mortgage in mortgages:
+            amount = mortgage.get("amount", 0)
+            if isinstance(amount, (int, float)):
+                total += float(amount)
+                print(f"DEBUG: calculate_total_mortgage_principal - amount(원금): {amount}만원")
+        return total
+    
     def calculate_total_mortgage(self, mortgages: List[Dict[str, Any]]) -> float:
         """
         기존 근저당권 총액 계산 (채권최고액 기준, 만원 단위)
@@ -4066,7 +4073,7 @@ class BaseCalculator:
                 try:
                     with open(config_path, "r", encoding="utf-8") as f:
                         raw_config = json.load(f)
-                    # enabled: false면 한도 산출 제외 (금융사별 on/off)
+                    # data/banks/*.json 의 enabled (루트). _comment_enabled 참고. false면 한도 산출 제외
                     if raw_config.get("enabled", True) is False:
                         print(f"⏭️ banks/{filename} 한도 산출 비활성화 (enabled: false)")
                         continue
@@ -4194,7 +4201,7 @@ class BaseCalculator:
                     try:
                         with open(config_path, "r", encoding="utf-8") as f:
                             raw_config = json.load(f)
-                        # enabled: false면 한도 산출 제외 (금융사별 on/off)
+                        # data/loan/*/*.json 의 enabled (루트). _comment_enabled 참고. false면 한도 산출 제외
                         if raw_config.get("enabled", True) is False:
                             print(f"⏭️ {subfolder}/{filename} 한도 산출 비활성화 (enabled: false)")
                             continue

@@ -1,6 +1,9 @@
 {
   "bank_name": "애큐온캐피탈",
   "enabled": true,
+  "_comment_enabled": "한도 산출 on/off. false면 calculate_all_banks에서 이 금융사 제외",
+  "use_principal_for_calculation": false,
+  "_comment_use_principal_for_calculation": "기존 근저당 차감 기준. true=원금(amount) 합, false=채권최고액(max_amount) 합·없으면 원금×1.2",
   "target_regions": [
     "서울",
     "경기",
