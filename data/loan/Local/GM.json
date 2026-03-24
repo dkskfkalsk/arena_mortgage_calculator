@@ -1,6 +1,7 @@
 {
   "_comment": "GM대부 가계 — 아파트·빌라·오피스텔 3상품. 지역은 region_grade_prefix_rules 로 서울/경기·인천/그 외 구분. 시세는 KB·AI·탁감가·부동산테크 등 전부 허용.",
   "bank_name": "GM대부",
+  "max_limit_only": true,
   "show_product_name_only": false,
   "_comment_show_product_name_only": "false면 'GM대부 빌라' 등 금융사명+상품명 표시",
   "price_sources": {
@@ -40,7 +41,6 @@
         "M": 75,
         "P": 70
       },
-      "ltv_steps": [80],
       "ltv_kb_price_override": [
         {
           "property_type_keys": ["apartment"],
@@ -105,7 +105,6 @@
         "V1": 60,
         "V2": 50
       },
-      "ltv_steps": [55, 60, 50],
       "interest_rate_range_by_profile": [
         {
           "match": { "property_type_keys": ["villa"], "region_grades": ["V1", "V2"] },
@@ -145,7 +144,6 @@
         "V1": 60,
         "V2": 50
       },
-      "ltv_steps": [55, 60, 50],
       "interest_rate_range_by_profile": [
         {
           "match": { "property_type_keys": ["officetel"], "region_grades": ["V1", "V2"] },

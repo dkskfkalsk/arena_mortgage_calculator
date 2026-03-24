@@ -1673,9 +1673,13 @@ class BaseCalculator:
             # fallback인 경우 results 초기화 (필요자금 기준 결과는 무시)
             if fallback_to_ltv_steps:
                 results = []
+            # max_limit_only: 최대 한도만 산출 (DSFNC, 퓨처하우스 제외 data/loan 상품)
+            if self.config.get("max_limit_only"):
+                ltv_steps = [int(max_ltv)] if max_ltv is not None and max_ltv > 0 else []
+                print(f"DEBUG: BaseCalculator.calculate - max_limit_only: ltv_steps={ltv_steps}")
             # 필요자금이 없고 택시 한도 제한도 없으면 기존대로 LTV별 한도 계산
             # 가계자금인 경우 LTV 70%만 계산
-            if is_household_for_ok:
+            elif is_household_for_ok:
                 ltv_steps = [70]
             else:
                 # 사업자금인 경우 max_ltv_by_area_grade_credit에서 가능한 LTV만 사용

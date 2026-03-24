@@ -1544,6 +1544,7 @@ def get_application(force_new=False):
                 missing_optional = []
                 
                 # KB시세가 없으면 KB API 검색 시도 (주소와 면적이 있는 경우)
+                # 대부계산기방(loan): 보낸 메시지 내용만 사용, KB API 호출 안 함
                 kb_api_searched = False
                 kb_api_failed = False
                 kb_api_no_result = False
@@ -1564,7 +1565,8 @@ def get_application(force_new=False):
                                 pass
                     
                     # 주소와 면적이 있으면 KB API 검색 시도 (면적 문자열 그대로 전달)
-                    if address and address != "확인불가" and has_area:
+                    # loan 방에서는 보낸 내용만 사용하므로 KB API 호출 생략
+                    if chat_type != "loan" and address and address != "확인불가" and has_area:
                         kb_api_searched = True
                         try:
                             area_for_kb = str(area).strip() if area else "0"

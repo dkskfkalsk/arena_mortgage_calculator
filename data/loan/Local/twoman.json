@@ -39,7 +39,7 @@
     "P": 68,
     "9": 0
   },
-  "ltv_steps": [75],
+  "max_limit_only": true,
   "primary_interest_rates_by_ltv": {
     "75": { "1": 17.5 },
     "72": { "1": 17.5 },
