@@ -1103,6 +1103,15 @@ class BaseCalculator:
                         other_mortgages.append(mortgage)
                         continue
                     
+                    # refinance_all_requested: data/loan 상품 등 - 요청사항에 따른 대환 모두 허용
+                    if self.config.get("refinance_all_requested"):
+                        mortgage_amount = float(mortgage.get("amount", 0) or 0)
+                        refinance_principal += mortgage_amount
+                        if institution not in all_refinance_institutions:
+                            all_refinance_institutions.append(institution)
+                        print(f"DEBUG: BaseCalculator.calculate - refinance_all_requested: priority={mortgage.get('priority')}, institution={institution}, principal={mortgage_amount}만원")
+                        continue
+                    
                     # refinance_rules 적용 (팀엑스대부 등: 사업자->가계 대환불가, 가계->사업자 대환가능)
                     refinance_rules = self.config.get("refinance_rules", {})
                     if refinance_rules:

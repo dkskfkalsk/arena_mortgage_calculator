@@ -1,6 +1,7 @@
 {
   "_comment": "팀엑스대부 - 사업자, 일반(수도권), 일반(전국) 3개 상품. 대환: 사업자->가계 불가, 가계->사업자 가능",
   "bank_name": "팀엑스대부",
+  "refinance_all_requested": true,
   "max_limit_only": true,
   "show_product_name_only": false,
   "_comment_show_product_name_only": "false면 '팀엑스대부 사업자' 등 금융사명+상품명 표시",
