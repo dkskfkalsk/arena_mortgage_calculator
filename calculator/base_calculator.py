@@ -195,6 +195,16 @@ def fractional_share_condition_requested(property_data: Dict[str, Any]) -> bool:
     return "지분조건" in normalized
 
 
+def has_bucuk_jageum_request(property_data: Dict[str, Any]) -> bool:
+    """
+    요청사항 또는 특이사항에 '부족자금'이 있으면 True.
+    가용한도가 0 이하일 때도 한도를 산출(마이너스 표시)하는 데 사용.
+    """
+    req = str(property_data.get("requests") or "")
+    notes = str(property_data.get("special_notes") or "")
+    return "부족자금" in req or "부족자금" in notes
+
+
 class BaseCalculator:
     """
     금융사 계산기 베이스 클래스
@@ -1789,8 +1799,7 @@ class BaseCalculator:
                 is_subordinate = getattr(self, '_is_subordinate', False)
                 priority_key = "subordinate" if is_subordinate else "primary"
                 bands = self.config.get("ltv_bands_subordinate" if is_subordinate else "ltv_bands_primary", [])
-                requests = property_data.get("requests", "") or ""
-                allow_negative_available = "부족자금" in requests
+                allow_negative_available = has_bucuk_jageum_request(property_data)
                 min_amount_config = effective_min_amount
                 for ltv in ltv_steps:
                     if max_ltv is not None and ltv > max_ltv:
@@ -1865,8 +1874,7 @@ class BaseCalculator:
                 is_jb_per_grade = True
                 max_ltv_map = max_ltv_by_region_credit_grade.get(region_grade_str, {})
                 primary_rates = self.config.get("primary_interest_rates_by_ltv", {})
-                requests = property_data.get("requests", "") or ""
-                allow_negative_available = "부족자금" in requests
+                allow_negative_available = has_bucuk_jageum_request(property_data)
                 min_amount_config = effective_min_amount
                 for ltv in ltv_steps:
                     if max_ltv is not None and ltv > max_ltv:
@@ -1962,9 +1970,8 @@ class BaseCalculator:
                     calculated_max_ltv = None
                     calculated_ltvs = set()  # 이미 산출된 LTV 추적 (중복 방지)
                     
-                    # 요청사항에 '부족자금'이 있는지 확인
-                    requests = property_data.get("requests", "") or ""
-                    allow_negative_available = "부족자금" in requests
+                    # 요청사항 또는 특이사항에 '부족자금'이 있는지 확인
+                    allow_negative_available = has_bucuk_jageum_request(property_data)
                     
                     # 1단계: max_ltv부터 0.1%씩 감소시키며 한도가 나오는 최대 LTV 찾기
                     test_ltv = float(max_ltv)
@@ -2142,12 +2149,11 @@ class BaseCalculator:
                         
                         print(f"DEBUG: LTV {ltv} - amount_info: {amount_info}")  # 추가
                         
-                        # 요청사항에 '부족자금'이 있는지 확인
-                        requests = property_data.get("requests", "") or ""
-                        allow_negative_available = "부족자금" in requests
+                        # 요청사항 또는 특이사항에 '부족자금'이 있는지 확인
+                        allow_negative_available = has_bucuk_jageum_request(property_data)
                         
                         # 가용 한도가 마이너스일 경우 처리
-                        # - 요청사항에 '부족자금'이 있는 경우만: 마이너스여도 산출
+                        # - '부족자금'이 있는 경우만: 마이너스여도 산출
                         # - 그 외: 가용 한도가 0 이하면 스킵 (대환이든 후순위든 상관없이)
                         if amount_info["available_amount"] <= 0:
                             if not allow_negative_available:

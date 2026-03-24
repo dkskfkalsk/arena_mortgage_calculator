@@ -164,7 +164,7 @@ def format_result(bank_result: Dict[str, Any], requests: str = "") -> str:
     
     Args:
         bank_result: 금융사별 계산 결과
-        requests: 요청사항 문자열 (부족자금 포함 시 한도 미산출도 표시)
+        requests: 요청사항·특이사항을 합친 문자열 (부족자금 포함 시 한도 미산출도 표시)
     
     예:
     * BNK캐피탈 (4등급기준) (하한가 적용)
@@ -582,7 +582,13 @@ def format_all_results(
         return t + (f" / {appraisal_price_info}" if appraisal_price_info else "")
     
     # 그룹별로 정렬하여 출력: 대환 먼저, 후순위 나중
-    requests_str = (property_data.get("requests", "") or "") if property_data else ""
+    # 부족자금은 요청사항 또는 특이사항 어느 쪽이든 인식
+    if property_data:
+        _sn = property_data.get("special_notes", "") or ""
+        _rq = property_data.get("requests", "") or ""
+        requests_str = f"{_sn} {_rq}"
+    else:
+        requests_str = ""
     format_br = lambda br: format_result(br, requests=requests_str)
     output_parts = []
 
