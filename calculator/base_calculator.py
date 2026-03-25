@@ -813,12 +813,14 @@ class BaseCalculator:
                     pass  # 신용평점이 숫자가 아니면 무시
         
         # 투맨금융대부 등: 근저당 3순위까지 가능 (동일 금융사·연속 순위는 하나로 합산)
+        # 대환 요청 근저당(is_refinance=True)은 설정 후 말소되므로 카운트에서 제외
         max_priority_limit = self.config.get("max_priority_limit")
         if max_priority_limit is not None:
             mortgages_raw = property_data.get("mortgages", [])
             liens = [
                 m for m in mortgages_raw
                 if not m.get("is_tenant", False)
+                and not m.get("is_refinance", False)
                 and (m.get("institution") or "").strip() not in ("전세입자", "월세입자", "세입자")
             ]
             liens_sorted = sorted(liens, key=lambda x: x.get("priority", 999))
