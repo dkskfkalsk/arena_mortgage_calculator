@@ -487,11 +487,12 @@
     "환매특약 취급 불가"
   ],
   "corporate_business_restriction": {
-    "enabled": true,
+    "enabled": false,
     "keywords": ["법인사업자"],
     "comment": "법인사업자 취급 불가"
   },
-  "_comment_corporate_business_restriction": "직업 또는 특이사항에 '법인사업자' 포함 시 한도 미산출",
+  "_comment_corporate_business_restriction": "enabled false = 법인사업자 취급 불가(키워드 검사), true = 취급 가능",
+  "_comment_corporate_business_ui": "조견 UI: enabled false →「법인사업자 취급 불가」, true → 법인 취급 가능",
   "credit_grade_none_fallback": "1",
   "sort_results_by_grade": true,
   "_comment_sort_results_by_grade": "결과를 신용등급 순(1등급→7등급)으로 정렬",

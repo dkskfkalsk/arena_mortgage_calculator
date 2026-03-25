@@ -734,8 +734,9 @@ class BaseCalculator:
                     validation_errors.append(f"직업 '{occupation}'은(는) {comment}으로 취급 불가합니다 (발견된 키워드: {', '.join(found_occupation_keywords)})")
         
         # 법인사업자 제한 확인 (corporate_business_restriction)
+        # enabled: true = 법인사업자 취급 가능(검사 생략), false = 법인사업자 취급 불가(키워드 시 불가)
         corporate_business_config = self.config.get("corporate_business_restriction", {})
-        if corporate_business_config.get("enabled", False):
+        if corporate_business_config and not corporate_business_config.get("enabled", True):
             keywords = corporate_business_config.get("keywords", [])
             found_corporate_keywords = []
             
@@ -754,6 +755,15 @@ class BaseCalculator:
                         found_corporate_keywords.append(keyword)
                         log_print(f"DEBUG: BaseCalculator.calculate - 특이사항에 '{keyword}' 발견, 취급 불가")
                         logger.warning(f"BaseCalculator.calculate - 특이사항에 '{keyword}' 발견, 취급 불가")
+            
+            # 요청사항에서도 확인
+            requests_text = (property_data.get("requests") or "").strip()
+            if requests_text:
+                for keyword in keywords:
+                    if keyword in requests_text:
+                        found_corporate_keywords.append(keyword)
+                        log_print(f"DEBUG: BaseCalculator.calculate - 요청사항에 '{keyword}' 발견, 취급 불가")
+                        logger.warning(f"BaseCalculator.calculate - 요청사항에 '{keyword}' 발견, 취급 불가")
             
             if found_corporate_keywords:
                 comment = corporate_business_config.get("comment", "법인사업자 취급 불가")
@@ -2588,7 +2598,34 @@ class BaseCalculator:
                 validation_errors.append(error_msg)
                 return  # 제한 키워드 발견 시 복합 규칙 체크 스킵
         
-        # 3. 복합 규칙 체크 (complex_rules)
+        # 3. 근저당 기관명 제한 (DSFNC 등: 가압류·압류 선순위는 취급 불가)
+        mortgage_institution_restricted = validation_rules.get("mortgage_institution_restricted", {})
+        if mortgage_institution_restricted:
+            keywords = mortgage_institution_restricted.get("keywords", [])
+            if keywords:
+                # 긴 키워드 우선 (「가압류」에 「압류」가 포함되는 중복 방지)
+                kw_sorted = sorted(keywords, key=lambda x: len(x or ""), reverse=True)
+                found_inst = []
+                for m in property_data.get("mortgages") or []:
+                    inst = (m.get("institution") or "").strip()
+                    if not inst:
+                        continue
+                    for kw in kw_sorted:
+                        if kw and kw in inst:
+                            if kw not in found_inst:
+                                found_inst.append(kw)
+                            break
+                if found_inst:
+                    error_msg = mortgage_institution_restricted.get(
+                        "error_message",
+                        f"근저당 선순위에 '{', '.join(found_inst)}'가 포함되어 취급 불가입니다",
+                    )
+                    validation_errors.append(error_msg)
+                    log_print(f"DEBUG: BaseCalculator._validate_validation_rules - 근저당 기관명 제한: {found_inst}")
+                    logger.warning(f"BaseCalculator._validate_validation_rules - 근저당 기관명 제한: {found_inst}")
+                    return
+        
+        # 4. 복합 규칙 체크 (complex_rules)
         complex_rules = validation_rules.get("complex_rules", [])
         for rule in complex_rules:
             conditions = rule.get("conditions", {})
@@ -4085,7 +4122,8 @@ class BaseCalculator:
         if "개인설정" in special_notes:
             return True
         # 기관명이 금융기관이 아닌 순위가 하나라도 있으면 개인설정
-        exclude_keywords = ("신탁", "물상담보", "전세입자", "전세권", "세입자", "월세입자")
+        # 가압류·압류 등은 법적 담보 표시로 개인설정(개인명 근저당)과 구분 → 후순위/대환 산출 허용
+        exclude_keywords = ("신탁", "물상담보", "전세입자", "전세권", "세입자", "월세입자", "가압류", "압류")
         for m in property_data.get("mortgages") or []:
             institution = (m.get("institution") or "").strip()
             if not institution:

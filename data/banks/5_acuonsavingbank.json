@@ -687,12 +687,14 @@
     "comment": "제한업종"
   },
   "corporate_business_restriction": {
-    "enabled": true,
+    "enabled": false,
     "keywords": [
       "법인사업자"
     ],
     "comment": "법인사업자 취급 불가"
   },
+  "_comment_corporate_business_restriction": "enabled false = 법인사업자 취급 불가(키워드 검사), true = 취급 가능",
+  "_comment_corporate_business_ui": "조견 UI: enabled false →「법인사업자 취급 불가」, true → 법인 취급 가능",
   "min_kb_price": 20000,
   "lower_bound_price": {
     "enabled": true,

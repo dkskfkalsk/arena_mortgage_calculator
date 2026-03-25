@@ -575,5 +575,11 @@
       "error_message": "특이사항/요청사항에 '{keywords}'가 포함되어 취급 불가합니다"
     },
     "complex_rules": []
-  }
+  },
+  "corporate_business_restriction": {
+    "enabled": true,
+    "_comment": "법인사업자 취급 가능 — enabled true"
+  },
+  "_comment_corporate_business_restriction": "enabled true = 법인사업자 취급 가능, false = 취급 불가(키워드 검사)",
+  "_comment_corporate_business_ui": "UI: enabled true → 법인 취급 가능, false →「법인사업자 취급 불가」"
 }

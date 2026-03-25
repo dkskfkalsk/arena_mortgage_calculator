@@ -626,5 +626,12 @@
         "error_message": "사업자보유 부가세누락신고조건인 경우 취급 불가합니다"
       }
     ]
-  }
+  },
+  "corporate_business_restriction": {
+    "enabled": false,
+    "keywords": ["법인사업자"],
+    "comment": "법인사업자 취급 불가"
+  },
+  "_comment_corporate_business_restriction": "enabled false = 법인사업자 취급 불가(키워드 검사), true = 취급 가능",
+  "_comment_corporate_business_ui": "UI: enabled false →「법인사업자 취급 불가」, true → 법인 취급 가능"
 }

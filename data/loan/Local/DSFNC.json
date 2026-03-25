@@ -376,6 +376,11 @@
           "check_fields": ["special_notes", "requests"],
           "keywords": ["재외국민", "거소자", "법인소유", "지분대출", "전세퇴거자금", "대부후순위", "개인설정후순위"],
           "error_message": "특이사항/요청사항에 '{keywords}'가 포함되어 취급 불가합니다"
+        },
+        "_comment_mortgage_institution_restricted": "DSFNC만 가압류·압류 선순위 대환 불가 (그 외 대부상품은 전역 개인설정 제외로 산출)",
+        "mortgage_institution_restricted": {
+          "keywords": ["가압류", "압류"],
+          "error_message": "가압류·압류 선순위는 디에스론·디에스-하이론 취급 불가입니다"
         }
       }
     },
@@ -550,7 +555,19 @@
       "max_age": 70,
       "conditions": [
         "디에스론과 동일 조건. 한도: 1~2급지 5천만원, 3~4급지 3천만원. 전용면적 85㎡ 초과시 LTV85%"
-      ]
+      ],
+      "validation_rules": {
+        "enabled": true,
+        "restricted_keywords": {
+          "check_fields": ["special_notes", "requests"],
+          "keywords": ["재외국민", "거소자", "법인소유", "지분대출", "전세퇴거자금", "대부후순위", "개인설정후순위"],
+          "error_message": "특이사항/요청사항에 '{keywords}'가 포함되어 취급 불가합니다"
+        },
+        "mortgage_institution_restricted": {
+          "keywords": ["가압류", "압류"],
+          "error_message": "가압류·압류 선순위는 디에스론·디에스-하이론 취급 불가입니다"
+        }
+      }
     }
   ]
 }
