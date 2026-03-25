@@ -23,6 +23,8 @@
   "show_region_grade": false,
   "show_interest_rate_range": true,
   "max_priority_limit": 3,
+  "_comment_max_priority_limit_error_message": "max_priority_limit 위반 시 errors에 넣을 회신 문구. {limit}=설정값(3), {n}=선순위 서로 다른 금융기관 수(동일 금융사 연속은 합산)",
+  "max_priority_limit_error_message": "근저당권 3순위 이상은 취급 불가입니다. (현재 선순위 {n}개, 동일 금융사 연속은 합산)",
   "tenant_consent_caption": "※ 전,월세 동의·미동의 진행 가능",
   "household_property_types": {
     "apartment": 1,

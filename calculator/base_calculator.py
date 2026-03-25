@@ -820,7 +820,18 @@ class BaseCalculator:
                     groups.append(inst)
                     prev_inst = inst
             if len(groups) >= max_priority_limit:
-                validation_errors.append(f"근저당권 {max_priority_limit}순위 초과로 진행 불가입니다 (현재 {len(groups)}순위, 동일 금융사 연속은 합산)")
+                custom_msg = self.config.get("max_priority_limit_error_message")
+                if custom_msg:
+                    try:
+                        validation_errors.append(
+                            custom_msg.format(limit=max_priority_limit, n=len(groups))
+                        )
+                    except (KeyError, ValueError):
+                        validation_errors.append(custom_msg)
+                else:
+                    validation_errors.append(
+                        f"근저당권 {max_priority_limit}순위 초과로 진행 불가입니다 (현재 {len(groups)}순위, 동일 금융사 연속은 합산)"
+                    )
         
         # 검증 오류가 있으면 즉시 반환
         if validation_errors:
