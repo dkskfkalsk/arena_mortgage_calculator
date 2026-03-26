@@ -205,6 +205,50 @@ def has_bucuk_jageum_request(property_data: Dict[str, Any]) -> bool:
     return "부족자금" in req or "부족자금" in notes
 
 
+def extract_reconstruction_stage(
+    property_data: Dict[str, Any],
+    keyword: str = "재건축",
+) -> Optional[int]:
+    """
+    특이사항/요청사항에서 재건축 단계 숫자 추출.
+    예: "재건축 : 4단계추진위원회승인" -> 4
+    여러 단계가 있으면 가장 높은 단계 반환.
+    """
+    if not property_data:
+        return None
+
+    texts = [
+        str(property_data.get("special_notes") or ""),
+        str(property_data.get("requests") or ""),
+    ]
+    stages: List[int] = []
+
+    # 1) 라인 단위: 재건축 키워드가 있는 줄에서 N단계 추출
+    for text in texts:
+        for line in text.splitlines():
+            if keyword not in line:
+                continue
+            for m in re.finditer(r"(\d+)\s*단계", line):
+                try:
+                    stages.append(int(m.group(1)))
+                except (TypeError, ValueError):
+                    continue
+
+    # 2) 줄바꿈으로 키워드/단계가 분리된 경우까지 보완
+    for text in texts:
+        if keyword not in text:
+            continue
+        for m in re.finditer(rf"{re.escape(keyword)}[\s\S]*?(\d+)\s*단계", text):
+            try:
+                stages.append(int(m.group(1)))
+            except (TypeError, ValueError):
+                continue
+
+    if not stages:
+        return None
+    return max(stages)
+
+
 class BaseCalculator:
     """
     금융사 계산기 베이스 클래스
@@ -698,6 +742,25 @@ class BaseCalculator:
         # 특이사항 및 직업 정보 추출 (한 번만 조회하여 재사용)
         special_notes = property_data.get("special_notes", "") or ""
         occupation = property_data.get("occupation", "") or ""
+
+        # 재건축 단계 제한 (기본: 최대 5단계까지 허용, 금융사별 override 가능)
+        reconstruction_keyword = str(self.config.get("reconstruction_keyword", "재건축") or "재건축")
+        reconstruction_max_stage = self.config.get("reconstruction_max_stage", 5)
+        detected_reconstruction_stage = extract_reconstruction_stage(property_data, keyword=reconstruction_keyword)
+        if reconstruction_max_stage is not None and detected_reconstruction_stage is not None:
+            try:
+                max_stage_int = int(reconstruction_max_stage)
+            except (TypeError, ValueError):
+                max_stage_int = None
+            if max_stage_int is not None and detected_reconstruction_stage > max_stage_int:
+                validation_errors.append(
+                    f"{reconstruction_keyword} {detected_reconstruction_stage}단계는 취급 불가합니다 "
+                    f"(최대 {max_stage_int}단계까지 가능)"
+                )
+                log_print(
+                    "DEBUG: BaseCalculator.calculate - 재건축 단계 제한 초과, "
+                    f"detected={detected_reconstruction_stage}, max={max_stage_int}, bank={self.bank_name}"
+                )
         
         # 특이사항 검증: 불가 키워드 체크
         # 기본 불가 키워드
@@ -1419,9 +1482,22 @@ class BaseCalculator:
                     "min_amount": self.config.get("min_amount", 3000)
                 }
         
-        # 세입자 후순위 급지 제한 (세입자 있을 때만: 4급지 이상에서는 후순위 취급 불가)
-        # max_subordinate_grade=0: 세입자 후순위 취급 불가 (JB하이론 등)
+        # 세입자 후순위 토글/급지 제한
+        # - tenant_subordinate_allowed=false: 세입자 있는 후순위는 전면 취급 불가
+        # - max_subordinate_grade: 세입자 후순위 허용 시 급지 제한
         has_tenant = any(m.get("is_tenant") for m in other_mortgages)
+        tenant_subordinate_allowed = self.config.get("tenant_subordinate_allowed")
+        if tenant_subordinate_allowed is False and has_tenant and self._is_subordinate:
+            print("DEBUG: BaseCalculator.calculate - 세입자 후순위 취급 불가 (tenant_subordinate_allowed=false)")
+            return {
+                "bank_name": self.bank_name,
+                "results": [],
+                "conditions": self.config.get("conditions", []),
+                "errors": ["세입자 있는 후순위 취급 불가"],
+                "min_amount": self.config.get("min_amount", 3000)
+            }
+
+        # max_subordinate_grade=0: 세입자 후순위 취급 불가 (JB하이론 등)
         max_subordinate_grade = self.config.get("max_subordinate_grade")
         if max_subordinate_grade is not None and has_tenant and self._is_subordinate:
             if max_subordinate_grade == 0:

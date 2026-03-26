@@ -436,6 +436,8 @@
   "_comment_min_kb_price": "KB시세 1억원 이상",
   "max_subordinate_grade": 0,
   "_comment_max_subordinate_grade": "세입자 후순위 취급 불가",
+  "tenant_subordinate_allowed": false,
+  "_comment_tenant_subordinate_allowed": "세입자 있는 후순위 취급 on/off (false=취급 불가, true=허용)",
   "collateral_provider_excluded": true,
   "_comment_collateral_provider_excluded": "담보제공건(차주·담보제공자 구분) 취급 불가",
   "property_type_conditions": {

@@ -365,6 +365,8 @@
       },
       "max_subordinate_grade": 3,
       "_comment_max_subordinate_grade": "세입자 후순위 1~3급지까지 가능",
+      "tenant_subordinate_allowed": false,
+      "_comment_tenant_subordinate_allowed": "세입자 있는 후순위 취급 on/off (false=취급 불가, true=허용)",
       "max_age": 70,
       "_comment_max_age": "차주 및 담보제공자 만70세까지",
       "conditions": [
@@ -552,6 +554,8 @@
         "officetel": {"min_household_count": 100}
       },
       "max_subordinate_grade": 3,
+      "tenant_subordinate_allowed": false,
+      "_comment_tenant_subordinate_allowed": "세입자 있는 후순위 취급 on/off (false=취급 불가, true=허용)",
       "max_age": 70,
       "conditions": [
         "디에스론과 동일 조건. 한도: 1~2급지 5천만원, 3~4급지 3천만원. 전용면적 85㎡ 초과시 LTV85%"

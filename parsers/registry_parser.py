@@ -524,11 +524,19 @@ class RegistryParser:
         if table_match:
             table_text = table_match.group(0)
             # 표제부 안에서 층수+면적 패턴: "15층 3518.21㎡"
-            # 지하1층, 지하2층은 마지막에 있어 마지막 매치가 지하가 됨 → 지하 제외
+            # 주의:
+            # - 옥탑1층/옥탑2층은 총층수 후보에서 제외
+            # - 지하1층/지1층 등 지하층도 총층수 후보에서 제외
             floor_area_pattern = r'(\d+)층\s+\d+(?:\.\d+)?\s*㎡'
             matches = list(re.finditer(floor_area_pattern, table_text))
             non_basement = []
             for m in matches:
+                # 매치된 "N층"이 속한 라인 기준으로 옥탑/다락/펜트층 여부 확인
+                line_start = table_text.rfind('\n', 0, m.start()) + 1
+                line_prefix = table_text[line_start:m.start()]
+                if any(keyword in line_prefix for keyword in ("옥탑", "다락", "펜트")):
+                    continue
+
                 # "지하N층", "지1층", "지2층" 등 지하층 제외
                 start = max(0, m.start() - 3)
                 prefix = table_text[start:m.start()]
