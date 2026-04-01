@@ -277,11 +277,24 @@ def get_application(force_new=False):
             
             print(f"[WEBHOOK] PDF document received: {file_name}", file=sys.stderr, flush=True)
             logger.info(f"PDF document received: {file_name}")
+
+            async def reply_text_safe(text: str):
+                """
+                '답장' 형태는 유지하되, 텔레그램에서 원본 메시지를 못 찾는 경우에도
+                (Message to be replied not found) 전송 자체가 실패하지 않도록 처리.
+                """
+                bot = message.get_bot()
+                return await bot.send_message(
+                    chat_id=message.chat.id,
+                    text=text,
+                    reply_to_message_id=getattr(message, "message_id", None),
+                    allow_sending_without_reply=True,
+                )
             
             processing_msg = None  # 분석 중 메시지 저장용
             try:
                 # 파일 다운로드
-                processing_msg = await message.reply_text(f"📄 등기부등본 분석 중... ({file_name})")
+                processing_msg = await reply_text_safe(f"📄 등기부등본 분석 중... ({file_name})")
                 
                 file = await document.get_file()
                 file_bytes = await file.download_as_bytearray()
@@ -312,12 +325,12 @@ def get_application(force_new=False):
                     
                     # 에러 메시지인 경우 (KB 시세가 없고 대체 시세도 없는 경우) - pdf_only 모드에서는 해당 메시지 없음
                     if response and isinstance(response, str) and "KB 시세가 검색되지 않으므로" in response:
-                        await message.reply_text(response)
+                        await reply_text_safe(response)
                         return
                     
                     # 결과 반환
                     print("[WEBHOOK] Sending PDF result to user", file=sys.stderr, flush=True)
-                    await message.reply_text(response)
+                    await reply_text_safe(response)
                     print("[WEBHOOK] PDF result sent successfully", file=sys.stderr, flush=True)
                     
                     # banks_2 채팅방에서는 등기부 정보만 표시하고 계산 결과는 표시하지 않음
@@ -342,7 +355,7 @@ def get_application(force_new=False):
                     except:
                         pass
                 
-                await message.reply_text(f"❌ PDF 분석 중 오류가 발생했습니다.\n\n오류: {str(e)}")
+                await reply_text_safe(f"❌ PDF 분석 중 오류가 발생했습니다.\n\n오류: {str(e)}")
 
         def parse_complex_amount(text):
             """복합 금액 파싱 (억+천만/만원 조합, 원 단위 등)
