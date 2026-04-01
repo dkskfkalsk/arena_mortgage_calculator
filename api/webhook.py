@@ -44,8 +44,8 @@ if os.getenv("VERCEL") == "1" or os.getenv("VERCEL_ENV"):
 # 모듈 로드 시 로그 출력 (한 줄로 축소)
 logger.info("Webhook module initialized")
 
-# 전역 애플리케이션 인스턴스
-application = None
+# 전역 텔레그램 애플리케이션 인스턴스 (요청 간 캐시 용도)
+telegram_application = None
 
 # 전역 이벤트 루프
 _global_loop = None
@@ -56,7 +56,7 @@ _last_request_time = 0
 
 def get_application(force_new=False):
     """텔레그램 애플리케이션 인스턴스 가져오기. force_new=True면 요청 전용 새 인스턴스 반환(캐시 안 함)."""
-    global application
+    global telegram_application
 
     def _build():
         from telegram.ext import (
@@ -1716,9 +1716,94 @@ def get_application(force_new=False):
 
     if force_new:
         return _build()
-    if application is None:
-        application = _build()
-    return application
+    if telegram_application is None:
+        telegram_application = _build()
+    return telegram_application
+
+
+async def application(scope, receive, send):
+    """
+    Vercel Python Runtime 엔트리포인트 (ASGI).
+
+    - Vercel이 `api.webhook:application`을 ASGI/WSGI 앱으로 로드하려고 하므로,
+      기존 BaseHTTPRequestHandler 방식 대신 ASGI callable을 제공한다.
+    """
+    if scope.get("type") != "http":
+        return
+
+    method = (scope.get("method") or "GET").upper()
+    path = scope.get("path") or "/"
+
+    async def _send_json(status_code: int, data: dict):
+        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        headers = [
+            (b"content-type", b"application/json; charset=utf-8"),
+            (b"content-length", str(len(body)).encode("utf-8")),
+        ]
+        await send({"type": "http.response.start", "status": status_code, "headers": headers})
+        await send({"type": "http.response.body", "body": body})
+
+    # 헬스체크
+    if method == "GET":
+        return await _send_json(200, {"ok": True, "message": "Webhook endpoint is active"})
+
+    if method != "POST":
+        return await _send_json(405, {"ok": False, "error": "Method not allowed"})
+
+    # 요청 body 수신
+    body_bytes = b""
+    while True:
+        event = await receive()
+        if event.get("type") != "http.request":
+            continue
+        body_bytes += event.get("body", b"")
+        if not event.get("more_body"):
+            break
+
+    if not body_bytes:
+        return await _send_json(200, {"ok": True, "skipped": "empty body"})
+
+    try:
+        body_str = body_bytes.decode("utf-8")
+    except Exception:
+        return await _send_json(200, {"ok": True, "skipped": "invalid encoding"})
+
+    try:
+        payload = json.loads(body_str) if body_str else {}
+    except json.JSONDecodeError:
+        return await _send_json(200, {"ok": True, "skipped": "invalid JSON"})
+
+    # 텔레그램 update 형식 검증
+    if not isinstance(payload, dict) or "update_id" not in payload:
+        return await _send_json(200, {"ok": True, "skipped": "not telegram update"})
+
+    try:
+        from telegram import Update
+
+        # 요청마다 새 Application 사용 (Vercel 환경에서 루프/상태 꼬임 방지)
+        app = get_application(force_new=True)
+        update = Update.de_json(payload, app.bot)
+
+        async def _process():
+            if not app._initialized:
+                await app.initialize()
+            if hasattr(app, "_handle_message"):
+                await app._handle_message(update, None)
+            else:
+                await app.process_update(update)
+
+        await _process()
+
+        try:
+            global _last_request_time
+            _last_request_time = time.time()
+        except Exception:
+            pass
+
+        return await _send_json(200, {"ok": True})
+    except Exception as e:
+        logger.error("ASGI webhook error: %s", str(e), exc_info=True)
+        return await _send_json(500, {"ok": False, "error": str(e)})
 
 
 class handler(BaseHTTPRequestHandler):
