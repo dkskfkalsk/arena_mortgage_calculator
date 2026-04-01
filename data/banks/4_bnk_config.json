@@ -1,5 +1,7 @@
 {
   "bank_name": "BNK캐피탈",
+  "refinance_self_aliases": ["BNK캐피탈", "비엔케이캐피탈"],
+  "_comment_refinance_self_aliases": "마스터 대환 명단에서 자기만 제외할 때 사용. business_product_names 미지정 시 적용.",
   "enabled": true,
   "_comment_enabled": "한도 산출 on/off. false면 calculate_all_banks에서 이 금융사 제외",
   "use_principal_for_calculation": false,

@@ -77,23 +77,41 @@ import builtins
 builtins.print = _wrapped_print
 
 # 대환 가능 금융기관 공통 목록 (저축은행+캐피탈) 캐시. 금융사별 config에 business_product_names 없을 때 사용.
-_REFINANCEABLE_INSTITUTIONS_CACHE: Optional[List[str]] = None
+_REFINANCE_MASTER_NAMES_CACHE: Optional[List[str]] = None
 
 
-def _load_refinanceable_institutions() -> List[str]:
-    """data/refinanceable_institutions.json에서 대환 가능 기관 목록 로드 (한 번만 로드)."""
-    global _REFINANCEABLE_INSTITUTIONS_CACHE
-    if _REFINANCEABLE_INSTITUTIONS_CACHE is not None:
-        return _REFINANCEABLE_INSTITUTIONS_CACHE
-    path = os.path.join(os.path.dirname(__file__), "..", "data", "refinanceable_institutions.json")
+def _load_refinanceable_master_names() -> List[str]:
+    """
+    저축은행·리스·할부(캐피탈) 등 마스터 명단 로드 (한 번만).
+    우선순위: data/banks/korean_savings_and_capital_institutions.json → data/refinanceable_institutions.json
+    """
+    global _REFINANCE_MASTER_NAMES_CACHE
+    if _REFINANCE_MASTER_NAMES_CACHE is not None:
+        return _REFINANCE_MASTER_NAMES_CACHE
+    base = os.path.join(os.path.dirname(__file__), "..", "data")
+    master_path = os.path.join(base, "banks", "korean_savings_and_capital_institutions.json")
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(master_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        _REFINANCEABLE_INSTITUTIONS_CACHE = data.get("names") or []
+        names = data.get("names")
+        if names:
+            _REFINANCE_MASTER_NAMES_CACHE = list(names)
+        else:
+            s = data.get("savings_banks") or []
+            c = data.get("capital_lease_installment") or []
+            _REFINANCE_MASTER_NAMES_CACHE = sorted(set(s + c))
+        return _REFINANCE_MASTER_NAMES_CACHE
+    except Exception as e:
+        logger.warning("korean_savings_and_capital_institutions.json 로드 실패: %s", e)
+    legacy = os.path.join(base, "refinanceable_institutions.json")
+    try:
+        with open(legacy, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        _REFINANCE_MASTER_NAMES_CACHE = data.get("names") or []
     except Exception as e:
         logger.warning("refinanceable_institutions.json 로드 실패: %s", e)
-        _REFINANCEABLE_INSTITUTIONS_CACHE = []
-    return _REFINANCEABLE_INSTITUTIONS_CACHE
+        _REFINANCE_MASTER_NAMES_CACHE = []
+    return _REFINANCE_MASTER_NAMES_CACHE
 
 
 def _parse_grade_range(credit_grade: str) -> Set[int]:
@@ -345,12 +363,48 @@ class BaseCalculator:
         self.config = config
         self.bank_name = config.get("bank_name", "Unknown")
 
+    def _refinance_self_alias_strings(self) -> List[str]:
+        """이 계산기가 나타내는 금융사(자기) — 마스터 명단에서 제외할 때 사용."""
+        raw = self.config.get("refinance_self_aliases")
+        if raw:
+            return list(raw)
+        bn = (self.config.get("bank_name") or "").strip()
+        for suf in ("-사업자", "-리테일", "-가계"):
+            if bn.endswith(suf):
+                bn = bn[: -len(suf)].strip()
+        out: List[str] = [bn] if bn else []
+        for x in self.config.get("self_refinance_excluded", []) or []:
+            if x and x not in out:
+                out.append(x)
+        return out
+
+    def _exclude_self_from_refinance_names(self, names: List[str]) -> List[str]:
+        """마스터 명단에서 자기 금융사(별칭)에 해당하는 항목 제거."""
+        aliases = self._refinance_self_alias_strings()
+        if not aliases:
+            return names
+        alias_clean = [a.replace(" ", "") for a in aliases if a]
+        result: List[str] = []
+        for n in names:
+            nc = n.replace(" ", "")
+            drop = False
+            for ac in alias_clean:
+                if len(ac) < 3:
+                    continue
+                if ac in nc:
+                    drop = True
+                    break
+            if not drop:
+                result.append(n)
+        return result
+
     def _get_business_product_names(self) -> List[str]:
-        """대환 가능 금융기관 목록. config에 business_product_names가 있으면 사용, 없으면 공통 목록(refinanceable_institutions.json) 사용."""
+        """대환 가능 금융기관 목록. config에 business_product_names가 있으면 사용, 없으면 마스터 명단(자기 제외)."""
         from_config = self.config.get("business_product_names")
         if from_config is not None and len(from_config) > 0:
             return from_config
-        return _load_refinanceable_institutions()
+        master = _load_refinanceable_master_names()
+        return self._exclude_self_from_refinance_names(master)
     
     @staticmethod
     def round_down_to_hundred_thousand(amount: float) -> float:
