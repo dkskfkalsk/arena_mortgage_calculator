@@ -324,10 +324,17 @@
   "ltv_bands_subordinate": [70, 75, 80, 85, 90],
   "_comment_ltv_bands": "LTV 구간: 선순위 ~75/75~80/80~85/85~90, 후순위 ~70/70~75/75~80/80~85/85~90",
   "startup_business_keywords": {
-    "occupation": ["직장인", "직장인(사업자보유)"],
+    "occupation": ["직장인"],
     "special_notes": ["즉발", "즉발사업자", "가라사업자", "즉발보유", "가라사업자보유"]
   },
-  "_comment_startup": "직업 또는 특이사항에 해당 키워드 있으면 창업사업자. 없고 '사업자' 보유면 일반사업자",
+  "startup_occupation_exceptions": ["직장인(사업자보유)"],
+  "_comment_startup_occupation_exceptions": "직업에 포함 시 창업 아님 → 일반사업자(regular) 금리·구분. '직장인'만 있으면 창업으로 잡히므로 별도 처리",
+  "_comment_startup": "직업 또는 특이사항에 해당 키워드 있으면 창업사업자. 직장인(사업자보유)는 예외로 일반사업자. 없고 '사업자' 보유면 일반사업자",
+  "excluded_occupation_for_business_product": {
+    "keywords": ["프리랜서"],
+    "error_message": "프리랜서는 사업자등록 기준 일반사업자 한도 산출 대상이 아닙니다. (창업사업자 키워드에 해당하지 않는 경우)"
+  },
+  "_comment_excluded_occupation": "직업란에 키워드가 있고 창업사업자로 분류되지 않으면 사업자금 한도 산출 제외",
   "min_amount": 3000,
   "max_amount": 20000,
   "max_amount_limit": 20000,
