@@ -2412,12 +2412,16 @@ class BaseCalculator:
                 
                 if total_mortgage_for_check > max_ltv_amount:
                     shortage = total_mortgage_for_check - max_ltv_amount
+                    existing_pct = (total_mortgage_for_check / kb_price * 100) if kb_price else 0.0
                     print(f"DEBUG: BaseCalculator.calculate - 대환 시 기존 근저당권이 최대 LTV 한도를 초과: {shortage:.0f}만원 초과")
                     return {
                         "bank_name": self.bank_name,
                         "results": [],
                         "conditions": self.config.get("conditions", []),
-                        "errors": [f"기존 근저당권이 최대 한도 초과 (초과: {shortage:,.0f}만원)"],
+                        "errors": [
+                            f"기존 근저당권이 최대 LTV {max_ltv:g}% 한도 초과 "
+                            f"(선순위 채권최고 약 {existing_pct:.2f}%, 담보한도 {max_ltv:g}% 대비 초과 {shortage:,.0f}만원)"
+                        ],
                         "min_amount": min_amount
                     }
                 else:
@@ -2430,19 +2434,26 @@ class BaseCalculator:
                             "bank_name": self.bank_name,
                             "results": [],
                             "conditions": self.config.get("conditions", []),
-                            "errors": [f"최소진행금액 부족 (가용한도: {max_available_rounded:,.0f}만원, 최소진행금액: {min_amount:,.0f}만원)"],
+                            "errors": [
+                                f"최소진행금액 부족 (최대 LTV {max_ltv:g}% 적용 시 가용한도: {max_available_rounded:,.0f}만원, "
+                                f"최소진행금액: {min_amount:,.0f}만원)"
+                            ],
                             "min_amount": min_amount
                         }
             else:
                 # 대환이 아닌 경우: 기존 로직 유지
                 if total_mortgage > max_ltv_amount:
                     shortage = total_mortgage - max_ltv_amount
+                    existing_pct = (total_mortgage / kb_price * 100) if kb_price else 0.0
                     print(f"DEBUG: BaseCalculator.calculate - 기존 근저당권이 최대 LTV 한도를 초과: {shortage:.0f}만원 초과")
                     return {
                         "bank_name": self.bank_name,
                         "results": [],
                         "conditions": self.config.get("conditions", []),
-                        "errors": [f"기존 근저당권이 최대 한도 초과 (초과: {shortage:,.0f}만원)"],
+                        "errors": [
+                            f"기존 근저당권이 최대 LTV {max_ltv:g}% 한도 초과 "
+                            f"(선순위 채권최고 약 {existing_pct:.2f}%, 담보한도 {max_ltv:g}% 대비 초과 {shortage:,.0f}만원)"
+                        ],
                         "min_amount": min_amount
                     }
                 else:
@@ -2455,12 +2466,35 @@ class BaseCalculator:
                             "bank_name": self.bank_name,
                             "results": [],
                             "conditions": self.config.get("conditions", []),
-                            "errors": [f"최소진행금액 부족 (가용한도: {max_available_rounded:,.0f}만원, 최소진행금액: {min_amount:,.0f}만원)"],
+                            "errors": [
+                                f"최소진행금액 부족 (최대 LTV {max_ltv:g}% 적용 시 가용한도: {max_available_rounded:,.0f}만원, "
+                                f"최소진행금액: {min_amount:,.0f}만원)"
+                            ],
                             "min_amount": min_amount
                         }
             
-            print(f"DEBUG: BaseCalculator.calculate - no results found for {self.bank_name}, returning None")
-            return None
+            # 위 분기에서 사유를 못 담은 경우(가용 0·반올림, 금리 미산출 등): 한도 없음 이유를 errors로 반환 (MG캐피탈 등 동일)
+            tm_check = total_mortgage
+            max_avail_raw = max_ltv_amount - tm_check
+            max_avail_rnd = self.round_down_to_hundred_thousand(max_avail_raw)
+            existing_pct = (tm_check / kb_price * 100) if kb_price else 0.0
+            loan_phase = "대환" if is_refinance else "후순위"
+            if max_avail_rnd <= 0:
+                fallback_err = (
+                    f"{loan_phase} 가용 한도 없음 (선순위 채권최고 약 {existing_pct:.2f}% / 최대 LTV {max_ltv:g}% 기준 담보 여력 없음)"
+                )
+            else:
+                fallback_err = (
+                    f"한도 미산출 ({loan_phase}, 최대 LTV {max_ltv:g}% 기준 가용 약 {max_avail_rnd:,.0f}만원, 금리·조건 미충족 가능)"
+                )
+            print(f"DEBUG: BaseCalculator.calculate - no results for {self.bank_name}, fallback message: {fallback_err}")
+            return {
+                "bank_name": self.bank_name,
+                "results": [],
+                "conditions": self.config.get("conditions", []),
+                "errors": [fallback_err],
+                "min_amount": min_amount,
+            }
         
         print(f"DEBUG: BaseCalculator.calculate - {self.bank_name} found {len(results)} results")  # 추가
         
