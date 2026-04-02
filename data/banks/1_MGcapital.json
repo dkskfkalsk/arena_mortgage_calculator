@@ -5,7 +5,7 @@
   "enabled": true,
   "_comment_enabled": "한도 산출 on/off. false면 calculate_all_banks에서 이 금융사 제외",
   "use_principal_for_calculation": false,
-  "_comment_use_principal_for_calculation": "기존 근저당 차감 기준. true=원금(amount) 합, false=채권최고액(max_amount) 합·없으면 원금×1.2",
+  "_comment_use_principal_for_calculation": "레거시(무시): 선순위 차감은 항상 채권최고, 대환 상환액만 원금. base_calculator 고정",
   "fractional_share_request_enabled": false,
   "_comment_fractional_share_request_enabled": "요청에 지분조건 있을 때 이 금융사만 최대 LTV 50%·최소 1000만 적용",
   "target_regions": [

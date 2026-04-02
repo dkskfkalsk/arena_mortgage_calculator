@@ -205,9 +205,8 @@ class MessageParser:
                         value = tackgam_match.group(2).strip()
                         if value and re.search(r'[\d,]+', value):
                             data["kb_price"] = value
-                            # "탁감"은 "탁감가" 약어 → kb_price_raw에 탁감가 사용 (MG캐피탈 감정건 가산금리 인식용)
-                            keyword_for_raw = "탁감가" if keyword == "탁감" else keyword
-                            data["kb_price_raw"] = f"{keyword_for_raw}: {value}"
+                            # 감정가·탁감가·은행감정가·탁감 동일 취급 → kb_price_raw는 항상 탁감가 접두 (하위 로직 공통 키워드)
+                            data["kb_price_raw"] = f"탁감가: {value}"
                             print(f"DEBUG: Parsed 감정가/탁감가 (no colon) - keyword: {keyword}, value: {value}")
             elif "kb시세" in line.replace(" ", "").lower() and "kbai" not in line.replace(" ", "").lower() and current_section != "mortgages":
                 # "KB시세" 또는 "KB 시세" (공백 유연) - KB AI시세 제외
@@ -824,9 +823,9 @@ class MessageParser:
             data["property_type"] = value
         
         elif ("감정가" in key_clean or "탁감가" in key_clean or "탁감" in key_clean) and not data.get("kb_price"):
-            # 감정가/탁감가(은행감정가) - KB시세가 없을 때만 사용 (금융사별 bank_appraisal_price 설정에 따라 한도 산출)
+            # 감정가/탁감가(은행감정가) 동일 취급 - KB시세가 없을 때만 사용 (금융사별 bank_appraisal_price 설정에 따라 한도 산출)
             data["kb_price"] = value
-            data["kb_price_raw"] = f"{key.strip()}: {value}"
+            data["kb_price_raw"] = f"탁감가: {value}"
             print(f"DEBUG: Parsed 감정가/탁감가 - key: {key}, value: {value}")
         
         elif "하우스머치" in key_clean:

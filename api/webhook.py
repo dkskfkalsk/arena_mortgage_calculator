@@ -668,7 +668,7 @@ def get_application(force_new=False):
                         price_man = parse_complex_amount(price_text)
                         if price_man:
                             info['kb_price'] = f"{price_man:,}"
-                            info['price_type'] = "감정가" if re.search(r'감정가', caption, re.IGNORECASE) else "탁감가"
+                            info['price_type'] = "감정가·탁감가"
                             kb_price_found = True
                             print(f"[WEBHOOK] parse_caption_info - 감정가/탁감가 추출: {price_text} -> {price_man}만원", file=sys.stderr, flush=True)
                             logger.info(f"parse_caption_info - 감정가/탁감가 추출: {price_text} -> {price_man}만원")
@@ -990,8 +990,8 @@ def get_application(force_new=False):
             # KB시세: 캡션에서 추출한 것이 없으면 등기부 주소/면적로 자동 조회
             kb_price = caption_info['kb_price']
             kb_price_low = caption_info['kb_price_low']
-            # 캡션에서 탁감가/감정가로 추출된 경우 표시 라벨용
-            caption_price_type = caption_info.get('price_type')  # '탁감가' 또는 '감정가'
+            # 캡션에서 탁감가/감정가로 추출된 경우 표시 라벨용 (동일 취급)
+            caption_price_type = caption_info.get('price_type')  # '감정가·탁감가' 등
             
             # 면적에서 숫자 추출 (64.08㎡ -> 64.08, "51㎡/37.85㎡" -> 37.85 전용 사용은 get_kb_price_from_registry 내부에서)
             area_value = None
@@ -1117,11 +1117,7 @@ def get_application(force_new=False):
                 bank_appraisal_price = extract_bank_appraisal_price_from_special_notes(caption_text)
                 if bank_appraisal_price is not None:
                     kb_price = f"{int(bank_appraisal_price):,}"
-                    # 캡션에서 감정가/탁감가 키워드 확인
-                    if re.search(r'감정가', caption_text, re.IGNORECASE):
-                        alternative_price_type = "감정가"
-                    else:
-                        alternative_price_type = "탁감가"
+                    alternative_price_type = "감정가·탁감가"
                     print(f"[WEBHOOK] ✅ 캡션에서 {alternative_price_type} 추출: {kb_price}만원", file=sys.stderr, flush=True)
                     logger.info(f"캡션에서 {alternative_price_type} 추출: {kb_price}만원")
                 else:
@@ -1639,7 +1635,7 @@ def get_application(force_new=False):
                                 property_data["housematch_price"] = housematch_price
                                 property_data["price_type"] = "housematch"
                             price_sources_found = [p for p, v in [
-                                ("탁감가", bank_appraisal_price),
+                                ("감정가·탁감가", bank_appraisal_price),
                                 ("KB AI시세", kb_ai_price),
                                 ("하우스머치", housematch_price),
                                 ("부동산테크", realestatetech_price),

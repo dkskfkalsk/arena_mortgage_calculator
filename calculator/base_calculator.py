@@ -508,7 +508,7 @@ class BaseCalculator:
         if is_tackgamga and price_sources.get("bank_appraisal_price", 0) == 0:
             log_print(f"DEBUG: BaseCalculator.calculate - 탁감가 입력됨 but 금융사가 탁감가 미사용: {self.bank_name}")
             logger.warning(f"BaseCalculator.calculate - 탁감가 입력됨 but 금융사가 탁감가 미사용: {self.bank_name}")
-            validation_errors.append("탁감가 적용 불가")
+            validation_errors.append("감정가·탁감가 적용 불가")
             return {
                 "bank_name": self.bank_name,
                 "results": [],
@@ -585,7 +585,7 @@ class BaseCalculator:
             if bank_appraisal_price is not None and price_sources.get("bank_appraisal_price", 0) == 0:
                 log_print(f"DEBUG: BaseCalculator.calculate - 탁감가 입력됨 ({bank_appraisal_price}만원) but 금융사가 탁감가 미사용")
                 logger.warning(f"BaseCalculator.calculate - 탁감가 입력됨 but 금융사가 탁감가 미사용: {self.bank_name}")
-                validation_errors.append("탁감가 적용 불가")
+                validation_errors.append("감정가·탁감가 적용 불가")
                 return {
                     "bank_name": self.bank_name,
                     "results": [],
@@ -681,10 +681,10 @@ class BaseCalculator:
                         has_appraisal_price = True
                         log_print(f"DEBUG: 탁감가 추출됨 (special_notes): {appraisal_price}만원")
             
-            # 탁감가 정보가 있으면 "탁감가 취급 불가", 하우스머치만 있으면 "하우스머치 시세 적용 불가", 없으면 "KB시세 정보가 없어 취급 불가합니다"
+            # 감정가·탁감가(동일) 정보가 있으면 "감정가·탁감가 취급 불가", 하우스머치만 있으면 "하우스머치 시세 적용 불가", 없으면 "KB시세 정보가 없어 취급 불가합니다"
             if has_appraisal_price:
-                validation_errors.append("탁감가 취급 불가")
-                log_print(f"DEBUG: 탁감가 취급 불가 메시지 추가")
+                validation_errors.append("감정가·탁감가 취급 불가")
+                log_print(f"DEBUG: 감정가·탁감가 취급 불가 메시지 추가")
             else:
                 # special_notes에 하우스머치 시세만 있는 경우 (금융사가 housematch 미사용 시)
                 housematch_in_notes = extract_housematch_price_from_special_notes(special_notes)
@@ -1195,7 +1195,7 @@ class BaseCalculator:
                     max_ltv = cap_ltv
                     print(f"DEBUG: BaseCalculator.calculate - 면적 {area}㎡ > {area_limit_config.get('max_area')}㎡, max_ltv 제한: {max_ltv}%")
         
-        # 기존 근저당권 총액 (config: use_principal_for_calculation → 원금 합, 아니면 채권최고액 합)
+        # 기존 근저당권 총액: 대환 제외·후순위 공통으로 선순위 채권최고액 합. 대환 상환액은 refinance_principal(원금)로 별도 차감.
         mortgages = property_data.get("mortgages", [])
         
         # 대환할 근저당권 찾기 (여러 개 대비하여 누적합으로 처리)
@@ -1331,16 +1331,14 @@ class BaseCalculator:
                 else:
                     other_mortgages.append(mortgage)
         
-        # 나머지 근저당 합산: use_principal_for_calculation (JSON 루트, _comment_use_principal_for_calculation 참고)
-        use_principal = self.config.get("use_principal_for_calculation", False)
-        if use_principal:
-            total_mortgage = self.calculate_total_mortgage_principal(other_mortgages)
-            print(f"DEBUG: BaseCalculator.calculate - 원금 기준(use_principal_for_calculation): {total_mortgage}만원")
-        else:
-            total_mortgage = self.calculate_total_mortgage(other_mortgages)
+        # 나머지 근저당(대환 제외) 합산: 항상 채권최고액. 대환 시 2단계에서 refinance_principal(대환 대상 원금)만 추가 차감.
+        total_mortgage = self.calculate_total_mortgage(other_mortgages)
+        print(
+            f"DEBUG: BaseCalculator.calculate - 선순위 채권최고 합(대환 제외·후순위 동일): {total_mortgage}만원, "
+            f"refinance_principal(대환 원금): {refinance_principal}만원"
+        )
         
         print(f"DEBUG: BaseCalculator.calculate - mortgages: {mortgages}")  # 추가
-        print(f"DEBUG: BaseCalculator.calculate - refinance_principal(대환 원금 합계): {refinance_principal}만원, total_mortgage(차감할 금액): {total_mortgage}")  # 추가
         
         # BNK캐피탈인 경우 대환 요청이 있었는데 대환 가능한 기관이 없는지 확인
         is_bnk = self.bank_name == "BNK캐피탈" or "BNK캐피탈" in self.bank_name or "비엔케이캐피탈" in self.bank_name
@@ -2404,74 +2402,37 @@ class BaseCalculator:
             max_ltv_amount = kb_price * (max_ltv / 100)
             min_amount = effective_min_amount if effective_min_amount is not None else 3000
             
-            # 대환 시: 선순위(대환 제외) 채권최고액만으로 한도 초과 여부 검사. 구 대환 대상은 담보에서 해지되므로 제외.
-            # 대환이 아닌 경우: 기존 근저당권의 채권최고액만 체크
-            if is_refinance:
-                total_mortgage_for_check = total_mortgage
-                print(f"DEBUG: BaseCalculator.calculate - 대환인 경우(대환 대상 제외): total_mortgage={total_mortgage}만원, total_mortgage_for_check={total_mortgage_for_check}만원")
-                
-                if total_mortgage_for_check > max_ltv_amount:
-                    shortage = total_mortgage_for_check - max_ltv_amount
-                    existing_pct = (total_mortgage_for_check / kb_price * 100) if kb_price else 0.0
-                    print(f"DEBUG: BaseCalculator.calculate - 대환 시 기존 근저당권이 최대 LTV 한도를 초과: {shortage:.0f}만원 초과")
-                    return {
-                        "bank_name": self.bank_name,
-                        "results": [],
-                        "conditions": self.config.get("conditions", []),
-                        "errors": [
-                            f"기존 근저당권이 최대 LTV {max_ltv:g}% 한도 초과 "
-                            f"(선순위 채권최고 약 {existing_pct:.2f}%, 담보한도 {max_ltv:g}% 대비 초과 {shortage:,.0f}만원)"
-                        ],
-                        "min_amount": min_amount
-                    }
-                else:
-                    # 최대 LTV로 계산했을 때 가용한도 확인
-                    max_available = max_ltv_amount - total_mortgage_for_check
-                    max_available_rounded = self.round_down_to_hundred_thousand(max_available)
-                    if max_available_rounded > 0 and max_available_rounded < min_amount:
-                        print(f"DEBUG: BaseCalculator.calculate - 최대 가용한도 {max_available_rounded}만원이 최소진행금액 {min_amount}만원보다 작음")
-                        return {
-                            "bank_name": self.bank_name,
-                            "results": [],
-                            "conditions": self.config.get("conditions", []),
-                            "errors": [
-                                f"최소진행금액 부족 (최대 LTV {max_ltv:g}% 적용 시 가용한도: {max_available_rounded:,.0f}만원, "
-                                f"최소진행금액: {min_amount:,.0f}만원)"
-                            ],
-                            "min_amount": min_amount
-                        }
+            # 선순위 채권최고(대환 제외 분 = other_mortgages)가 담보한도를 넘는지. 대환 대상 원금은 여기서 제외(2단계에서 차감).
+            if total_mortgage > max_ltv_amount:
+                shortage = total_mortgage - max_ltv_amount
+                existing_pct = (total_mortgage / kb_price * 100) if kb_price else 0.0
+                print(f"DEBUG: BaseCalculator.calculate - 선순위 채권최고가 최대 LTV 한도 초과: {shortage:.0f}만원 초과")
+                return {
+                    "bank_name": self.bank_name,
+                    "results": [],
+                    "conditions": self.config.get("conditions", []),
+                    "errors": [
+                        f"기존 근저당권이 최대 LTV {max_ltv:g}% 한도 초과 "
+                        f"(선순위 채권최고 약 {existing_pct:.2f}%, 담보한도 {max_ltv:g}% 대비 초과 {shortage:,.0f}만원)"
+                    ],
+                    "min_amount": min_amount
+                }
             else:
-                # 대환이 아닌 경우: 기존 로직 유지
-                if total_mortgage > max_ltv_amount:
-                    shortage = total_mortgage - max_ltv_amount
-                    existing_pct = (total_mortgage / kb_price * 100) if kb_price else 0.0
-                    print(f"DEBUG: BaseCalculator.calculate - 기존 근저당권이 최대 LTV 한도를 초과: {shortage:.0f}만원 초과")
+                # 1차 잔여 한도(담보한도 − 선순위 채권최고). 대환 시 calculate_available_amount에서 대환 원금을 한 번 더 뺌.
+                max_available = max_ltv_amount - total_mortgage
+                max_available_rounded = self.round_down_to_hundred_thousand(max_available)
+                if max_available_rounded > 0 and max_available_rounded < min_amount:
+                    print(f"DEBUG: BaseCalculator.calculate - 최대 가용한도 {max_available_rounded}만원이 최소진행금액 {min_amount}만원보다 작음")
                     return {
                         "bank_name": self.bank_name,
                         "results": [],
                         "conditions": self.config.get("conditions", []),
                         "errors": [
-                            f"기존 근저당권이 최대 LTV {max_ltv:g}% 한도 초과 "
-                            f"(선순위 채권최고 약 {existing_pct:.2f}%, 담보한도 {max_ltv:g}% 대비 초과 {shortage:,.0f}만원)"
+                            f"최소진행금액 부족 (최대 LTV {max_ltv:g}% 적용 시 가용한도: {max_available_rounded:,.0f}만원, "
+                            f"최소진행금액: {min_amount:,.0f}만원)"
                         ],
                         "min_amount": min_amount
                     }
-                else:
-                    # 최대 LTV로 계산했을 때 가용한도 확인
-                    max_available = max_ltv_amount - total_mortgage
-                    max_available_rounded = self.round_down_to_hundred_thousand(max_available)
-                    if max_available_rounded > 0 and max_available_rounded < min_amount:
-                        print(f"DEBUG: BaseCalculator.calculate - 최대 가용한도 {max_available_rounded}만원이 최소진행금액 {min_amount}만원보다 작음")
-                        return {
-                            "bank_name": self.bank_name,
-                            "results": [],
-                            "conditions": self.config.get("conditions", []),
-                            "errors": [
-                                f"최소진행금액 부족 (최대 LTV {max_ltv:g}% 적용 시 가용한도: {max_available_rounded:,.0f}만원, "
-                                f"최소진행금액: {min_amount:,.0f}만원)"
-                            ],
-                            "min_amount": min_amount
-                        }
             
             # 위 분기에서 사유를 못 담은 경우(가용 0·반올림, 금리 미산출 등): 한도 없음 이유를 errors로 반환 (MG캐피탈 등 동일)
             tm_check = total_mortgage
@@ -2511,13 +2472,13 @@ class BaseCalculator:
             if promotion_rejection_reason:
                 print(f"DEBUG: BaseCalculator.calculate - 프로모션 미적용 사유: {promotion_rejection_reason}")
         
-        # MG캐피탈 감정건(탁감가) 시 한도 밑에 가산금리 안내 문구 추가
+        # MG캐피탈 감정건(감정가·탁감가 동일 취급) 시 한도 밑에 가산금리 안내 문구 추가
         conditions = list(self.config.get("conditions", []))
         is_mg_capital_return = final_bank_name == "MG캐피탈" or "MG캐피탈" in final_bank_name
         if is_mg_capital_return and property_data:
             kb_price_raw_str = str(property_data.get("kb_price_raw") or "")
             if "탁감가" in kb_price_raw_str or "감정가" in kb_price_raw_str or "은행감정가" in kb_price_raw_str:
-                conditions.append("※ 표시금리는 감정건(탁감가) 가산금리 1%p가 적용된 금리입니다")
+                conditions.append("※ 표시금리는 감정건(감정가·탁감가) 가산금리 1%p가 적용된 금리입니다")
         
         # 총액(대환/추가대출) N억 이상 시 안내 문구 추가 (amount_condition_threshold, amount_condition_message)
         amount_condition_threshold = self.config.get("amount_condition_threshold")
@@ -3497,18 +3458,6 @@ class BaseCalculator:
         
         return False
     
-    def calculate_total_mortgage_principal(self, mortgages: List[Dict[str, Any]]) -> float:
-        """
-        기존 근저당권 원금 합계 (만원 단위). use_principal_for_calculation 시 사용.
-        """
-        total = 0.0
-        for mortgage in mortgages:
-            amount = mortgage.get("amount", 0)
-            if isinstance(amount, (int, float)):
-                total += float(amount)
-                print(f"DEBUG: calculate_total_mortgage_principal - amount(원금): {amount}만원")
-        return total
-    
     def calculate_total_mortgage(self, mortgages: List[Dict[str, Any]]) -> float:
         """
         기존 근저당권 총액 계산 (채권최고액 기준, 만원 단위)
@@ -3538,12 +3487,15 @@ class BaseCalculator:
         refinance_principal: float = 0.0
     ) -> Dict[str, float]:
         """
-        가용 한도 계산 (채권최고액 기준으로 차감)
+        가용 한도 계산.
+        
+        - total_mortgage: 대환 제외 선순위 채권최고액 합(만원). 후순위·대환 공통.
+        - 대환 시 refinance_principal: 대환 대상 근저당 **원금** 합. 담보한도에서 1차 차감(채권최고) 후 2차로 차감.
         
         Args:
             kb_price: KB시세 (만원)
-            ltv: LTV 비율 (예: 85) - 채권최고액 기준
-            total_mortgage: 기존 근저당권 총액 (채권최고액, 만원) - 대환할 근저당권 제외
+            ltv: LTV 비율 (예: 85)
+            total_mortgage: 선순위 채권최고 합(만원, 대환 제외 분)
             is_refinance: 대환 여부
             refinance_principal: 대환할 근저당권 원금 (만원)
         
@@ -3553,16 +3505,14 @@ class BaseCalculator:
                 "available_amount": 가용 한도 (원금)
             }
         """
-        # LTV는 채권최고액 기준이므로, 최대 대출 금액(채권최고액) 계산
         max_amount_principal = kb_price * (ltv / 100)
-        print(f"DEBUG: calculate_available_amount - kb_price: {kb_price}, ltv: {ltv}, total_mortgage(나머지 채권최고액): {total_mortgage}, is_refinance: {is_refinance}, refinance_principal(대환 원금): {refinance_principal}")  # 추가
+        print(f"DEBUG: calculate_available_amount - kb_price: {kb_price}, ltv: {ltv}, total_mortgage(선순위채권최고): {total_mortgage}, is_refinance: {is_refinance}, refinance_principal(대환 원금): {refinance_principal}")  # 추가
         print(f"DEBUG: calculate_available_amount - max_amount_principal (kb_price * ltv/100): {max_amount_principal}")  # 추가
         
         if is_refinance:
-            # 대환인 경우:
-            # 1단계: 가용한도 = 최대LTV금액 - 유지하는근저당권채권최고액
+            # 1단계: 남은 LTV 한도 = 담보한도 − 대환 아닌 선순위 채권최고
             available_amount = max_amount_principal - total_mortgage
-            # 2단계: 최종가용한도 = 가용한도 - 대환하는근저당권원금
+            # 2단계: 그 잔여에서 대환 대상 근저당 원금 상환분 차감
             # 마이너스도 허용 (대환 한도 부족해도 산출)
             available_principal = available_amount - refinance_principal
             
@@ -3577,8 +3527,7 @@ class BaseCalculator:
             print(f"DEBUG: calculate_available_amount - 대환: available_amount(1단계, 가한도)={available_amount}, available_principal(최종)={available_principal}, total_refinance_amount={total_refinance_amount}, result={result}")  # 추가
             return result
         else:
-            # 후순위인 경우: 채권최고액 기준으로 차감
-            # max_amount_principal(원금)에서 total_mortgage(채권최고액)을 차감
+            # 후순위: 담보한도에서 선순위 채권최고액 합을 차감
             available_principal = max_amount_principal - total_mortgage
             result = {
                 "total_amount": max(0, available_principal),

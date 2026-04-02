@@ -230,13 +230,13 @@ def _format_result_with_label(
     lower_bound_applied = bank_result.get("lower_bound_applied", False)
     kb_price_used = bank_result.get("kb_price_used")
     price_type_used = bank_result.get("price_type_used", "일반")
-    # 하한가/탁감가 적용 시 금융사명 옆에 시세 적용 정보 표시
+    # 하한가 / 감정가·탁감가(동일 취급) 적용 시 금융사명 옆에 시세 적용 정보 표시
     if price_type_used in ("하한", "탁감가") and kb_price_used is not None:
         price_str = f"{int(kb_price_used):,}"
         if price_type_used == "하한":
             lower_bound_suffix = f" (KB시세 하한 {price_str}만원 적용)"
         else:
-            lower_bound_suffix = f" (탁감가 {price_str}만원 적용)"
+            lower_bound_suffix = f" (감정가·탁감가 {price_str}만원 적용)"
     else:
         lower_bound_suffix = " (하한가 적용)" if lower_bound_applied else ""
     
@@ -523,17 +523,16 @@ def format_all_results(
                 if price_match:
                     price_str = price_match.group(1)
                     appraisal_price_info = f"KB AI시세 일반 {price_str}만원 적용"
-        # kb_price_raw에 탁감가 또는 감정가 키워드가 있는지 확인
+        # kb_price_raw에 탁감가 또는 감정가 키워드가 있는지 확인 (동일 취급)
         elif kb_price_raw and ("탁감가" in str(kb_price_raw) or "감정가" in str(kb_price_raw)):
-            # 탁감가 금액 추출 (kb_price 사용 또는 kb_price_raw에서 추출)
             if kb_price:
                 price_str = f"{int(kb_price):,}"
-                appraisal_price_info = f"탁감가 {price_str}만원 적용"
+                appraisal_price_info = f"감정가·탁감가 {price_str}만원 적용"
             else:
                 price_match = re.search(r'([\d,]+)', str(kb_price_raw))
                 if price_match:
                     price_str = price_match.group(1)
-                    appraisal_price_info = f"탁감가 {price_str}만원 적용"
+                    appraisal_price_info = f"감정가·탁감가 {price_str}만원 적용"
         # KB시세 (일반/하한) 적용 정보
         elif kb_price_num is not None and kb_price_raw:
             raw_str = str(kb_price_raw)
