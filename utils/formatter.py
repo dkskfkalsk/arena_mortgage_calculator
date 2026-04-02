@@ -561,6 +561,11 @@ def format_all_results(
         return out
     refinance_banks = _dedupe_by_name(all_refinance_results)
     subordinate_banks = _dedupe_by_name(all_subordinate_results)
+    # 한도는 없고 errors만 있는 금융사 (MG 최소진행금액 부족 등) — 아래에서 본문에 반드시 포함
+    error_only_banks = [
+        br for br in all_results
+        if not br.get("results") and br.get("errors")
+    ]
     
     # 헤더 텍스트 생성 (대환/후순위 각각)
     def make_refinance_header():
@@ -616,6 +621,10 @@ def format_all_results(
         body_parts = output_parts[1:]
         # 빈 문자열은 섹션 구분이므로 \n\n\n으로 연결, 나머지는 \n\n
         body_str = "\n\n".join(p for p in body_parts if p != "")
+        err_parts = [format_br(br) for br in error_only_banks]
+        err_str = "\n\n".join(p for p in err_parts if p and str(p).strip())
+        if err_str:
+            body_str = f"{body_str}\n\n{err_str}" if body_str else err_str
         if body_str:
             return f"{header}\n\n{body_str}"
         # 금융사별 결과가 모두 비어 있으면 (한도 미산출만 있는 경우)
