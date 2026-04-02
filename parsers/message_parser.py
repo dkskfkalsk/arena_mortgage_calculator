@@ -9,6 +9,26 @@ from typing import Dict, List, Optional, Any
 from utils.validators import validate_kb_price, validate_credit_score, parse_amount
 
 
+def _normalize_refinance_hyphens(text: str) -> str:
+    """
+    대환 요청문에서 N-M순위 인식을 위해 유니코드 대시(– — − 등)를 ASCII 하이픈으로 통일.
+    '1–3순위 대환' 처럼 입력돼도 범위 패턴이 매칭되도록 함.
+    """
+    if not text:
+        return text
+    return re.sub(r"[–—−]", "-", text)
+
+
+def _has_priority_range_before_refi(text: str) -> bool:
+    """'1-3순위 대환' / '1~3순위 대환' 형태가 있으면 단일 'N순위 대환조건' 패턴으로 덮어쓰지 않음 (3순위만 대환 오인 방지)."""
+    if not text:
+        return False
+    return bool(
+        re.search(r"\d+\s*-\s*\d+\s*순위\s*대환", text)
+        or re.search(r"\d+\s*~\s*\d+\s*순위\s*대환", text)
+    )
+
+
 class MessageParser:
     """
     텔레그램 메시지 파서
@@ -400,11 +420,12 @@ class MessageParser:
                 
                 # 기존 대환 로직 (명시적으로 지정된 경우)
                 if "대환" in data["requests"]:
+                    req_ref = _normalize_refinance_hyphens(data["requests"])
                     # 패턴: "N순위 [기관명] 대환" 또는 "[기관명] 대환" 또는 "N순위 대환조건" 등
                     # 0-1. "N~M순위 대환" / "N-M순위 대환" / "1, 2순위 대환" 패턴
-                    range_match = re.search(r'(\d+)~(\d+)순위\s*대환', data["requests"])
-                    hyphen_match = re.search(r'(\d+)\s*-\s*(\d+)\s*순위\s*대환', data["requests"])
-                    comma_match = re.search(r'([\d,\s]+)\s*순위\s*대환', data["requests"])
+                    range_match = re.search(r'(\d+)~(\d+)순위\s*대환', req_ref)
+                    hyphen_match = re.search(r'(\d+)\s*-\s*(\d+)\s*순위\s*대환', req_ref)
+                    comma_match = re.search(r'([\d,\s]+)\s*순위\s*대환', req_ref)
                     if range_match or hyphen_match:
                         m = range_match or hyphen_match
                         start_priority = int(m.group(1))
@@ -428,7 +449,7 @@ class MessageParser:
                                     mortgage["is_refinance"] = True
                                     print(f"DEBUG: Set is_refinance=True for mortgage: priority={priority}, institution='{mortgage.get('institution')}'")
                     # 0-2. "1순위 [기관1], 2순위 [기관2] 대환조건" 패턴 (기관명이 사이에 있어도 됨) - 2개 이상 순위
-                    multi_match = re.search(r'(.+?)\s*대환\s*조?건?', data["requests"])
+                    multi_match = re.search(r'(.+?)\s*대환\s*조?건?', req_ref)
                     multi_handled = False
                     if multi_match:
                         part_before = multi_match.group(1)
@@ -444,9 +465,9 @@ class MessageParser:
                             multi_handled = True
                     
                     if not multi_handled:
-                        if re.search(r'\d+순위\s+\d+순위\s*대환\s*조?건?', data["requests"]):
+                        if re.search(r'\d+순위\s+\d+순위\s*대환\s*조?건?', req_ref):
                             # "대환조건" 앞에 인접한 순위들 (예: "1순위 2순위 대환조건")
-                            match = re.search(r'((?:\d+순위\s+)+)대환\s*조?건?', data["requests"])
+                            match = re.search(r'((?:\d+순위\s+)+)대환\s*조?건?', req_ref)
                             if match:
                                 priorities_text = match.group(1)
                                 priorities = re.findall(r'(\d+)순위', priorities_text)
@@ -460,7 +481,10 @@ class MessageParser:
                                             print(f"DEBUG: Set is_refinance=True for mortgage: priority={priority}, institution='{mortgage.get('institution')}'")
                         else:
                             # 0-3. "N순위 대환조건" 또는 "N순위 [기관명] 대환" 패턴 (단일/기관명)
-                            refinance_match = re.search(r'(\d+)순위\s*대환\s*조?건?', data["requests"])
+                            # "1-3순위 대환조건" 에서 3순위만 잡히면 1·2순위가 담보에 남아 LTV 초과로 오인 → N-M순위 범위가 있으면 스킵
+                            refinance_match = None
+                            if not _has_priority_range_before_refi(req_ref):
+                                refinance_match = re.search(r'(\d+)순위\s*대환\s*조?건?', req_ref)
                             if refinance_match:
                                 priority = int(refinance_match.group(1))
                                 print(f"DEBUG: Found 'N순위 대환조건' pattern - priority: {priority}, treating as refinance request")
@@ -471,7 +495,7 @@ class MessageParser:
                                         break
                             else:
                                 # 1. "N순위 [기관명] 대환" 또는 "N순위 [기관명] 대환조건" 패턴
-                                refinance_match = re.search(r'(\d+)순위\s+(.+?)\s*대환', data["requests"])
+                                refinance_match = re.search(r'(\d+)순위\s+(.+?)\s*대환', req_ref)
                                 if refinance_match:
                                     priority = int(refinance_match.group(1))
                                     institution_keyword = refinance_match.group(2).strip()
@@ -509,7 +533,7 @@ class MessageParser:
                                         print(f"DEBUG: Warning - Could not find matching mortgage for priority {priority} with keyword '{institution_keyword}'")
                                 else:
                                     # 2. "[기관명] 대환" 패턴 (순위 없이) - 기관명이 명시된 경우만
-                                    refinance_match = re.search(r'([가-힣a-zA-Z0-9]+(?:[가-힣a-zA-Z0-9\s,]+)?)\s*대환', data["requests"])
+                                    refinance_match = re.search(r'([가-힣a-zA-Z0-9]+(?:[가-힣a-zA-Z0-9\s,]+)?)\s*대환', req_ref)
                                     if refinance_match:
                                         institution_keyword = refinance_match.group(1).strip()
                                         if institution_keyword != "대환":
@@ -538,12 +562,13 @@ class MessageParser:
         if not has_refinance:
             # 전체 텍스트에서 "대환조건" 또는 "대환 조건" 패턴 찾기
             # 패턴: "[기관명] 대환조건" 또는 "[기관명] 대환 조건" 또는 "N순위 [기관명] 대환조건" 또는 "N순위 대환조건"
+            msg_ref = _normalize_refinance_hyphens(message_text)
             
             # 먼저 범위 패턴과 연속 순위 패턴 확인
             # 1. "N~M순위 대환" / "N-M순위 대환" / "1, 2순위 대환" 패턴
-            range_match = re.search(r'(\d+)~(\d+)순위\s*대환', message_text)
-            hyphen_match = re.search(r'(\d+)\s*-\s*(\d+)\s*순위\s*대환', message_text)
-            comma_match = re.search(r'([\d,\s]+)\s*순위\s*대환', message_text)
+            range_match = re.search(r'(\d+)~(\d+)순위\s*대환', msg_ref)
+            hyphen_match = re.search(r'(\d+)\s*-\s*(\d+)\s*순위\s*대환', msg_ref)
+            comma_match = re.search(r'([\d,\s]+)\s*순위\s*대환', msg_ref)
             if range_match or hyphen_match:
                 m = range_match or hyphen_match
                 start_priority = int(m.group(1))
@@ -615,8 +640,11 @@ class MessageParser:
                     r'([가-힣a-zA-Z0-9]+(?:[가-힣a-zA-Z0-9\s,]+)?)대환조건',  # "[기관명] 대환조건" (공백 없음, 순위 없음)
                 ]
                 
-                for pattern in refinance_condition_patterns:
-                    refinance_match = re.search(pattern, message_text)
+                for idx, pattern in enumerate(refinance_condition_patterns):
+                    # "1-3순위 대환" 전체가 아니라 3순위만 매칭되는 오인 방지 (첫 패턴만 해당)
+                    if idx == 0 and _has_priority_range_before_refi(msg_ref):
+                        continue
+                    refinance_match = re.search(pattern, msg_ref)
                     if refinance_match:
                         # 순위가 명시된 경우와 그렇지 않은 경우를 구분
                         groups = refinance_match.groups()
