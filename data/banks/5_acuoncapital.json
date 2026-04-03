@@ -360,7 +360,7 @@
   },
   "price_sources": {
     "kb_price": 1,
-    "kb_ai_price": 1,
+    "kb_ai_price": 0,
     "bank_appraisal_price": 0,
     "realestatetech_price": 1,
     "korea_realestate_price": 1,

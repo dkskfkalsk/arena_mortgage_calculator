@@ -1,5 +1,7 @@
 {
   "_comment": "상호저축은행: 위키백과「대한민국의 금융기관 목록」상호저축은행(050) 항목. 리스·할부: 여신금융협회 정회원(리스·할부금융사) 명단. 시점·인허가 변동 시 금융감독원 파인·협회 공시로 갱신. hangul_aliases: 공식 상호의 영문 부분을 한글로 읽은 별칭(스크립트 HANGUL_ALIASES).",
+  "enabled": false,
+  "_comment_enabled": "기관 명단 참조 전용이며 한도 산출 계산기에 포함하지 않음 (bank_name 없이 로드 시 * Unknown 으로 표시되던 문제 방지)",
   "_sources": [
     "https://ko.wikipedia.org/wiki/대한민국의_금융기관_목록",
     "https://www.crefia.or.kr/portal/company/membership/membershipIntroduction.xx?coCodeSubId=2"
