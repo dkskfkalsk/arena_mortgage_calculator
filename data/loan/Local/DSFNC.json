@@ -370,7 +370,8 @@
       "max_age": 70,
       "_comment_max_age": "차주 및 담보제공자 만70세까지",
       "conditions": [
-        "-2년 계약- 1년 후 금리 2%인상조건"
+        "-2년 계약- 1년 후 금리 2%인상조건",
+        "사업자상품(즉발가능)"
       ],
       "validation_rules": {
         "enabled": true,
