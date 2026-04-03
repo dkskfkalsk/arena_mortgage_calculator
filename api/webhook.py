@@ -595,13 +595,14 @@ def get_application(force_new=False):
             kb_price_found = False
             
             # 패턴 1: "KB 시세 일반가 7억 6,500만", "KB 시세 24,400만원" (공백 유연)
+            # KB 접두 필수 + (?!ai) 로 "KB AI시세"가 일반 KB시세로 오인되지 않게 함 (AI시세 끝의 '시세' 매칭 방지)
             kb_patterns = [
-                r'(?:kb\s*)?시세\s*[\s\S]*?(?:일반\s*가?|일반가)\s*([\d,\s억천만원]+)',  # KB 시세 (줄바꿈) 일반가 7억 6,500만
-                r'(?:kb\s*)?시세\s*(?:일반\s*가?|일반가)\s*([\d,\s억천만원]+)',  # 같은 줄
-                r'(?:kb\s*)?시세\s*[:：]?\s*([\d,]+)\s*만원',  # "KB 시세 24,400만원" (공백 유연)
+                r'kb\s*(?!ai)\s*시세\s*[\s\S]*?(?:일반\s*가?|일반가)\s*([\d,\s억천만원]+)',  # KB 시세 (줄바꿈) 일반가 7억 6,500만
+                r'kb\s*(?!ai)\s*시세\s*(?:일반\s*가?|일반가)\s*([\d,\s억천만원]+)',  # 같은 줄
+                r'kb\s*(?!ai)\s*시세\s*[:：]?\s*([\d,]+)\s*만원',  # "KB 시세 24,400만원" (공백 유연)
                 r'kb\s*시세\s*[:：]\s*일반\s*([\d,\s억천만원]+)',  # KB시세 : 일반 87,500만원
-                r'(?:kb\s*)?(?:시세|일반\s*가?)\s*[:：]?\s*([\d,\s억천만원]+)',  # 복합 단위 포함
-                r'(?:kb\s*)?시세\s*[:：]?\s*([\d,]+)',  # "kb시세 60750" 또는 "KB 시세 24400"
+                r'kb\s*(?!ai)\s*(?:시세|일반\s*가?)\s*[:：]?\s*([\d,\s억천만원]+)',  # 복합 단위 포함
+                r'kb\s*(?!ai)\s*시세\s*[:：]?\s*([\d,]+)',  # "kb시세 60750" 또는 "KB 시세 24400"
             ]
             for pattern in kb_patterns:
                 match = re.search(pattern, caption, re.IGNORECASE | re.DOTALL)
@@ -676,7 +677,7 @@ def get_application(force_new=False):
             
             # KB시세 하한 추출 (복합 단위 지원, 줄바꿈 허용)
             kb_low_patterns = [
-                r'(?:kb\s*)?시세\s*[\s\S]*?(?:하한\s*가?|하한가)\s*([\d,\s억천만원]+)',  # KB 시세 (줄바꿈) 하한가
+                r'kb\s*(?!ai)\s*시세\s*[\s\S]*?(?:하한\s*가?|하한가)\s*([\d,\s억천만원]+)',  # KB 시세 (줄바꿈) 하한가
                 r'하위\s*평균\s*가\s*([\d,\s억천만원]+)',  # 하위평균가 7억 3,000만
                 r'하위평균가\s*([\d,\s억천만원]+)',  # 하위평균가7억 3,000만 (공백 없음)
                 r'kb시세\s*[:：]\s*하한\s*([\d,\s억천만원]+)',  # KB시세 : 하한 85,500만원
@@ -1015,8 +1016,14 @@ def get_application(force_new=False):
             # 등기부에서 주소와 면적을 추출한 경우 KB API 호출 (면적은 문자열 그대로 전달해 51/37.85 등 전용 추출)
             # pdf_only 모드에서는 KB API·공공데이터·스크래핑 호출 없음 (Vercel 수준에서 PDF 파싱만)
             has_area = bool(area and str(area).strip()) or (area_value is not None and area_value > 0)
+            # 캡션에 KB AI시세만 있고 공식 KB시세(캡션 파싱값)가 없으면 자동 조회로 kb_price 채우지 않음
+            kb_ai_from_caption = extract_kb_ai_price_from_special_notes(caption or "")
+            skip_kb_api_for_ai_only_caption = (
+                kb_ai_from_caption is not None and not (caption_info.get("kb_price") or "").strip()
+            )
             should_call_kb_api = (
                 address and address != "확인불가" and has_area and not pdf_only
+                and not skip_kb_api_for_ai_only_caption
             )
             
             if should_call_kb_api:
@@ -1573,9 +1580,18 @@ def get_application(force_new=False):
                             except (ValueError, TypeError):
                                 pass
                     
+                    # 본문에 KB AI시세만 있고 공식 KB시세는 없는 경우: KB API로 kb_price 채우지 않음
+                    # (KB시세 전용 금융사에 자동 조회 KB가 섞이는 것 방지, kb_ai_price만 쓰는 은행만 산출)
+                    # 파서가 kb_ai를 못 넣었어도 전체 메시지에서 KB AI 패턴이 있으면 동일하게 스킵
+                    kb_ai_from_message_text = extract_kb_ai_price_from_special_notes(message_text)
+                    skip_kb_api_auto_fill = (
+                        property_data.get("price_type") == "kb_ai"
+                        and property_data.get("kb_ai_price") is not None
+                    ) or kb_ai_from_message_text is not None
+                    
                     # 주소와 면적이 있으면 KB API 검색 시도 (면적 문자열 그대로 전달)
                     # loan 방에서는 보낸 내용만 사용하므로 KB API 호출 생략
-                    if chat_type != "loan" and address and address != "확인불가" and has_area:
+                    if chat_type != "loan" and address and address != "확인불가" and has_area and not skip_kb_api_auto_fill:
                         kb_api_searched = True
                         try:
                             area_for_kb = str(area).strip() if area else "0"
@@ -1615,7 +1631,9 @@ def get_application(force_new=False):
                     if not property_data.get("kb_price"):
                         special_notes = property_data.get("special_notes", "") or ""
                         bank_appraisal_price = extract_bank_appraisal_price_from_special_notes(special_notes)
-                        kb_ai_price = property_data.get("kb_ai_price") or extract_kb_ai_price_from_special_notes(special_notes)
+                        kb_ai_price = property_data.get("kb_ai_price") or extract_kb_ai_price_from_special_notes(
+                            special_notes
+                        ) or extract_kb_ai_price_from_special_notes(message_text)
                         housematch_price = property_data.get("housematch_price") or extract_housematch_price_from_special_notes(special_notes)
                         realestatetech_price = extract_realestatetech_price_from_special_notes(special_notes)
                         korea_realestate_price = extract_korea_realestate_price_from_special_notes(special_notes)

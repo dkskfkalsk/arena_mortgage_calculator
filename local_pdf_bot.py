@@ -277,8 +277,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caption_info['manual_principals'] = extract_manual_principals(caption)
         file_name = document.file_name
         
-        # 결과 포맷팅
-        response = await format_registry_result(parsed_doc, caption_info, file_name)
+        # 결과 포맷팅 (캡션 원문: KB AI만 있을 때 KB API 스킵 판단용)
+        response = await format_registry_result(parsed_doc, caption_info, file_name, caption=caption)
         
         # "분석 중" 메시지 삭제
         try:
@@ -298,7 +298,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await processing_msg.edit_text(f"❌ 처리 중 오류가 발생했습니다: {str(e)}")
 
 
-async def format_registry_result(result, caption_info, file_name):
+async def format_registry_result(result, caption_info, file_name, caption=""):
     """등기부등본 분석 결과를 텔레그램 메시지 형식으로 포맷 (webhook.py 스타일)"""
     lines = []
     
@@ -421,7 +421,17 @@ async def format_registry_result(result, caption_info, file_name):
     property_type = ""
     real_transactions_display = ""  # KB 시세 없을 때 공공데이터 실거래가
     
-    if address and address != "확인불가" and area:
+    # 캡션에 KB AI시세만 있고 공식 KB시세 문구가 없으면 자동 조회로 kb_price 채우지 않음 (웹훅과 동일 정책)
+    from utils.validators import extract_kb_ai_price_from_special_notes
+    kb_ai_from_caption = extract_kb_ai_price_from_special_notes(caption or "") if caption else None
+    has_official_kb_in_caption = bool(
+        re.search(r"kb\s*(?!ai)\s*시세", caption or "", re.IGNORECASE)
+    )
+    skip_kb_api_for_ai_only = (
+        kb_ai_from_caption is not None and not has_official_kb_in_caption
+    )
+    
+    if address and address != "확인불가" and area and not skip_kb_api_for_ai_only:
         try:
             logger.info(f"KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area}")
             
