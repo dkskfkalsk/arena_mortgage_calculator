@@ -518,9 +518,17 @@ class BaseCalculator:
             }
         
         # KB AI시세만 있고 해당 금융사가 취급하지 않을 경우
+        # (앞선 금융사 calculate가 kb_ai를 kb_price에 반영하면 property_data.kb_price가 채워져 오판됨 → 스냅샷 우선)
+        _pin = property_data.get("_price_input_snapshot")
+        if _pin is not None:
+            _kb_in, _pt_in, _kai_in = _pin.get("kb_price"), _pin.get("price_type"), _pin.get("kb_ai_price")
+        else:
+            _kb_in = property_data.get("kb_price")
+            _pt_in = property_data.get("price_type")
+            _kai_in = property_data.get("kb_ai_price")
         is_kb_ai_only = (
-            (property_data.get("price_type") == "kb_ai" or property_data.get("kb_ai_price"))
-            and not property_data.get("kb_price")
+            (_pt_in == "kb_ai" or _kai_in)
+            and not _kb_in
         )
         if is_kb_ai_only and price_sources.get("kb_ai_price", 0) == 0:
             log_print(f"DEBUG: BaseCalculator.calculate - KB AI시세 입력됨 but 금융사가 KB AI시세 미사용: {self.bank_name}")
@@ -4284,6 +4292,21 @@ class BaseCalculator:
         return False
     
     @classmethod
+    def _ensure_price_input_snapshot(cls, property_data: Optional[Dict[str, Any]]) -> None:
+        """
+        여러 금융사를 순차 계산할 때, 앞선 calculate()가 property_data['kb_price'] 등을 채워도
+        'KB AI만 입력' 여부는 사용자 최초 입력 기준으로 유지되도록 스냅샷을 남긴다.
+        """
+        if not property_data:
+            return
+        property_data["_price_input_snapshot"] = {
+            "kb_price": property_data.get("kb_price"),
+            "kb_price_raw": property_data.get("kb_price_raw"),
+            "price_type": property_data.get("price_type"),
+            "kb_ai_price": property_data.get("kb_ai_price"),
+        }
+    
+    @classmethod
     def calculate_all_banks(cls, property_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         모든 금융사에 대해 계산 수행
@@ -4329,6 +4352,7 @@ class BaseCalculator:
                     continue
         
         # 모든 계산기 실행
+        cls._ensure_price_input_snapshot(property_data)
         results = []
         for calculator in calculators:
             try:
@@ -4474,6 +4498,7 @@ class BaseCalculator:
                         continue
         
         # 모든 계산기 실행
+        cls._ensure_price_input_snapshot(property_data)
         results = []
         for calculator in calculators:
             try:
