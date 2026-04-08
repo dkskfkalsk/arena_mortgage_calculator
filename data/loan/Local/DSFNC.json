@@ -320,9 +320,11 @@
       "min_amount": 1000,
       "min_amount_by_grade": {"4": 3000, "5": 3000},
       "_comment_min_amount": "최소 1천만원, 4~5급지는 최소진행금액 3천만원",
+      "max_ltv_primary": 60,
+      "_comment_max_ltv_primary": "선순위 최대 LTV 60% 고정 (급지 무관)",
       "max_amount_limit": 30000,
-      "max_amount_limit_primary": 50000,
-      "_comment_max_amount": "최대한도 3억, 선순위 최대 5억",
+      "max_amount_limit_primary": 30000,
+      "_comment_max_amount": "최대한도 3억, 선순위 최대 3억",
       "min_kb_price": 20000,
       "lower_bound_price": {
         "enabled": true,
