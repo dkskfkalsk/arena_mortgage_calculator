@@ -259,9 +259,11 @@ def _fetch_render_playwright(complex_id: str) -> Dict[str, Any]:
     if token:
         headers["X-Internal-Token"] = token
 
+    # Vercel 60초 제한 내에 완료하기 위해 타임아웃 단축 + 재시도 1회만 허용
+    # Render 무료 티어 콜드 스타트(~30-60초)로 인한 Vercel 타임아웃 방지
     for attempt in (1, 2):
         try:
-            r = requests.get(url, headers=headers, timeout=20)
+            r = requests.get(url, headers=headers, timeout=10)
             r.raise_for_status()
             data = r.json()
             out["households"] = data.get("households")
@@ -278,13 +280,13 @@ def _fetch_render_playwright(complex_id: str) -> Dict[str, Any]:
                 return out
             if out.get("error") and attempt == 1:
                 logger.warning("Render API attempt 1 실패 (%s), 재시도...", out.get("error"))
-                time.sleep(1)
+                time.sleep(0.5)
                 continue
         except Exception as e:
             out["error"] = str(e)
             logger.warning("Render Playwright API 실패 (attempt=%s): %s", attempt, e)
             if attempt == 1:
-                time.sleep(1)
+                time.sleep(0.5)
                 continue
         break
     return out

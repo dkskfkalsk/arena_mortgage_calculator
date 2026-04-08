@@ -53,6 +53,11 @@ _global_loop = None
 # 마지막 요청 처리 시각 (0 = 아직 요청 없음 / 방금 깨어남)
 _last_request_time = 0
 
+# 처리된 update_id 캐시 (텔레그램 재시도 루프 방지)
+# 서버리스 인스턴스 내에서만 유효하지만 연속 재시도는 대부분 같은 인스턴스로 옴
+_processed_update_ids: set = set()
+_MAX_CACHED_UPDATE_IDS = 200
+
 
 def get_application(force_new=False):
     """텔레그램 애플리케이션 인스턴스 가져오기. force_new=True면 요청 전용 새 인스턴스 반환(캐시 안 함)."""
@@ -1903,6 +1908,19 @@ class handler(BaseHTTPRequestHandler):
             print(f"[WEBHOOK] Update ID: {update.update_id}", file=sys.stderr, flush=True)
             logger.info(f"Received update - update_id: {update.update_id}")
 
+            # 텔레그램 재시도 루프 방지: 이미 처리한 update_id 무시
+            global _processed_update_ids, _MAX_CACHED_UPDATE_IDS
+            uid = update.update_id
+            if uid in _processed_update_ids:
+                print(f"[WEBHOOK] Duplicate update_id {uid}, skipping (Telegram retry)", file=sys.stderr, flush=True)
+                logger.info(f"Duplicate update_id {uid}, skipping")
+                self._send_response(200, {"ok": True, "skipped": "duplicate update_id"})
+                return
+            # 캐시 크기 제한 (오래된 것부터 제거)
+            if len(_processed_update_ids) >= _MAX_CACHED_UPDATE_IDS:
+                _processed_update_ids.clear()
+            _processed_update_ids.add(uid)
+
             # 메시지가 없는 경우 무시
             if not update.message and not update.edited_message and not update.channel_post and not update.edited_channel_post:
                 print("[WEBHOOK] No message found, skipping", file=sys.stderr, flush=True)
@@ -1990,6 +2008,11 @@ class handler(BaseHTTPRequestHandler):
 
             print(f"[WEBHOOK] Chat {chat_id} is allowed, processing message", file=sys.stderr, flush=True)
 
+            # 텔레그램 재시도 루프 방지: 처리 전에 즉시 200 OK 반환
+            # (Vercel 60초 타임아웃으로 응답이 전달되지 않으면 텔레그램이 수 시간 재시도함)
+            self._send_response(200, {"ok": True})
+            print("[WEBHOOK] 200 OK sent immediately (before processing)", file=sys.stderr, flush=True)
+
             async def process():
                 try:
                     print("[WEBHOOK] Starting async process", file=sys.stderr, flush=True)
@@ -2027,8 +2050,8 @@ class handler(BaseHTTPRequestHandler):
                 _last_request_time = time.time()
             except Exception:
                 pass
-            print("[WEBHOOK] Sending 200 OK response", file=sys.stderr, flush=True)
-            self._send_response(200, {"ok": True})
+            print("[WEBHOOK] Processing completed", file=sys.stderr, flush=True)
+            # 200 OK는 이미 처리 시작 전에 전송됨
 
         except json.JSONDecodeError:
             print("[WEBHOOK] JSON decode error", file=sys.stderr, flush=True)
