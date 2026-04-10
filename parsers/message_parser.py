@@ -349,7 +349,7 @@ class MessageParser:
             data["credit_score"] = validated_score
         
         # 필요자금/필요금액/필금 추출 (요청사항에서) - 계산기 한도 산출 시 적용
-        _req_keywords = r'필요자금|필요금액|필금'
+        _req_keywords = r'필요자금|필요금액|필요금|필요한도|필금'
         if data["requests"]:
             print(f"DEBUG: Parsing required_amount from requests: {data['requests']}")
             req_text = data["requests"]
@@ -366,14 +366,14 @@ class MessageParser:
                     data["required_amount"] = float(required_match.group(1).replace(",", "")) * 1000
                     print(f"DEBUG: Parsed required_amount from 천만: {data['required_amount']}만원")
                 else:
-                    # 3. 만원 단위 패턴
-                    required_match = re.search(rf'(?:{_req_keywords})[:\s]*(\d+(?:,\d+)*)\s*만', req_text)
+                    # 3. 만원 단위 패턴 (쉼표 유무 무관: 45000만, 45,000만 모두 인식)
+                    required_match = re.search(rf'(?:{_req_keywords})[:\s]*([\d,]+)\s*만', req_text)
                     if required_match:
                         data["required_amount"] = float(required_match.group(1).replace(",", ""))
                         print(f"DEBUG: Parsed required_amount from 만원: {data['required_amount']}만원")
                     else:
-                        # 4. 단위 없이 숫자만 (만원으로 가정)
-                        required_match = re.search(rf'(?:{_req_keywords})[:\s]*(\d+(?:,\d+)*)', req_text)
+                        # 4. 단위 없이 숫자만 (만원으로 가정, 쉼표 유무 무관)
+                        required_match = re.search(rf'(?:{_req_keywords})[:\s]*([\d,]+)', req_text)
                         if required_match:
                             data["required_amount"] = float(required_match.group(1).replace(",", ""))
                             print(f"DEBUG: Parsed required_amount (no unit, assuming 만원): {data['required_amount']}만원")
@@ -1002,10 +1002,10 @@ class MessageParser:
                     print(f"DEBUG: KB price extracted - line: {line}, value: {kb_value}")
                     return kb_value
         
-        # KB일반/KB하한/KB상한 패턴 (시세 키워드 없이도 처리)
-        general_match = re.search(r'KB\s*일반\s*[:\s]*([\d,]+)', text, re.IGNORECASE)
-        lower_match = re.search(r'KB\s*(?:하한|하)\s*[:\s]*([\d,]+)', text, re.IGNORECASE)
-        upper_match = re.search(r'KB\s*상한\s*[:\s]*([\d,]+)', text, re.IGNORECASE)
+        # KB일반/KB하한/KB상한 패턴 (시세 키워드 없이도 처리, '가' 접미사 포함: KB일반가, KB하한가)
+        general_match = re.search(r'KB\s*일반가?\s*[:\s]*([\d,]+)', text, re.IGNORECASE)
+        lower_match = re.search(r'KB\s*(?:하한가?|하)\s*[:\s]*([\d,]+)', text, re.IGNORECASE)
+        upper_match = re.search(r'KB\s*상한가?\s*[:\s]*([\d,]+)', text, re.IGNORECASE)
         if general_match or lower_match or upper_match:
             parts = []
             if general_match:
@@ -1016,6 +1016,20 @@ class MessageParser:
             if parts:
                 kb_value = " ".join(parts)
                 print(f"DEBUG: KB price extracted from KB일반/하한 패턴: {kb_value}")
+                return kb_value
+
+        # 단독 일반가/하한가 패턴 (KB시세 키워드 없이 "일반가 34,000 만", "하한가 32,000" 형식)
+        standalone_general = re.search(r'(?<![가-힣])일반가\s*[:\s]*([\d,]+)', text)
+        standalone_lower = re.search(r'(?<![가-힣])하한가\s*[:\s]*([\d,]+)', text)
+        if standalone_general or standalone_lower:
+            parts = []
+            if standalone_general:
+                parts.append(f"KB일반 {standalone_general.group(1).strip()}")
+            if standalone_lower:
+                parts.append(f"KB하한 {standalone_lower.group(1).strip()}")
+            if parts:
+                kb_value = " ".join(parts)
+                print(f"DEBUG: KB price extracted from standalone 일반가/하한가 패턴: {kb_value}")
                 return kb_value
         
         # 패턴 매칭으로 재시도 (공백 유연: kb\s*시세 = "KB시세" 또는 "KB 시세")
@@ -1182,11 +1196,11 @@ class MessageParser:
     def _extract_required_amount(self, requests_text: str) -> Optional[float]:
         """
         요청사항에서 필요자금/필요금액/필금 추출
-        예: "필요자금 1억", "필요금액 6000만", "필금 5천만" -> 만원 단위 반환
+        예: "필요자금 1억", "필요금액 6000만", "필금 5천만", "필요한도 2억", "목표금액 3억" -> 만원 단위 반환
         """
         if not requests_text:
             return None
-        req_keywords = r'필요자금|필요금액|필금'
+        req_keywords = r'필요자금|필요금액|필요금|필요한도|필금'
         if not re.search(req_keywords, requests_text):
             return None
         patterns = [

@@ -1733,7 +1733,7 @@ class BaseCalculator:
         
         # 택시 한도 제한이 적용되면 1억을 받기 위해 필요한 LTV를 역산
         # 택시 한도 제한이 실제로 적용된 경우에만 실행 (택시 키워드가 특이사항에 있을 때만)
-        if taxi_limit_applied_flag and max_amount_limit is not None and not required_amount:
+        if taxi_limit_applied_flag and max_amount_limit is not None and required_amount is None:
             print(f"DEBUG: BaseCalculator.calculate - 택시 한도 제한 적용, 1억을 받기 위한 LTV 역산")
             
             # 근저당권 채권최고액 계산 (대환할 근저당권 제외한 나머지만)
@@ -1804,7 +1804,7 @@ class BaseCalculator:
                 print(f"DEBUG: BaseCalculator.calculate - 택시 한도 제한 결과 생성: LTV {calculated_ltv:.2f}%, amount {max_amount_limit}만원")
         
         # 필요자금 기준 계산 시도 (가능하면 필요자금 기준, 불가능하면 일반 LTV 계산으로 fallback)
-        if required_amount and not fallback_to_ltv_steps:
+        if required_amount is not None and not fallback_to_ltv_steps:
             print(f"DEBUG: BaseCalculator.calculate - required_amount: {required_amount}만원, calculating LTV from required amount (skipping LTV steps)")  # 추가
             
             # LTV 역산 공식 (채권최고액 기준):
@@ -1829,14 +1829,21 @@ class BaseCalculator:
                 mortgage_max_amount += refinance_principal
             
             # 채권최고액 기준으로 계산
-            # 필요자금의 채권최고액 = 필요자금(원금) * 1.2
-            required_max_amount = required_amount * 1.2
-            
+            # 대환 케이스: required_amount = 총 대출 목표액 (대환 원금 포함)
+            #   → 실제 추가 필요액 = max(0, required_amount - refinance_principal)
+            # 비대환 케이스: required_amount = 신규 대출 목표액 그대로 사용
+            if is_refinance:
+                effective_additional = max(0.0, required_amount - refinance_principal)
+                required_max_amount = effective_additional * 1.2
+            else:
+                effective_additional = required_amount
+                required_max_amount = required_amount * 1.2
+
             # LTV 역산 (채권최고액 기준)
             required_total = required_max_amount + mortgage_max_amount
             calculated_ltv = (required_total / kb_price) * 100
             
-            print(f"DEBUG: BaseCalculator.calculate - mortgage_max_amount(채권최고액): {mortgage_max_amount}만원, required_max_amount(채권최고액): {required_max_amount}만원, required_total: {required_total}만원, calculated_ltv: {calculated_ltv:.2f}%")  # 추가
+            print(f"DEBUG: BaseCalculator.calculate - mortgage_max_amount(채권최고액): {mortgage_max_amount}만원, effective_additional: {effective_additional}만원, required_max_amount(채권최고액): {required_max_amount}만원, required_total: {required_total}만원, calculated_ltv: {calculated_ltv:.2f}%")
             
             # 계산된 LTV가 max_ltv를 초과하면 불가능 -> 일반 LTV별 계산으로 fallback
             if calculated_ltv > max_ltv:
@@ -1862,17 +1869,19 @@ class BaseCalculator:
                 rate_info = self.get_interest_rate(credit_score, credit_grade, int(closest_ltv_for_rate), grade)
                 
                 # 택시 관련 한도 제한 적용
-                final_amount = required_amount
+                # 대환 케이스: effective_additional(추가 가용분)을 기준으로 한도 제한 적용
+                # 비대환 케이스: required_amount 그대로 사용
+                final_amount = effective_additional
                 taxi_limit_applied = False
                 if max_amount_limit is not None and final_amount > max_amount_limit:
                     final_amount = max_amount_limit
                     taxi_limit_applied = True
-                    print(f"DEBUG: BaseCalculator.calculate - 택시 한도 제한 적용: {required_amount}만원 -> {final_amount}만원")
-                
+                    print(f"DEBUG: BaseCalculator.calculate - 택시 한도 제한 적용: {effective_additional}만원 -> {final_amount}만원")
+
                 # 대환인 경우 total_amount와 available_amount 구분
                 if is_refinance:
-                    # 전체 대출 금액 = 필요자금 + 대환 원금
-                    total_amount = final_amount + refinance_principal
+                    # 총 대출금액 = 대환 원금 + 추가 가용
+                    total_amount = refinance_principal + final_amount
                     available_amount = final_amount
                 else:
                     total_amount = final_amount
@@ -1903,7 +1912,7 @@ class BaseCalculator:
                 print(f"DEBUG: BaseCalculator.calculate - created result with LTV {calculated_ltv:.2f}% and amount {final_amount}만원")  # 추가
         
         # 필요자금 기준 계산이 불가능하거나 필요자금이 없으면 일반 LTV별 계산
-        if not required_amount or fallback_to_ltv_steps:
+        if required_amount is None or fallback_to_ltv_steps:
             # fallback인 경우 results 초기화 (필요자금 기준 결과는 무시)
             if fallback_to_ltv_steps:
                 results = []

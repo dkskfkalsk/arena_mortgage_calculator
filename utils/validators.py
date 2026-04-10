@@ -48,8 +48,8 @@ def validate_kb_price(kb_price):
             if not price_str:
                 return None
         
-        # "일반", "하한" 같은 키워드 제거 (공백 포함)
-        price_str_clean = re.sub(r'\s*(일반|하한|상한)\s*', ' ', price_str, flags=re.IGNORECASE).strip()
+        # "일반가", "하한가", "일반", "하한" 같은 키워드 제거 (공백 포함, '가' 접미사 포함)
+        price_str_clean = re.sub(r'\s*(일반가?|하한가?|상한가?)\s*', ' ', price_str, flags=re.IGNORECASE).strip()
         # 여러 공백을 하나로
         price_str_clean = re.sub(r'\s+', ' ', price_str_clean)
         
@@ -179,8 +179,8 @@ def extract_lower_bound_price(kb_price):
         import re
         price_str = str(kb_price).strip()
         
-        # "하한" 키워드가 포함된 부분 찾기
-        lower_match = re.search(r'(?:하한|하)\s*[:\s]*([\d,]+)', price_str, re.IGNORECASE)
+        # "하한가", "하한" 키워드가 포함된 부분 찾기 ('가' 접미사 포함)
+        lower_match = re.search(r'(?:하한가?|하)\s*[:\s]*([\d,]+)', price_str, re.IGNORECASE)
         if lower_match:
             price_str_num = lower_match.group(1).replace(",", "").strip()
             if price_str_num and len(price_str_num) >= 3:
