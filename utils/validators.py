@@ -138,12 +138,36 @@ def validate_credit_score(credit_score):
     """
     신용점수 검증
     점수가 없거나 "X"인 경우 None 반환
+    "2등급", "내부 2등급" 같은 등급 입력도 대표 점수로 변환
     """
+    import re
+
     if credit_score is None or credit_score == "" or str(credit_score).upper() == "X":
         return None
     
+    score_str = str(credit_score).strip()
+
+    # 등급 표기 처리 (예: "2등급", "내부 2등급")
+    grade_match = re.search(r"(?:내부\s*)?([1-9])\s*등급", score_str)
+    if grade_match:
+        grade = int(grade_match.group(1))
+        # 등급 입력 시 범용적으로 잘 매핑되도록 대표 점수 사용
+        # (은행별 점수구간 차이가 있어도 대체로 해당 등급으로 매칭)
+        grade_to_score = {
+            1: 950,
+            2: 900,
+            3: 860,
+            4: 810,
+            5: 760,
+            6: 720,
+            7: 650,
+            8: 500,
+            9: 350,
+        }
+        return grade_to_score.get(grade)
+
     try:
-        score = int(str(credit_score).strip())
+        score = int(score_str)
         if 0 <= score <= 1000:
             return score
         return None
