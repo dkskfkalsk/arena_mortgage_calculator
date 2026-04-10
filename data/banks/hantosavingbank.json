@@ -1,0 +1,156 @@
+{
+  "bank_name": "한국투자저축",
+  "refinance_self_aliases": ["한국투자저축"],
+  "_comment_refinance_self_aliases": "마스터 대환 명단에서 자기만 제외할 때 사용. business_product_names 미지정 시 적용.",
+  "enabled": true,
+  "_comment_enabled": "한도 산출 on/off. false면 calculate_all_banks에서 이 금융사 제외",
+  "use_principal_for_calculation": false,
+  "_comment_use_principal_for_calculation": "기존 근저당 차감 기준. true=원금(amount) 합, false=채권최고액(max_amount) 합·없으면 원금×1.2",
+  "fractional_share_request_enabled": false,
+  "target_regions": ["서울", "경기"],
+  "product_type": "business",
+  "self_refinance_excluded": ["한국투자저축"],
+  "_comment_self_refinance_excluded": "본인 금융사 대환 불가 - 후순위 추가대출로 처리",
+  "region_grade_prefix_rules": [
+    { "starts_with": "서울특별시", "grade": 1 },
+    { "starts_with": "경기도과천시", "grade": 1 },
+    { "starts_with": "경기도성남시분당구", "grade": 1 },
+    { "starts_with": "경기도안양시동안구", "grade": 1 },
+    { "grade": 9 }
+  ],
+  "_comment_region_grade_prefix_rules": "서울 전체 + 경기도 과천시/성남시분당구/안양시동안구만 1급지, 외 지역 9급지",
+  "region_grades": {},
+  "max_ltv_by_region_credit_grade": {
+    "1": {
+      "1": 95,
+      "2": 95,
+      "3": 95,
+      "4": 95,
+      "5": 95,
+      "6": 95,
+      "7": 95
+    },
+    "9": {
+      "1": 0,
+      "2": 0,
+      "3": 0,
+      "4": 0,
+      "5": 0,
+      "6": 0,
+      "7": 0
+    }
+  },
+  "ltv_steps": [95, 90, 85, 80, 70],
+  "_comment_ltv_steps": "결과 줄 수 축소를 위해 대표 구간만 사용. 금리는 가장 가까운 단계/구간으로 매칭",
+  "credit_score_to_grade": {
+    "920-1000": 1,
+    "880-919": 2,
+    "840-879": 3,
+    "780-839": 4,
+    "745-779": 5,
+    "710-744": 6,
+    "595-709": 7
+  },
+  "max_credit_grade": 7,
+  "credit_grade_none_fallback": "1",
+  "_comment_rate_formula": "최종금리 = 기준금리(2.95) + 가산금리",
+  "primary_interest_rates_by_ltv": {
+    "70": { "1": 6.17, "2": 6.37, "3": 6.57, "4": 6.77, "5": 6.97, "6": 7.17, "7": 7.37 },
+    "75": { "1": 6.17, "2": 6.37, "3": 6.57, "4": 6.77, "5": 6.97, "6": 7.17, "7": 7.87 },
+    "80": { "1": 6.57, "2": 6.77, "3": 6.97, "4": 7.17, "5": 7.37, "6": 7.57, "7": 7.77 },
+    "85": { "1": 7.07, "2": 7.27, "3": 7.47, "4": 7.67, "5": 7.87, "6": 8.07, "7": 8.27 },
+    "90": { "1": 7.57, "2": 7.77, "3": 7.97, "4": 8.17, "5": 8.37, "6": 8.57, "7": 8.77 },
+    "95": { "1": 8.57, "2": 8.97, "3": 9.17, "4": 9.37, "5": 10.09, "6": 10.49, "7": 10.99 }
+  },
+  "subordinate_interest_rates_by_ltv": {
+    "70": { "1": 6.17, "2": 6.37, "3": 6.57, "4": 6.77, "5": 6.97, "6": 7.17, "7": 7.87 },
+    "75": { "1": 6.17, "2": 6.37, "3": 6.57, "4": 6.77, "5": 6.97, "6": 7.17, "7": 7.37 },
+    "80": { "1": 6.57, "2": 6.77, "3": 6.97, "4": 7.17, "5": 7.37, "6": 7.57, "7": 7.77 },
+    "85": { "1": 7.07, "2": 7.27, "3": 7.47, "4": 7.67, "5": 7.87, "6": 8.07, "7": 8.27 },
+    "90": { "1": 7.77, "2": 7.97, "3": 8.17, "4": 8.37, "5": 8.57, "6": 8.77, "7": 8.97 },
+    "95": { "1": 8.57, "2": 8.97, "3": 9.17, "4": 9.37, "5": 11.09, "6": 11.49, "7": 11.99 }
+  },
+  "amount_round_down_unit": 1000,
+  "_comment_amount_round_down_unit": "한도 금액 절사 단위(만원). 1000=1천만원 단위 절사",
+  "min_amount": 3000,
+  "max_amount_limit": 300000,
+  "_comment_max_amount_limit": "최대 한도 30억원",
+  "min_kb_price": 0,
+  "price_sources": {
+    "_comment": "시세 소스 사용 여부 설정 (1: 사용, 0: 사용안함). 우선순위: kb_price > kb_ai_price > bank_appraisal_price > realestatetech_price > korea_realestate_price > housematch_price",
+    "kb_price": 1,
+    "kb_ai_price": 0,
+    "bank_appraisal_price": 1,
+    "realestatetech_price": 1,
+    "korea_realestate_price": 0,
+    "housematch_price": 0
+  },
+  "business_property_types": {
+    "_comment": "사업자금 상품 취급 물건 타입 설정 (1: 취급, 0: 취급안함)",
+    "apartment": 1,
+    "apartment_no_land_registry": 0,
+    "_comment_apartment_no_land_registry": "아파트 (대지권 미등기) 취급 불가",
+    "residential_commercial": 0,
+    "villa": 0,
+    "officetel": 0,
+    "detached_house": 0,
+    "multi_family_house": 0
+  },
+  "conditions": [
+    "동수 1개 이하 아파트 취급 불가",
+    "대환 대상 근저당권 설정일 6개월 이내 취급 불가 (날짜 확인 시)",
+    "대환 대상 근저당권이 '대부' 상품이면 12개월 미만 취급 불가 (날짜 확인 시)",
+    "마이너스통장 선택 시 금리 0.5%p 가산",
+    "소호 사무실, 집사업자, 운수업 1억원 제한",
+    "압류 등 1년 이내 권리침해 이력 취급 불가",
+    "상환기간 서울 60개월, 그외 36개월 / 만기일시, 원(리)금균등"
+  ],
+  "lower_bound_price": {
+    "enabled": true,
+    "apartment": {
+      "rules": [
+        { "total_floors_max": 5, "lower_bound_floors": [1] },
+        { "total_floors_min": 6, "total_floors_max": 20, "lower_bound_floors": [1, 2] },
+        { "total_floors_min": 21, "lower_bound_floors": [1, 2, 3] }
+      ]
+    },
+    "description": "전체 층수 5층 이하 1층, 6~20층 1~2층, 21층 이상 1~3층 하한가"
+  },
+  "show_interest_rate_range": false,
+  "validation_rules": {
+    "enabled": true,
+    "occupation_requirements": {
+      "_comment": "사업자/사업자보유만 취급",
+      "required_keywords": ["사업자", "사업자보유"],
+      "forbidden_keywords": [],
+      "error_message": "사업자 또는 사업자보유인 경우만 취급 가능합니다 (현재 직업: '{occupation}')",
+      "check_fields": ["occupation", "special_notes", "requests"]
+    },
+    "restricted_keywords": {
+      "check_fields": ["special_notes", "requests"],
+      "keywords": [
+        "대지권 미등기",
+        "별도등기",
+        "압류",
+        "가압류",
+        "가등기"
+      ],
+      "error_message": "특이사항/요청사항에 '{keywords}'가 포함되어 취급 불가합니다"
+    },
+    "mortgage_age_restricted": {
+      "enabled": true,
+      "check_refinance_only": true,
+      "default_min_months": 6,
+      "institution_rules": [
+        { "keyword": "대부", "min_months": 12 }
+      ],
+      "date_field_candidates": ["setup_date", "설정일", "registration_date", "date"],
+      "error_message": "대환 대상 근저당권 설정일 기준 개월수 미충족으로 취급 불가합니다: {violations}"
+    },
+    "complex_rules": []
+  },
+  "corporate_business_restriction": {
+    "enabled": true,
+    "_comment": "법인사업자 취급 가능 — enabled true"
+  }
+}

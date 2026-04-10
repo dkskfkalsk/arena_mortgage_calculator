@@ -686,6 +686,9 @@ async def format_registry_result(result, caption_info, file_name, caption=""):
             # 채무자 정보 + 감액등기 표시
             debtor = m.채무자 if m.채무자 else ""
             creditor_line = f"{i}순위 : {creditor}"
+            setup_date = (getattr(m, "설정일", "") or "").strip()
+            if setup_date:
+                creditor_line += f" / 설정일 {setup_date}"
             if debtor:
                 creditor_line += f"({debtor})"
             if gamak_applied:

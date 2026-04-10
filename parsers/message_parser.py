@@ -931,7 +931,16 @@ class MessageParser:
                 amount = max_amount
                 print(f"DEBUG: _parse_mortgage_line - tenant: amount(원금) = max_amount(채권최고액): {amount}")
         
-        print(f"DEBUG: _parse_mortgage_line - institution: {institution}, amount(원금): {amount}, max_amount(채권최고액): {max_amount}")
+        # 설정일 추출 (있을 때만 저장)
+        setup_date = None
+        date_match_ko = re.search(r'(\d{4}\s*년\s*\d{1,2}\s*월\s*\d{1,2}\s*일)', line)
+        date_match_dot = re.search(r'(\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2})', line)
+        if date_match_ko:
+            setup_date = re.sub(r"\s+", "", date_match_ko.group(1))
+        elif date_match_dot:
+            setup_date = date_match_dot.group(1).replace("-", ".").replace("/", ".")
+
+        print(f"DEBUG: _parse_mortgage_line - institution: {institution}, amount(원금): {amount}, max_amount(채권최고액): {max_amount}, setup_date: {setup_date}")
         
         is_refinance = False
         
@@ -942,6 +951,8 @@ class MessageParser:
             "institution": institution,
             "is_refinance": is_refinance
         }
+        if setup_date:
+            result["setup_date"] = setup_date
         if is_tenant:
             result["is_tenant"] = True
         return result

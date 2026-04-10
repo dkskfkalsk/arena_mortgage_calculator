@@ -406,19 +406,26 @@ class BaseCalculator:
         master = _load_refinanceable_master_names()
         return self._exclude_self_from_refinance_names(master)
     
-    @staticmethod
-    def round_down_to_hundred_thousand(amount: float) -> float:
+    def round_down_to_hundred_thousand(self, amount: float) -> float:
         """
-        100만 단위로 절삭 (10만 단위 이하 버림)
-        예: 7550 -> 7500, 4850 -> 4800
+        설정된 단위(만원)로 절삭.
+        기본값은 100(=100만원), 금융사별 amount_round_down_unit으로 오버라이드 가능.
+        예: unit=100 -> 7550 -> 7500, unit=1000 -> 7550 -> 7000
         
         Args:
             amount: 금액 (만원 단위)
         
         Returns:
-            100만 단위로 절삭된 금액
+            설정 단위로 절삭된 금액
         """
-        return (int(amount) // 100) * 100
+        unit = self.config.get("amount_round_down_unit", 100)
+        try:
+            unit_int = int(unit)
+        except (TypeError, ValueError):
+            unit_int = 100
+        if unit_int <= 0:
+            unit_int = 100
+        return (int(amount) // unit_int) * unit_int
     
     def _fractional_share_ltv_cap_applies(self, property_data: Dict[str, Any]) -> bool:
         """
@@ -2810,6 +2817,75 @@ class BaseCalculator:
                     log_print(f"DEBUG: BaseCalculator._validate_validation_rules - 근저당 기관명 제한: {found_inst}")
                     logger.warning(f"BaseCalculator._validate_validation_rules - 근저당 기관명 제한: {found_inst}")
                     return
+
+        # 3-1. 근저당권 설정일 기반 개월수 제한 (날짜가 있는 경우에만 적용)
+        mortgage_age_restricted = validation_rules.get("mortgage_age_restricted", {})
+        if mortgage_age_restricted and mortgage_age_restricted.get("enabled", False):
+            default_min_months = mortgage_age_restricted.get("default_min_months", 0)
+            check_refinance_only = mortgage_age_restricted.get("check_refinance_only", True)
+            date_field_candidates = mortgage_age_restricted.get(
+                "date_field_candidates",
+                ["setup_date", "설정일", "registration_date", "date"],
+            )
+            institution_rules = mortgage_age_restricted.get("institution_rules", [])
+
+            violations = []
+            for m in property_data.get("mortgages") or []:
+                if check_refinance_only and not m.get("is_refinance", False):
+                    continue
+
+                date_str = None
+                for f in date_field_candidates:
+                    val = m.get(f)
+                    if isinstance(val, str) and val.strip():
+                        date_str = val.strip()
+                        break
+                if not date_str:
+                    # 날짜가 없으면 해당 건은 제한 검사에서 제외(요청하신 정책)
+                    continue
+
+                parsed_date = self._parse_mortgage_date(date_str)
+                if parsed_date is None:
+                    # 날짜 형식 파싱 실패 시에도 해당 건은 검사 제외
+                    continue
+
+                min_months = int(default_min_months or 0)
+                inst_name = (m.get("institution") or "").strip()
+                for rule in institution_rules:
+                    keyword = (rule.get("keyword") or "").strip()
+                    if keyword and keyword in inst_name:
+                        try:
+                            min_months = max(min_months, int(rule.get("min_months", 0)))
+                        except (TypeError, ValueError):
+                            pass
+
+                if min_months <= 0:
+                    continue
+
+                elapsed_months = self._months_since(parsed_date)
+                if elapsed_months < min_months:
+                    violations.append(
+                        {
+                            "institution": inst_name or "기관명없음",
+                            "date": date_str,
+                            "elapsed_months": elapsed_months,
+                            "min_months": min_months,
+                        }
+                    )
+
+            if violations:
+                violation_text = ", ".join(
+                    [
+                        f"{v['institution']}({v['date']}, {v['elapsed_months']}개월)"
+                        for v in violations
+                    ]
+                )
+                error_msg_template = mortgage_age_restricted.get(
+                    "error_message",
+                    "대환 대상 근저당권의 설정일 기준 경과개월이 부족하여 취급 불가합니다: {violations}",
+                )
+                validation_errors.append(error_msg_template.format(violations=violation_text))
+                return
         
         # 4. 복합 규칙 체크 (complex_rules)
         complex_rules = validation_rules.get("complex_rules", [])
@@ -2852,6 +2928,41 @@ class BaseCalculator:
                 logger.warning(f"BaseCalculator._validate_validation_rules - 복합 규칙 '{rule.get('name')}' 충족, 취급 불가")
                 validation_errors.append(error_msg)
                 return  # 복합 규칙 충족 시 다른 규칙 체크는 하지 않음
+
+    def _parse_mortgage_date(self, value: str) -> Optional[date]:
+        """
+        문자열 형태의 설정일을 date로 파싱.
+        지원 형식: YYYY.MM.DD, YYYY-MM-DD, YYYY/MM/DD, YYYY년 M월 D일
+        """
+        if not value:
+            return None
+        text = str(value).strip()
+
+        # YYYY년 M월 D일
+        m = re.search(r"(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일", text)
+        if m:
+            try:
+                return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            except (TypeError, ValueError):
+                return None
+
+        # YYYY.MM.DD / YYYY-MM-DD / YYYY/MM/DD
+        m = re.search(r"(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})", text)
+        if m:
+            try:
+                return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            except (TypeError, ValueError):
+                return None
+
+        return None
+
+    def _months_since(self, target_date: date) -> int:
+        """target_date부터 오늘까지의 경과 개월 수."""
+        today = date.today()
+        months = (today.year - target_date.year) * 12 + (today.month - target_date.month)
+        if today.day < target_date.day:
+            months -= 1
+        return max(0, months)
     
     def validate_kb_price(self, kb_price: Any) -> Optional[float]:
         """
