@@ -1607,6 +1607,13 @@ class BaseCalculator:
             if mg_internal_grade is not None:
                 credit_grade = mg_internal_grade
                 print(f"DEBUG: BaseCalculator.calculate - MG캐피탈 내부 등급 적용: {credit_grade}등급")
+                # max_ltv는 get_max_ltv_by_grade 호출 시 credit_score가 None이면 최대(1등급) LTV로 계산됨.
+                # 내부 등급이 파싱된 경우, max_ltv_by_grade에서 해당 등급의 LTV로 재보정.
+                max_ltv_by_grade = self.config.get("max_ltv_by_grade", {})
+                grade_ltv_cap = max_ltv_by_grade.get(str(credit_grade))
+                if grade_ltv_cap is not None and max_ltv is not None and max_ltv > grade_ltv_cap:
+                    print(f"DEBUG: BaseCalculator.calculate - MG캐피탈 내부 등급 {credit_grade}등급으로 max_ltv 재보정: {max_ltv}% → {grade_ltv_cap}%")
+                    max_ltv = grade_ltv_cap
         
         # 최대 신용등급 (애큐온캐피탈·data/loan 등 bank_name별 max_credit_grade)
         max_credit_grade_cfg = self.config.get("max_credit_grade")
