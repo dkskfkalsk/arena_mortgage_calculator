@@ -2418,7 +2418,14 @@ class BaseCalculator:
             # 최대 LTV로 계산했을 때 가용 한도 확인
             max_ltv_amount = kb_price * (max_ltv / 100)
             min_amount = effective_min_amount if effective_min_amount is not None else 3000
-            
+
+            # 신용등급별 LTV 제한이 있는 경우 메시지에 등급 정보 추가
+            _has_grade_ltv = bool(self.config.get("max_ltv_by_grade") or self.config.get("max_ltv_by_region_credit_grade"))
+            if credit_grade is not None and _has_grade_ltv:
+                _grade_note = f" / 신용 {credit_grade}등급 기준 최대 LTV {max_ltv:g}%"
+            else:
+                _grade_note = ""
+
             # 선순위 채권최고(대환 제외 분 = other_mortgages)가 담보한도를 넘는지. 대환 대상 원금은 여기서 제외(2단계에서 차감).
             if total_mortgage > max_ltv_amount:
                 shortage = total_mortgage - max_ltv_amount
@@ -2429,7 +2436,7 @@ class BaseCalculator:
                     "results": [],
                     "conditions": self.config.get("conditions", []),
                     "errors": [
-                        f"기존 근저당권이 최대 LTV {max_ltv:g}% 한도 초과 "
+                        f"기존 근저당권이 최대 LTV {max_ltv:g}% 한도 초과{_grade_note} "
                         f"(선순위 채권최고 약 {existing_pct:.2f}%, 담보한도 {max_ltv:g}% 대비 초과 {shortage:,.0f}만원)"
                     ],
                     "min_amount": min_amount
@@ -2445,12 +2452,13 @@ class BaseCalculator:
                         "results": [],
                         "conditions": self.config.get("conditions", []),
                         "errors": [
-                            f"최소진행금액 부족 (최대 LTV {max_ltv:g}% 적용 시 가용한도: {max_available_rounded:,.0f}만원, "
+                            f"최소진행금액 부족{_grade_note} "
+                            f"(최대 LTV {max_ltv:g}% 적용 시 가용한도: {max_available_rounded:,.0f}만원, "
                             f"최소진행금액: {min_amount:,.0f}만원)"
                         ],
                         "min_amount": min_amount
                     }
-            
+
             # 위 분기에서 사유를 못 담은 경우(가용 0·반올림, 금리 미산출 등): 한도 없음 이유를 errors로 반환 (MG캐피탈 등 동일)
             tm_check = total_mortgage
             max_avail_raw = max_ltv_amount - tm_check
@@ -2459,11 +2467,11 @@ class BaseCalculator:
             loan_phase = "대환" if is_refinance else "후순위"
             if max_avail_rnd <= 0:
                 fallback_err = (
-                    f"{loan_phase} 가용 한도 없음 (선순위 채권최고 약 {existing_pct:.2f}% / 최대 LTV {max_ltv:g}% 기준 담보 여력 없음)"
+                    f"{loan_phase} 가용 한도 없음 (선순위 채권최고 약 {existing_pct:.2f}%{_grade_note} / 담보 여력 없음)"
                 )
             else:
                 fallback_err = (
-                    f"한도 미산출 ({loan_phase}, 최대 LTV {max_ltv:g}% 기준 가용 약 {max_avail_rnd:,.0f}만원, 금리·조건 미충족 가능)"
+                    f"한도 미산출 ({loan_phase}, 최대 LTV {max_ltv:g}%{_grade_note} 기준 가용 약 {max_avail_rnd:,.0f}만원, 금리·조건 미충족 가능)"
                 )
             print(f"DEBUG: BaseCalculator.calculate - no results for {self.bank_name}, fallback message: {fallback_err}")
             return {
