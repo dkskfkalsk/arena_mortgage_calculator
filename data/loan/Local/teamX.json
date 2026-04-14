@@ -34,7 +34,7 @@
   "_comment_validation": "물건조건(property_type_conditions) 키는 data/banks와 동일하게 apartment 등 영문. max_credit_grade·fractional_share_allowed는 BaseCalculator에서 검증.",
   "products": [
     {
-      "product_name": "사업자",
+      "product_name": "사업자 조건 진행시",
       "product_type": "business",
       "target_regions": [
         "서울",
