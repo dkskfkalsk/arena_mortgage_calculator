@@ -1348,10 +1348,13 @@ def get_application(force_new=False):
                     debtor = m.채무자 if m.채무자 else ""
                     creditor_line = f"{i}순위 : {creditor}"
                     setup_date = (getattr(m, "설정일", "") or "").strip()
+                    meta_parts = []
                     if setup_date:
-                        creditor_line += f" / 설정일 {setup_date}"
+                        meta_parts.append(setup_date)
                     if debtor:
-                        creditor_line += f"({debtor})"
+                        meta_parts.append(debtor)
+                    if meta_parts:
+                        creditor_line += f"({' / '.join(meta_parts)})"
                     if gamak_applied:
                         creditor_line += " 감액등기"
                     lines.append(creditor_line)
