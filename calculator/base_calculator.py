@@ -4254,14 +4254,14 @@ class BaseCalculator:
     ) -> Dict[str, Any]:
         """
         OK 저축은행 금리 계산
-        사업자 상품: 스프레드 금리 + CoFix + 급지별 가산금리
-        가계 상품: 스프레드 금리 + CoFix + 조정금리(거치식/원리금분할상환, 6개월 변동금리, 후순위)
+        사업자/가계 금리 테이블 값은 CoFix가 반영된 최종 기준값으로 간주한다.
+        따라서 계산 시 CoFix를 추가로 더하지 않고, 테이블값 + 가산(급지/조정금리)만 적용한다.
         
         Args:
             credit_score: 신용점수
             ltv: LTV 비율
             region_grade: 지역 급지 (1, 2, 3, 4) - 숫자로 통일됨
-            cofix_rate: CoFix 금리
+            cofix_rate: CoFix 금리(설정 보존용, 계산에는 추가하지 않음)
             is_business_product: 사업자 상품 여부
             is_household_product: 가계 상품 여부
             is_subordinate: 후순위 여부
@@ -4353,8 +4353,8 @@ class BaseCalculator:
             
             if score_range and score_range in score_rates:
                 spread_rate = score_rates[score_range]
-                final_rate = spread_rate + cofix_rate + additional_rate + household_adjustment
-                print(f"DEBUG: _get_ok_interest_rate - credit_score: {credit_score}, score_range: {score_range}, spread: {spread_rate}, cofix: {cofix_rate}, additional: {additional_rate}, household_adjustment: {household_adjustment}, final: {final_rate}")
+                final_rate = spread_rate + additional_rate + household_adjustment
+                print(f"DEBUG: _get_ok_interest_rate - credit_score: {credit_score}, score_range: {score_range}, table_rate: {spread_rate}, cofix(additional none): {cofix_rate}, additional: {additional_rate}, household_adjustment: {household_adjustment}, final: {final_rate}")
                 
                 # 사업자 상품 고정금리 코멘트
                 fixed_rate_comment = None
@@ -4369,7 +4369,7 @@ class BaseCalculator:
                 }
         
         # 신용점수가 없으면 최저~최고 금리 범위 반환
-        all_rates = [v + cofix_rate + additional_rate + household_adjustment for v in score_rates.values() if isinstance(v, (int, float))]
+        all_rates = [v + additional_rate + household_adjustment for v in score_rates.values() if isinstance(v, (int, float))]
         if all_rates:
             min_rate = min(all_rates)
             max_rate = max(all_rates)
