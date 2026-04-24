@@ -522,15 +522,14 @@
       "name": "프로모션 금리 적용",
       "conditions": {
         "region_grades": [
-          1,
-          2
+          1
         ],
         "max_credit_grade": 5,
         "property_types": [
           "아파트",
           "주상복합"
         ],
-        "min_household_count": 200,
+        "min_household_count": 500,
         "max_ltv": 85
       },
       "discounts": {
