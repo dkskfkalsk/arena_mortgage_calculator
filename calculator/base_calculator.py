@@ -1637,7 +1637,16 @@ class BaseCalculator:
         taxi_limit_applied_flag = False  # 택시 한도 제한이 실제로 적용되었는지 플래그
         
         # 일반 상품 최대 한도 제한 (config에서 읽기)
+        # 창업/일반사업자 분리 한도 키가 있으면 우선 적용 (애큐온캐피탈 등)
         config_max_amount_limit = self.config.get("max_amount_limit")
+        startup_max_amount_limit = self.config.get("startup_max_amount_limit")
+        regular_max_amount_limit = self.config.get("regular_max_amount_limit")
+        if getattr(self, "_is_startup_business", False) and startup_max_amount_limit is not None:
+            config_max_amount_limit = startup_max_amount_limit
+            print(f"DEBUG: BaseCalculator.calculate - 창업사업자 최대 한도 제한 적용: {config_max_amount_limit}만원")
+        elif (not getattr(self, "_is_startup_business", False)) and regular_max_amount_limit is not None:
+            config_max_amount_limit = regular_max_amount_limit
+            print(f"DEBUG: BaseCalculator.calculate - 일반사업자 최대 한도 제한 적용: {config_max_amount_limit}만원")
         max_amount_limit_by_grade = self.config.get("max_amount_limit_by_grade", {})
         if max_amount_limit_by_grade and grade is not None:
             grade_str = str(grade)

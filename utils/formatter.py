@@ -399,8 +399,36 @@ def _format_result_with_label(
     tenant_caption = bank_result.get("tenant_consent_caption")
     if tenant_caption and has_actual_limit:
         lines.append(tenant_caption)
-    if conditions and has_actual_limit and not bank_result.get("hide_conditions", False):
-        for condition in conditions[:4]:  # 최대 4개만 표시
+
+    # 애큐온캐피탈 전용 동적 코멘트 (대출금액=대환 포함 total_amount 기준)
+    extra_conditions: List[str] = []
+    if has_actual_limit and "애큐온캐피탈" in bank_name:
+        valid_results = [r for r in all_results if not r.get("limit_not_calculated", False)]
+        max_total_amount = 0.0
+        for r in valid_results:
+            total_amount = r.get("total_amount")
+            if isinstance(total_amount, (int, float)):
+                candidate = float(total_amount)
+            else:
+                amount = r.get("amount", 0)
+                candidate = float(amount) if isinstance(amount, (int, float)) else 0.0
+            if candidate > max_total_amount:
+                max_total_amount = candidate
+
+        business_type = None
+        if valid_results:
+            business_type = valid_results[0].get("business_type")
+        if business_type is None:
+            business_type = "startup" if business_type_label == "창업사업자 기준" else ("regular" if business_type_label == "일반사업자 기준" else None)
+
+        if business_type == "startup" and max_total_amount > 10000:
+            extra_conditions.append("1억 초과 자택사업장 불가")
+        elif business_type == "regular" and max_total_amount > 30000:
+            extra_conditions.append("3억 초과 자택사업장 불가 (사업장 소재지의 경우 접수시점엔 자택사업장도 가능. 자서시에는 변경)")
+
+    merged_conditions = [*conditions, *extra_conditions]
+    if merged_conditions and has_actual_limit and not bank_result.get("hide_conditions", False):
+        for condition in merged_conditions[:6]:  # 최대 6개만 표시
             lines.append(f"- {condition}")
     
     return "\n".join(lines)
