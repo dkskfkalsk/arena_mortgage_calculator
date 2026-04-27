@@ -4159,6 +4159,11 @@ class BaseCalculator:
                 if "탁감가" in kb_price_raw_str or "감정가" in kb_price_raw_str or "은행감정가" in kb_price_raw_str:
                     bank_appraisal_additional_rate = self.config.get("bank_appraisal_additional_rate", 1.0)
                     print(f"DEBUG: get_interest_rate - MG캐피탈 감정건 가산금리: {bank_appraisal_additional_rate}%")
+                
+                # 비아파트 + 감정건이 동시에 해당되더라도 총 가산은 +1.0%p로 제한
+                if non_apartment_additional_rate > 0 and bank_appraisal_additional_rate > 0:
+                    bank_appraisal_additional_rate = 0.0
+                    print("DEBUG: get_interest_rate - MG캐피탈 비아파트+감정건 동시 해당, 총 가산금리 +1.0%p로 제한")
             
             # MG캐피탈 프로모션 체크 및 할인 적용
             promotion_discount = self._check_mg_promotion(ltv, region_grade, credit_grade, property_data)
