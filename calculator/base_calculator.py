@@ -3808,7 +3808,7 @@ class BaseCalculator:
                 if min_household_count is not None:
                     household_count = property_data.get("household_count")
                     if household_count is None or household_count < min_household_count:
-                        rejection_reasons.append(f"세대수 {household_count or '정보없음'}세대 (200세대 이상)")
+                        rejection_reasons.append(f"세대수 {household_count or '정보없음'}세대 ({min_household_count}세대 이상)")
                         print(f"DEBUG: _check_mg_promotion - 프로모션 미적용 (세대수 {household_count} < {min_household_count})")
             else:
                 # property_data가 없으면 프로모션 미적용
