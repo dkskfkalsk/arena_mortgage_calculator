@@ -355,8 +355,8 @@
     "710-764": 6,
     "656-709": 7
   },
-  "min_kb_price": 20000,
-  "_comment_min_kb_price": "KB시세 2억원 이상",
+  "min_kb_price": 5000,
+  "_comment_min_kb_price": "KB시세 5천만원 이상",
   "max_age": 75,
   "interest_rate_by_ltv_grade": {
     "92": {
