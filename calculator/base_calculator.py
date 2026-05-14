@@ -1031,7 +1031,6 @@ class BaseCalculator:
             # 현재 층수 추출 (주소에서)
             floor = None
             if address:
-                import re
                 # 총층수 패턴 제외하고 현재 층수만 추출
                 # "6층 (총층수 10층)" 에서 6만 추출
                 floor_match = re.search(r'(\d+)층(?!\s*\))', address)
