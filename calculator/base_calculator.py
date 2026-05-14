@@ -944,7 +944,9 @@ class BaseCalculator:
                 except (ValueError, TypeError):
                     pass  # 신용평점이 숫자가 아니면 무시
         
-        # 투맨금융대부 등: 근저당 3순위까지 가능 (동일 금융사·연속 순위는 하나로 합산)
+        # 투맨금융대부 등: 순위 제한 검증
+        # - 동일 금융사 + 동일 채무자는 순위가 연속이 아니어도 하나로 합산
+        # - 채무자 식별이 어려운 경우에는 기존과 동일하게 연속 동일 기관만 합산
         # 대환 요청 근저당(is_refinance=True)은 설정 후 말소되므로 카운트에서 제외
         max_priority_limit = self.config.get("max_priority_limit")
         if max_priority_limit is not None:
@@ -957,12 +959,38 @@ class BaseCalculator:
             ]
             liens_sorted = sorted(liens, key=lambda x: x.get("priority", 999))
             groups = []
-            prev_inst = None
+            seen_inst_debtor_keys = set()
+            prev_inst = None  # 채무자 식별이 어려운 경우의 fallback(연속 동일 기관 합산)
             for m in liens_sorted:
-                inst = (m.get("institution") or "").replace(" ", "")
+                inst_raw = (m.get("institution") or "")
+                inst = inst_raw.replace(" ", "")
+
+                # 기본 금융사명: 괄호 앞 텍스트 (예: "애큐온캐피탈(2025.08.29/홍길동)" -> "애큐온캐피탈")
+                inst_name = inst.split("(", 1)[0] if "(" in inst else inst
+
+                # 채무자 추출: 괄호 안 마지막 '/' 뒤 텍스트를 채무자로 간주
+                debtor = ""
+                paren_match = re.search(r"\(([^)]*)\)", inst_raw)
+                if paren_match:
+                    inside = re.sub(r"\s+", "", paren_match.group(1))
+                    if "/" in inside:
+                        debtor = inside.rsplit("/", 1)[-1].strip()
+                    # 날짜/기호 노이즈 제거
+                    debtor = re.sub(r"[\d.\-_/()]+", "", debtor).strip()
+
+                if inst_name and debtor:
+                    key = f"{inst_name}|{debtor}"
+                    if key not in seen_inst_debtor_keys:
+                        seen_inst_debtor_keys.add(key)
+                        groups.append(key)
+                    # 동일 키는 연속/비연속 관계없이 합산되어 추가하지 않음
+                    prev_inst = inst
+                    continue
+
+                # 채무자 파싱이 안 되면 기존 방식 유지(연속 동일 기관만 합산)
                 if prev_inst is None or inst != prev_inst:
                     groups.append(inst)
-                    prev_inst = inst
+                prev_inst = inst
             if len(groups) >= max_priority_limit:
                 custom_msg = self.config.get("max_priority_limit_error_message")
                 if custom_msg:
