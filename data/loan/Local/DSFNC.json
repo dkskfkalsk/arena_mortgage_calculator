@@ -325,6 +325,8 @@
       "max_amount_limit": 30000,
       "max_amount_limit_primary": 30000,
       "_comment_max_amount": "최대한도 3억, 선순위 최대 3억",
+      "max_amount_limit_applies_to_total": true,
+      "_comment_max_amount_limit_applies_to_total": "한도가 총 대환금액(대환원금+가용) 상한. 대환원금이 한도 초과 시 한도 미산출",
       "min_kb_price": 20000,
       "lower_bound_price": {
         "enabled": true,
