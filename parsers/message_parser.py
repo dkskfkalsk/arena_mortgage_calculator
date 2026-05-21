@@ -1182,6 +1182,16 @@ class MessageParser:
         
         # 공백 제거 후 매칭
         address_clean = address.replace(" ", "")
+        # 구/축약 행정명 호환
+        admin_aliases = {
+            "전라북도": "전북특별자치도",
+            "강원도": "강원특별자치도",
+            "제주도": "제주특별자치도",
+            "세종시": "세종특별자치시세종시",
+        }
+        for src, dst in admin_aliases.items():
+            if src in address_clean:
+                address_clean = address_clean.replace(src, dst)
         
         # 긴 행정구역부터 매칭 (더 구체적인 매칭 우선)
         for region in sorted(regions, key=len, reverse=True):
