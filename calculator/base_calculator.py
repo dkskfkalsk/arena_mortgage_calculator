@@ -1871,22 +1871,34 @@ class BaseCalculator:
             if is_refinance:
                 mortgage_max_amount += refinance_principal
             
-            # 채권최고액 기준으로 계산
-            # 대환 케이스: required_amount = 총 대출 목표액 (대환 원금 포함)
-            #   → 실제 추가 필요액 = max(0, required_amount - refinance_principal)
-            # 비대환 케이스: required_amount = 신규 대출 목표액 그대로 사용
+            # 필요자금 역산 기준
+            # - 대환: 총 대출 목표액(required_amount)을 대환 원금 포함으로 해석, 채권최고액 기준(기존 로직 유지)
+            # - 비대환: 후순위 표기와 동일 기준을 맞추기 위해
+            #          MG/OK/애큐온은 원금 기준으로 역산 (필금과 후순위 표기 일치)
+            #          그 외 금융사는 기존 채권최고액 기준 유지
+            is_ok_bank_name = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
+            is_acuon_bank_name = self.bank_name == "애큐온저축은행" or "애큐온" in self.bank_name
+            is_mg_bank_name = self.bank_name == "MG캐피탈" or "MG캐피탈" in self.bank_name or "엠지케피탈" in self.bank_name
+            use_principal_based_required = (not is_refinance) and (is_ok_bank_name or is_acuon_bank_name or is_mg_bank_name)
+
             if is_refinance:
                 effective_additional = max(0.0, required_amount - refinance_principal)
-                required_max_amount = effective_additional * 1.2
+                required_component_amount = effective_additional * 1.2
+                required_basis = "채권최고액기준(대환)"
             else:
                 effective_additional = required_amount
-                required_max_amount = required_amount * 1.2
+                if use_principal_based_required:
+                    required_component_amount = required_amount
+                    required_basis = "원금기준(후순위표기동일)"
+                else:
+                    required_component_amount = required_amount * 1.2
+                    required_basis = "채권최고액기준"
 
-            # LTV 역산 (채권최고액 기준)
-            required_total = required_max_amount + mortgage_max_amount
+            # LTV 역산
+            required_total = required_component_amount + mortgage_max_amount
             calculated_ltv = (required_total / kb_price) * 100
             
-            print(f"DEBUG: BaseCalculator.calculate - mortgage_max_amount(채권최고액): {mortgage_max_amount}만원, effective_additional: {effective_additional}만원, required_max_amount(채권최고액): {required_max_amount}만원, required_total: {required_total}만원, calculated_ltv: {calculated_ltv:.2f}%")
+            print(f"DEBUG: BaseCalculator.calculate - basis={required_basis}, mortgage_max_amount={mortgage_max_amount}만원, effective_additional={effective_additional}만원, required_component_amount={required_component_amount}만원, required_total={required_total}만원, calculated_ltv={calculated_ltv:.2f}%")
             
             # 계산된 LTV가 max_ltv를 초과하면 불가능 -> 일반 LTV별 계산으로 fallback
             if calculated_ltv > max_ltv:
