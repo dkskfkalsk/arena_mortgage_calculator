@@ -907,10 +907,10 @@ class RegistryParser:
                 if not creditor or len(creditor) < 2:
                     continue  # 근저당권자 못 찾으면 해당 순위 제외
                 
-                # 채무자: 요약본 대상소유자 우선 (채무 인수/계약인수 반영된 최종 채무자)
-                # 요약본 없거나 못 찾으면 을구 본문 → rank_block 순으로 fallback
-                debtor = self._find_target_owner_in_section(summary_text, rank)
-                if not debtor and eulgu_text:
+                # 채무자: 순위별 을구 본문을 1순위로 채택
+                # 을구 추출 실패 시에만 기존 fallback(전체 본문/요약본)을 사용
+                debtor = ""
+                if eulgu_text:
                     # 을구에서 해당 순위의 블록 찾기
                     eulgu_rank_match = re.search(rf'^{rank}\s+근저당권설정', eulgu_text, re.MULTILINE)
                     if eulgu_rank_match:
@@ -921,23 +921,26 @@ class RegistryParser:
                         else:
                             eulgu_end = min(eulgu_start + 1000, len(eulgu_text))
                         eulgu_rank_block = eulgu_text[eulgu_start:eulgu_end]
-                        debtor_pattern = r'채무자\s+([가-힣]{2,4}(?:\s+[가-힣]{2,4})*?)(?=\s*\n\s*[가-힣]{2,4}\s*(?:시|도|구|동|로|길)|$|\n\s*\d+|\n\s*[가-힣]+\s*근저당권|\n\s*제\d+호)'
+                        debtor_pattern = r'채무자\s+(.+?)(?=\s*(?:근저당권자|채권최고액|목적|존속기간|전세금|$|\n\s*\d+\s+근저당권설정|\n\s*제\d+호))'
                         debtor_match = re.search(debtor_pattern, eulgu_rank_block, re.DOTALL)
                         if debtor_match:
-                            debtor = debtor_match.group(1).strip()
+                            debtor = debtor_match.group(1).strip().splitlines()[0]
                             debtor = re.sub(r'\s+', ' ', debtor)
-                            if len(debtor) > 10:
-                                debtor = debtor.split('\n')[0].strip()
-                                debtor = re.sub(r'\s+', ' ', debtor)
                 
-                # 그래도 못 찾으면 순위 블록에서 찾기
+                # 을구에서 실패하면 전체 본문 기반 fallback
+                if not debtor:
+                    debtor = self._find_debtor_for_mortgage(rank)
+                
+                # 그래도 실패하면 요약본 대상소유자 fallback
+                if not debtor:
+                    debtor = self._find_target_owner_in_section(summary_text, rank)
+                
+                # 마지막으로 rank block 간단 패턴 시도
                 if not debtor:
                     debtor_pattern = r'채무자\s+([가-힣a-zA-Z0-9]+)'
                     debtor_match = re.search(debtor_pattern, rank_block, re.DOTALL)
                     if debtor_match:
                         debtor = debtor_match.group(1).strip()
-                    else:
-                        debtor = self._find_debtor_for_mortgage(rank)
                 
                 # 설정일 처리
                 if year and month and day:
