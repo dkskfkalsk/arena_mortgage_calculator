@@ -2067,6 +2067,20 @@ class BaseCalculator:
                     )
                     final_amount = self.round_down_to_hundred_thousand(amount_info["available_amount"]) if not limit_not_calculated else 0
                     final_total_amount = self.round_down_to_hundred_thousand(amount_info["total_amount"]) if not limit_not_calculated else 0
+                    # 신용점수 없음(금리범위) 분기에서도 최대 한도 제한 동일 적용
+                    if max_amount_limit is not None and not limit_not_calculated:
+                        if max_amount_limit_applies_to_total and is_refinance:
+                            final_total_amount = self.round_down_to_hundred_thousand(min(final_total_amount, max_amount_limit))
+                            final_amount = self.round_down_to_hundred_thousand(max(0, final_total_amount - refinance_principal))
+                            if final_amount <= 0 and not allow_negative_available:
+                                continue
+                        elif max_amount_limit_applies_to_total and not is_refinance:
+                            final_amount = self.round_down_to_hundred_thousand(min(final_amount, max_amount_limit))
+                            final_total_amount = final_amount
+                        elif final_amount > max_amount_limit:
+                            final_amount = self.round_down_to_hundred_thousand(max_amount_limit)
+                            if not is_refinance:
+                                final_total_amount = final_amount
                     # 해당 조건(창업/일반사업자)에 맞는 한도만 산출
                     is_startup = getattr(self, '_is_startup_business', False)
                     business_key = "startup" if is_startup else "regular"
