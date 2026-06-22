@@ -1211,6 +1211,17 @@ class BaseCalculator:
         if is_below_standard:
             max_ltv = below_standard_ltv
             print(f"DEBUG: BaseCalculator.calculate - 기준 LTV 이하 지역: {region}, 적용 LTV: {max_ltv}%")
+
+        # 물건유형별 최대 LTV 상한 (한국투자저축 빌라 75% 등)
+        max_ltv_by_property_type = self.config.get("max_ltv_by_property_type", {})
+        if max_ltv_by_property_type and ptype_key and ptype_key in max_ltv_by_property_type:
+            property_ltv_cap = max_ltv_by_property_type[ptype_key]
+            if max_ltv is not None and max_ltv > property_ltv_cap:
+                print(
+                    f"DEBUG: BaseCalculator.calculate - 물건유형 {ptype_key} LTV 상한 적용: "
+                    f"{max_ltv}% -> {property_ltv_cap}%"
+                )
+                max_ltv = property_ltv_cap
         
         # GM대부 등: 시세 N억 미만 물건유형별 LTV 상한·스텝 (예: 아파트 2억 미만 60~65%)
         ltv_kb_rules = self.config.get("ltv_kb_price_override")
