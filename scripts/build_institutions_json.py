@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""One-off / regen: data/banks/korean_savings_and_capital_institutions.json 생성용"""
+"""One-off / regen: data/banks/refinanceable_institutions.json 생성용"""
 import json
 import os
 
@@ -85,7 +85,7 @@ def main():
         "capital_lease_installment": CAPITAL,
         "names": merged,
     }
-    out = os.path.join(ROOT, "data", "banks", "korean_savings_and_capital_institutions.json")
+    out = os.path.join(ROOT, "data", "banks", "refinanceable_institutions.json")
     with open(out, "w", encoding="utf-8") as f:
         json.dump(obj, f, ensure_ascii=False, indent=2)
     print("Wrote", out, "names:", len(merged))

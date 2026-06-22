@@ -83,13 +83,13 @@ _REFINANCE_MASTER_NAMES_CACHE: Optional[List[str]] = None
 def _load_refinanceable_master_names() -> List[str]:
     """
     저축은행·리스·할부(캐피탈) 등 마스터 명단 로드 (한 번만).
-    우선순위: data/banks/korean_savings_and_capital_institutions.json → data/refinanceable_institutions.json
+    우선순위: data/banks/refinanceable_institutions.json → data/refinanceable_institutions.json(legacy)
     """
     global _REFINANCE_MASTER_NAMES_CACHE
     if _REFINANCE_MASTER_NAMES_CACHE is not None:
         return _REFINANCE_MASTER_NAMES_CACHE
     base = os.path.join(os.path.dirname(__file__), "..", "data")
-    master_path = os.path.join(base, "banks", "korean_savings_and_capital_institutions.json")
+    master_path = os.path.join(base, "banks", "refinanceable_institutions.json")
     try:
         with open(master_path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -102,7 +102,7 @@ def _load_refinanceable_master_names() -> List[str]:
             _REFINANCE_MASTER_NAMES_CACHE = sorted(set(s + c))
         return _REFINANCE_MASTER_NAMES_CACHE
     except Exception as e:
-        logger.warning("korean_savings_and_capital_institutions.json 로드 실패: %s", e)
+        logger.warning("refinanceable_institutions.json(banks) 로드 실패: %s", e)
     legacy = os.path.join(base, "refinanceable_institutions.json")
     try:
         with open(legacy, "r", encoding="utf-8") as f:
