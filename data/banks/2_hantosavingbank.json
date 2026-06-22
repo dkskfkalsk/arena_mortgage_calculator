@@ -409,5 +409,7 @@
   "corporate_business_restriction": {
     "enabled": true,
     "_comment": "법인사업자 취급 가능 — enabled true"
-  }
+  },
+  "allow_physical_collateral_subordinate": true,
+  "_comment_allow_physical_collateral_subordinate": "근저당권자명에 물상/물상담보 포함 시 개인설정으로 보지 않고 후순위 산출"
 }

@@ -451,10 +451,14 @@ def format_all_results(
     if not all_results:
         return "산출 가능한 금융사가 없습니다.\n\n※ KB시세가 없으면 산출이 불가능합니다."
     
-    # 개인설정이 있는 경우: 후순위 취급 불가 안내만 표시
-    if any(r.get("personal_mortgage_ineligible") for r in all_results):
+    # 개인설정으로 전 금융사가 막힌 경우에만 단독 안내 (일부 금융사만 막히면 나머지 결과는 표시)
+    has_any_results = any(r.get("results") for r in all_results)
+    if not has_any_results and any(
+        "개인설정 후순위는 취급 불가" in (r.get("errors") or [])
+        for r in all_results
+    ):
         return "개인설정 후순위는 취급 불가"
-    
+
     # 전체 결과에서 대환/후순위 여부 및 대환하는 기관 목록 확인
     all_refinance_results = []
     all_subordinate_results = []

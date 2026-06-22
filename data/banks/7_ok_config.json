@@ -1,6 +1,10 @@
 {
   "bank_name": "OK저축은행",
-  "refinance_self_aliases": ["OK저축은행", "오케이저축은행", "오케이저축"],
+  "refinance_self_aliases": [
+    "OK저축은행",
+    "오케이저축은행",
+    "오케이저축"
+  ],
   "_comment_refinance_self_aliases": "마스터 대환 명단에서 자기만 제외할 때 사용. business_product_names 미지정 시 적용.",
   "enabled": true,
   "_comment_enabled": "한도 산출 on/off. false면 calculate_all_banks에서 이 금융사 제외",
@@ -618,5 +622,7 @@
     "_comment": "법인사업자 취급 가능 — enabled true"
   },
   "_comment_corporate_business_restriction": "enabled true = 법인사업자 취급 가능, false = 취급 불가(키워드 검사)",
-  "_comment_corporate_business_ui": "UI: enabled true → 법인 취급 가능, false →「법인사업자 취급 불가」"
+  "_comment_corporate_business_ui": "UI: enabled true → 법인 취급 가능, false →「법인사업자 취급 불가」",
+  "allow_physical_collateral_subordinate": true,
+  "_comment_allow_physical_collateral_subordinate": "근저당권자명에 물상/물상담보 포함 시 개인설정으로 보지 않고 후순위 산출"
 }

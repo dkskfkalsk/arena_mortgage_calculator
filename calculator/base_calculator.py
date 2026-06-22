@@ -914,6 +914,11 @@ class BaseCalculator:
         
         # 금융사별 validation_rules 체크 (설정 파일에서 정의된 제한 조건)
         self._validate_validation_rules(property_data, validation_errors)
+
+        # 개인설정 후순위 취급 불가 (금융사별 — allow_physical_collateral_subordinate 시 물상담보 제외)
+        if self._is_blocked_by_personal_mortgage(property_data):
+            log_print(f"DEBUG: BaseCalculator.calculate - {self.bank_name} 개인설정 후순위 취급 불가")
+            validation_errors.append("개인설정 후순위는 취급 불가")
         
         # 고객 나이 검증: 75세 이하만 취급
         max_age = self.config.get("max_age")
@@ -4472,12 +4477,21 @@ class BaseCalculator:
             "fixed_rate_comment": None
         }
     
+    def _is_blocked_by_personal_mortgage(self, property_data: Dict[str, Any]) -> bool:
+        """금융사 config에 따라 개인설정 후순위 차단 여부."""
+        allow_physical = self.config.get("allow_physical_collateral_subordinate", False)
+        return self._has_personal_mortgage(property_data, allow_physical_collateral=allow_physical)
+
     @staticmethod
-    def _has_personal_mortgage(property_data: Dict[str, Any]) -> bool:
+    def _has_personal_mortgage(
+        property_data: Dict[str, Any],
+        allow_physical_collateral: bool = False,
+    ) -> bool:
         """
         근저당권 설정 중 개인설정이 있으면 True.
         - 특이사항에 '개인설정' 문구가 있거나
         - 설정내역 중 기관명이 금융기관이 아닌 경우(개인명으로 판단)
+        - allow_physical_collateral=True: 근저당권자명에 물상/물상담보 포함 시 개인설정으로 보지 않음
         """
         if not property_data:
             return False
@@ -4486,7 +4500,8 @@ class BaseCalculator:
             return True
         # 기관명이 금융기관이 아닌 순위가 하나라도 있으면 개인설정
         # 가압류·압류 등은 법적 담보 표시로 개인설정(개인명 근저당)과 구분 → 후순위/대환 산출 허용
-        exclude_keywords = ("신탁", "물상담보", "전세입자", "전세권", "세입자", "월세입자", "가압류", "압류")
+        exclude_keywords = ("신탁", "물상담보", "물상", "전세입자", "전세권", "세입자", "월세입자", "가압류", "압류")
+        physical_collateral_keywords = ("물상담보", "물상")
         for m in property_data.get("mortgages") or []:
             institution = (m.get("institution") or "").strip()
             if not institution:
@@ -4495,6 +4510,8 @@ class BaseCalculator:
             if inst_type != "기타":
                 continue
             if any(kw in institution for kw in exclude_keywords):
+                continue
+            if allow_physical_collateral and any(kw in institution for kw in physical_collateral_keywords):
                 continue
             return True
         return False
@@ -4525,14 +4542,6 @@ class BaseCalculator:
         Returns:
             계산 결과 리스트 (에러 메시지가 있는 경우도 포함)
         """
-        # 개인설정이 있으면 후순위/대환 취급 불가 → 한도 산출 안 함
-        if cls._has_personal_mortgage(property_data):
-            return [{
-                "bank_name": "",
-                "results": [],
-                "errors": ["개인설정 후순위는 취급 불가"],
-                "personal_mortgage_ineligible": True
-            }]
         # data/banks 폴더 경로
         current_dir = os.path.dirname(os.path.abspath(__file__))
         banks_dir = os.path.join(current_dir, "..", "data", "banks")
@@ -4646,14 +4655,6 @@ class BaseCalculator:
         Returns:
             계산 결과 리스트 (에러 메시지가 있는 경우도 포함)
         """
-        # 개인설정이 있으면 후순위/대환 취급 불가 → 한도 산출 안 함
-        if cls._has_personal_mortgage(property_data):
-            return [{
-                "bank_name": "",
-                "results": [],
-                "errors": ["개인설정 후순위는 취급 불가"],
-                "personal_mortgage_ineligible": True
-            }]
         current_dir = os.path.dirname(os.path.abspath(__file__))
         loan_base_dir = os.path.join(current_dir, "..", "data", "loan")
         
