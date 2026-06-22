@@ -168,7 +168,12 @@ def get_real_transactions(
         item_list = items.findall("item")
 
         for item in item_list:
-            apt_name = (item.findtext("아파트명") or item.findtext("aptNm") or "").strip()
+            apt_name = (
+                item.findtext("아파트명")
+                or item.findtext("aptNm")
+                or item.findtext("아파트")
+                or ""
+            ).strip()
             road_name = (item.findtext("도로명") or item.findtext("roadName") or "").strip()
 
             if not _match_complex(apt_name, road_name, complex_name):

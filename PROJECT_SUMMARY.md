@@ -1,173 +1,161 @@
-# 담보대출 계산기 프로젝트 요약
+# 프로젝트 기술 요약
 
-## 📋 프로젝트 개요
+담보대출 계산기의 아키텍처, 모듈 역할, 계산 흐름을 정리한 문서입니다.
 
-텔레그램 봇을 통해 담보물건 정보를 입력받아 여러 금융사의 주택담보대출 한도와 금리를 자동으로 계산하는 시스템입니다.
+---
 
-## 🏗️ 아키텍처
+## 개요
+
+텔레그램 메시지 또는 등기부 PDF로 담보물건 정보를 받아, `data/banks/` JSON 조견에 따라 여러 금융사의 LTV·한도·금리를 산출합니다.
 
 ```
-텔레그램 메시지 → 파서 → 계산 엔진 → 금융사별 계산기 → 결과 포맷터 → 텔레그램 응답
+입력 (텍스트/PDF)
+  → 파서 (message_parser / registry_parser)
+  → KB 시세·부가정보 (KB_api, kb-price-node, 스크래퍼)
+  → 계산 엔진 (base_calculator)
+  → 포맷터 (formatter)
+  → 텔레그램 응답
 ```
 
-## 📁 주요 파일 구조
+---
 
-### 핵심 모듈
+## 진입점
 
-1. **`main.py`**: 텔레그램 봇 메인 진입점 (로컬 실행용)
-2. **`api/webhook.py`**: Vercel 서버리스 함수 (배포용)
+| 파일 | 역할 |
+|------|------|
+| `main.py` | 로컬 Polling 봇 (개발·간단 테스트) |
+| `api/webhook.py` | Vercel/Render 서버리스 웹훅 (운영) |
+| `local_pdf_bot.py` | 로컬 PDF 전용 Polling 봇 |
+| `run_webhook_render.py` | Render 웹훅 실행 |
 
-### 파서 모듈 (`parsers/`)
+---
 
-- **`message_parser.py`**: 텔레그램 메시지를 구조화된 데이터로 변환
-  - 성명, 연령, 직업, 신용점수 추출
-  - 주소에서 지역 추출
-  - 근저당권 설정 내역 파싱
-  - ⚠️ **TODO**: 대환 여부 판단 로직 추가 필요 (207번째 줄 주석 참고)
+## 파서 (`parsers/`)
 
-### 계산기 모듈 (`calculator/`)
+### `message_parser.py`
 
-- **`base_calculator.py`**: 금융사 계산기 클래스
-  - 개별 금융사 계산 로직 (LTV, 한도, 금리)
-  - 지역별 급지 조회
-  - 신용등급별 금리 조회
-  - JSON 파일 경로 또는 딕셔너리로 초기화 가능
-  - `calculate_all_banks()` 클래스 메서드로 모든 금융사 계산
-  - data/banks 폴더의 JSON 파일 자동 로드
-  - 새 금융사 추가 시 JSON 파일만 추가하면 자동 등록
+- 담보물건 텍스트 양식 파싱
+- 근저당 설정내역 (순위, 기관, 원금, 채권최고액)
+- 요청사항: 대환 순위·범위, 부족자금, 지분조건 등
+- 대환 판단: `N순위 대환`, `전체 대환`, `선순위`, `N-M순위 대환`, 기관명 매칭
 
-### 유틸리티 모듈 (`utils/`)
+### `registry_parser.py`
 
-- **`validators.py`**: 데이터 검증
-  - KB시세 검증 (없으면 None 반환)
-  - 신용점수 검증
-  - 금액 파싱
+- 등기부 PDF → 구조화 데이터
+- 주소, 면적, 근저당, 소유자 등 추출
 
-- **`formatter.py`**: 결과 포맷팅
-  - 통합된 형식: `* BNK캐피탈 (4등급기준)\n후순위 74% 43,900만 / 6.65%`
-  - 신용점수 없을 때 금리 범위 표시
-  - 대환인 경우 전체 금액과 가용한도 구분 표시
+---
 
-### 설정 파일 (`data/`)
+## 계산기 (`calculator/base_calculator.py`)
 
-- **`banks/bnk_config.json`**: BNK캐피탈 조건 설정
-  - 금융사별 모든 정보를 한 파일에 관리
-  - 지역별 급지 (`region_grades`): 구/시/군 단위로 세밀하게 설정 가능
-    - 구/시/군 단위 매핑이 있으면 우선 사용
-    - 없으면 광역 단위(서울, 경기 등)로 자동 fallback
-  - 급지별 최대 LTV (`max_ltv_by_grade`)
-  - LTV별 신용등급별 금리 (`interest_rates_by_ltv`)
-  - 신용점수→등급 매핑 (`credit_score_to_grade`)
-  - 특이 조건 (`conditions`)
-  - 수동으로 수정 가능
+- `data/banks/*.json` 자동 로드 (`enabled: true`만)
+- 금융사별 분기: LTV 급지, 선/후순위, 대환, 지역·등급 조합 등
+- `calculate_all_banks(property_data)` — 전 금융사 일괄 산출
+- 대환 마스터: `refinanceable_institutions.json` + 금융사별 `business_product_names`
 
-## 🔧 주요 기능
+### 계산 단계
 
-### ✅ 구현 완료
+1. KB시세·보조가 검증 (`utils/validators.py`)
+2. 주소 → 행정구역 → `region_grades` 급지
+3. 급지별 max LTV, `ltv_steps` 순회
+4. 기존 근저당 차감 → 가용한도
+5. 신용등급 → `interest_rates_by_ltv` 금리
+6. `conditions` 등 특이 조건 부가
 
-1. ✅ 텔레그램 메시지 파싱
-2. ✅ KB시세 검증 (없으면 산출 불가)
-3. ✅ 신용점수 없을 때 금리 범위 표시
-4. ✅ 지역별 급지 매핑 (구/시/군 단위 지원)
-5. ✅ LTV별 한도 계산
-6. ✅ 신용등급별 금리 적용
-7. ✅ 결과 포맷팅 (통합 형식)
-8. ✅ 금융사 추가/편집 가능한 구조 (JSON 파일만 추가)
+---
 
-### ⚠️ TODO (추후 구현)
+## 유틸 (`utils/`)
 
-1. **대환 여부 판단 로직**
-   - 위치: `parsers/message_parser.py` 207번째 줄
-   - 메시지에서 "대환" 키워드 또는 패턴으로 판단
-   - 계산 시 대환/후순위 구분
+| 모듈 | 역할 |
+|------|------|
+| `formatter.py` | 금융사별 결과 통합 포맷 |
+| `validators.py` | KB시세, 특이사항 보조가, 금액 파싱 |
+| `mortgage_calculator.py` | 원금 계산, 금융기관 분류 |
+| `real_transaction_api.py` | 공공데이터 실거래가 |
+| `tenant_extractor.py` | 세입자·임차 정보 |
 
-2. **선순위/후순위 판단 로직**
-   - 근저당권 설정 내역 기반으로 판단
+---
 
-3. **다른 금융사 추가**
-   - `data/banks/새금융사_config.json` 파일만 추가하면 자동 등록
-   - Python 클래스 작성 불필요
+## KB 시세 (`KB_api/`, `kb-price-node/`)
 
-## 🚀 실행 방법
+| 구성 | 설명 |
+|------|------|
+| `KB_api/kb_price_api.py` | Python KB 시세 (법정동코드 → 단지 → 면적 매칭) |
+| `KB_api/kb_complex_scraper.py` | Playwright: 세대수·사용승인일·재건축 |
+| `kb-price-node/` | Node HTTP API 전용 (Vercel 호환) |
+| `api/kb-households.js` | Vercel Node Puppeteer 세대수 API |
+| `render-playwright/` | Render 전용 Playwright 마이크로서비스 |
 
-### 로컬 실행
+법정동코드: `KB_api/전국_dongcode_data.json`  
+도로명 주소: `JUSO_API_KEY` 환경변수로 실시간 조회
 
-```bash
-cd mortgage_calculator
-pip install -r requirements.txt
+---
 
-# config/telegram_config.py에 토큰 설정
-python main.py
+## 데이터 (`data/`)
+
+### `data/banks/`
+
+금융사별 조견 JSON. 파일 추가만으로 계산기 확장.
+
+현재 등록: MG캐피탈, 한토저축, JB우리캐피탈, BNK, 애큐온(캐·저), 키움저축, 페퍼저축, OK저축
+
+### `data/loan/`
+
+대출상품·팀별 설정 (`FSS/`, `Local/`)
+
+---
+
+## 웹훅 채널 분기 (`api/webhook.py`)
+
+환경변수로 채팅방별 동작을 나눕니다.
+
+| 변수 | 용도 |
+|------|------|
+| `ALLOWED_CHAT_IDS_BANKS` | 금융사 한도 산출 |
+| `ALLOWED_CHAT_IDS_BANKS_2` | 금융사 산출 (2번 채널) |
+| `ALLOWED_CHAT_IDS_LOAN` | 대출상품 안내 |
+| `ALLOWED_CHAT_IDS_PDF_ONLY` | PDF 파싱만 (산출 없음) |
+
+---
+
+## 배포
+
+### Vercel
+
+- `api/webhook.py` — maxDuration 60s
+- `api/kb-households.js` — Node Puppeteer, memory 1024MB
+- Python Playwright 불가 → Node 또는 외부 스크래퍼 사용
+
+### Render
+
+- 무료 플랜 슬립 이슈 → UptimeRobot 등 핑 권장
+- `RENDER=true` 시 in-process Playwright 비활성 → `PLAYWRIGHT_SCRAPER_URL` 연동
+- 상세: [RENDER_무응답_대응.md](RENDER_무응답_대응.md)
+
+---
+
+## 결과 형식
+
+```
+* {금융사명} ({N}등급기준)
+{대환|후순위} {LTV}% {한도}만 / {금리}%
+- {conditions 항목}
 ```
 
-### Vercel 배포
+대환 시 `가용 {금액}만` 추가. 신용점수 없으면 `{최저}%~{최고}%`.
 
-1. GitHub에 프로젝트 업로드
-2. Vercel에 연결
-3. 환경 변수 설정: `TELEGRAM_BOT_TOKEN`
-4. Webhook URL을 텔레그램에 등록
+---
 
-## 📝 설정 파일 수정 가이드
+## 향후 개선 (내부)
 
-### 새로운 금융사 추가
+- 조견 JSON 스키마 통합 → [docs/CONFIG_UNIFICATION_PLAN.md](docs/CONFIG_UNIFICATION_PLAN.md)
+- 금융사명 하드코딩 분기를 config 플래그로 대체
 
-1. `data/banks/새금융사_config.json` 파일 생성 (BNK 설정 참고)
-   - 금융사별 모든 정보(급지, 금리, 조건 등)를 한 파일에 작성
-   - 파일만 추가하면 자동으로 계산기에 등록됨
+---
 
-### 기존 금융사 조건 수정
+## 참고 문서
 
-`data/banks/` 폴더의 해당 JSON 파일을 직접 수정하면 됩니다.
-
-## 🔍 인코딩
-
-모든 파일은 **UTF-8** 인코딩을 사용합니다.
-파일 상단에 `# -*- coding: utf-8 -*-` 주석이 포함되어 있습니다.
-
-## 📊 계산 로직
-
-1. **KB시세 검증**: 없으면 산출 불가 (None 반환)
-2. **지역 확인**: 주소에서 행정구역 추출 (구/시/군 단위) → 급지 확인
-   - 구/시/군 단위 매핑이 있으면 우선 사용
-   - 없으면 광역 단위로 fallback
-3. **최대 LTV 확인**: 급지별 최대 LTV 확인
-4. **기존 근저당권 계산**: 1순위, 2순위 등 총액 계산
-5. **LTV별 한도 계산**: 
-   - `가용한도 = (KB시세 × LTV%) - 기존 근저당권 총액`
-   - 대환인 경우: 전체 금액과 가용한도 구분
-6. **금리 조회**: 
-   - 신용점수 있으면: 해당 등급 금리
-   - 신용점수 없으면: 최저~최고 금리 범위
-
-## 🎯 결과 형식
-
-### 기본 형식
-```
-* BNK캐피탈 (4등급기준)
-후순위 74% 43,900만 / 6.65%
-후순위 70% 40,400만 / 6.20%~10.70%
-- 사업자 등록된 3개월 이상 개인사업자
-```
-
-### 대환인 경우
-```
-* BNK캐피탈 (4등급기준)
-대환 80% 49,300만 / 가용 20,000만 / 7.60%
-```
-
-### 신용점수 없을 때
-```
-* BNK캐피탈
-후순위 70% 40,400만 / 6.20%~10.70%
-```
-
-## ⚙️ 환경 변수
-
-- `TELEGRAM_BOT_TOKEN`: 텔레그램 봇 API 토큰 (필수)
-
-## 📚 참고 문서
-
-- `README.md`: 프로젝트 기본 정보
-- `USAGE.md`: 상세 사용 가이드
-- `PROJECT_SUMMARY.md`: 이 문서
-
+- [README.md](README.md) — 프로젝트 소개·빠른 시작
+- [SETUP.md](SETUP.md) — 환경 설정
+- [USAGE.md](USAGE.md) — 사용법
+- [KB_api/README.md](KB_api/README.md) — KB API 상세

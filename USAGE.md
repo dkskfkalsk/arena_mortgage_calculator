@@ -1,71 +1,12 @@
 # 사용 가이드
 
-## 프로젝트 구조 설명
+메시지 입력 형식, 금융사 조견 관리, 주요 기능 사용법을 설명합니다.
 
-### 1. 금융사 추가하기
+---
 
-새로운 금융사를 추가하려면:
+## 1. 텍스트 메시지 형식
 
-1. **설정 파일 생성**: `data/banks/새금융사_config.json` 파일 생성
-   - `bnk_config.json` 파일을 참고하여 작성
-   - 금융사별 모든 정보를 한 파일에 작성:
-     - `bank_name`: 금융사명
-     - `target_regions`: 대상 지역 리스트
-     - `region_grades`: 지역별 급지 매핑 (금융사별로 다를 수 있음)
-     - `max_ltv_by_grade`: 급지별 최대 LTV
-     - `ltv_steps`: 계산할 LTV 단계
-     - `interest_rates_by_ltv`: LTV별 신용등급별 금리
-     - `credit_score_to_grade`: 신용점수→등급 매핑
-     - `conditions`: 특이 조건 리스트
-   
-   **자동 등록**: JSON 파일만 추가하면 자동으로 계산기에 등록됩니다!
-   Python 클래스를 만들 필요가 없습니다.
-
-### 2. 설정 파일 수정하기
-
-각 금융사의 조건이 변경되면 `data/banks/` 폴더의 해당 JSON 파일을 수정하면 됩니다.
-
-주요 설정 항목 (모두 한 파일에 관리):
-- `bank_name`: 금융사명
-- `target_regions`: 대상 지역 리스트
-- `region_grades`: 지역별 급지 매핑 (금융사별로 다를 수 있음)
-- `max_ltv_by_grade`: 급지별 최대 LTV
-- `ltv_steps`: 계산할 LTV 단계
-- `interest_rates_by_ltv`: LTV별 신용등급별 금리
-- `credit_score_to_grade`: 신용점수→등급 매핑
-- `conditions`: 특이 조건 리스트
-
-### 3. 대환 여부 판단 로직 추가
-
-현재는 `parsers/message_parser.py`의 `_parse_mortgage_line()` 메서드에서 대환 여부를 판단하지 못합니다.
-
-추가할 위치:
-- `parsers/message_parser.py` 파일의 `_parse_mortgage_line()` 메서드
-- `# TODO: 대환 여부 판단 로직` 주석이 있는 부분
-
-예시:
-```python
-# 메시지에서 "대환" 키워드 확인
-is_refinance = "대환" in line or "대환대출" in line
-```
-
-### 4. 텔레그램 봇 설정
-
-1. `@BotFather`에서 봇 생성 및 토큰 발급
-2. `config/telegram_config.py` 파일에서 `TELEGRAM_BOT_TOKEN` 설정
-3. 로컬 실행: `python main.py`
-4. Vercel 배포: Webhook 방식 사용
-
-### 5. Vercel 배포
-
-1. GitHub에 프로젝트 업로드
-2. Vercel에 프로젝트 연결
-3. 환경 변수에 `TELEGRAM_BOT_TOKEN` 설정
-4. Webhook URL을 텔레그램에 등록
-
-## 메시지 형식
-
-텔레그램 메시지는 다음과 같은 형식을 따라야 합니다:
+텔레그램에 아래와 같은 담보물건 양식을 붙여넣으면 자동 파싱·산출됩니다.
 
 ```
 성   명 : 정종민 (68)
@@ -88,9 +29,163 @@ KB시세 : 시세없음
 요청사항 : *사업자 보유 부가세누락 신고조건 / 세입자 미동의 조건 / 3순위 확인부탁드립니다
 ```
 
+### 파싱되는 주요 필드
+
+| 필드 | 용도 |
+|------|------|
+| 주소, 면적 | 지역 급지·KB 시세 조회 |
+| KB시세 | 한도 계산 기준가 (없으면 API·특이사항 보조) |
+| 설정내역 | 순위별 근저당, 원금·채권최고액 |
+| 신용점수 | 등급별 금리 (없으면 금리 범위 표시) |
+| 특이사항 | 하우스머치·감정가·KB AI가 등 보조 시세 |
+| 요청사항 | 대환 순위, 부족자금, 지분조건 등 |
+
+---
+
+## 2. 요청사항 키워드
+
+### 대환
+
+요청사항에서 아래 패턴을 인식합니다.
+
+| 패턴 예시 | 동작 |
+|-----------|------|
+| `2순위 대환` | 2순위 근저당을 대환 대상으로 처리 |
+| `보성새마을금고 대환` | 기관명 매칭 |
+| `1-3순위 대환` | 1~3순위 범위 대환 |
+| `전체 대환` | 모든 순위 대환 |
+| `선순위` | 1순위 대환 |
+| `2순위 한도 확인` | 해당 순위 대환으로 처리 |
+
+### 부족자금
+
+요청사항에 **부족자금**이 있으면 가용한도가 마이너스인 LTV도 결과에 포함됩니다.
+
+```
+요청사항: *2순위 대환조건 확인. 부족자금
+```
+
+### 기타
+
+- **지분조건**: 해당 금융사 config에서 `fractional_share_request_enabled: true`일 때 LTV 제한 적용
+- **N순위 확인**: 해당 순위까지 한도 산출
+
+---
+
+## 3. PDF 업로드
+
+등기부 PDF를 채팅방에 업로드하면:
+
+1. PDF 파싱 (주소, 면적, 근저당 등)
+2. KB 시세 자동 조회
+3. (환경에 따라) 세대수·동수·사용승인일·재건축 정보
+4. 금융사별 한도 산출 또는 파싱 결과만 회신 (채널 설정에 따름)
+
+| 실행 환경 | 특징 |
+|-----------|------|
+| Vercel 웹훅 | 서버리스, Node 세대수 API |
+| Render | Playwright 분리 서비스 연동 가능 |
+| 로컬 PDF 봇 | Playwright 로컬 실행, 2~3초 수준 |
+
+로컬 PDF 봇: [README_LOCAL_BOT.md](README_LOCAL_BOT.md)
+
+---
+
+## 4. 금융사 조견 관리
+
+### 새 금융사 추가
+
+1. `data/banks/`에 JSON 파일 생성 (예: `8_newbank.json`)
+2. 기존 파일(`4_bnk_config.json` 등)을 참고해 작성
+3. **Python 코드 수정 없이** `BaseCalculator.calculate_all_banks()`에 자동 등록
+
+### 금융사 비활성화
+
+```json
+"enabled": false
+```
+
+### 주요 config 키 (금융사마다 일부 상이)
+
+| 키 | 설명 |
+|----|------|
+| `bank_name` | 표시명 |
+| `enabled` | 산출 on/off |
+| `target_regions` | 대상 광역 지역 |
+| `region_grades` | 구·시·군별 급지 |
+| `max_ltv_by_grade` | 급지별 최대 LTV |
+| `ltv_steps` | 산출 LTV 단계 |
+| `interest_rates_by_ltv` | LTV·등급별 금리 |
+| `credit_score_to_grade` | 신용점수 → 등급 |
+| `conditions` | 결과 하단 특이 조건 문구 |
+| `calculation_mode` | 계산 방식 (일부 금융사) |
+| `refinance_self_aliases` | 자기 금융사 대환 제외용 별칭 |
+
+금융사마다 키 이름이 다를 수 있습니다. 통합 계획은 [docs/CONFIG_UNIFICATION_PLAN.md](docs/CONFIG_UNIFICATION_PLAN.md) 참고.
+
+### 대환 가능 기관 목록
+
+- `data/banks/refinanceable_institutions.json` — 공통 대환 마스터 목록
+- 금융사 config의 `business_product_names`로 개별 오버라이드 가능
+
+---
+
+## 5. 결과 형식 예시
+
+### 후순위 (신용점수 있음)
+
+```
+* BNK캐피탈 (4등급기준)
+후순위 74% 43,900만 / 6.65%
+```
+
+### 대환
+
+```
+* BNK캐피탈 (4등급기준)
+대환 80% 49,300만 / 가용 20,000만 / 7.60%
+```
+
+### 신용점수 없음
+
+```
+* BNK캐피탈
+후순위 70% 40,400만 / 6.20%~10.70%
+```
+
+---
+
+## 6. 계산 로직 요약
+
+1. **기준가**: KB시세 → 특이사항 보조가 → (실패 시) 공공데이터 실거래가
+2. **지역**: 주소에서 행정구역 추출 → `region_grades`로 급지 결정
+3. **기존 근저당**: 순위별 원금 또는 채권최고액 합산 (config별)
+4. **가용한도**: `KB시세 × LTV% − 기존 근저당`
+5. **금리**: 신용등급별 단일 금리 또는 등급 범위
+
+---
+
+## 7. 실행 방법
+
+### 로컬 (Polling)
+
+```bash
+python main.py
+```
+
+### Vercel (Webhook)
+
+1. 배포 + 환경변수
+2. `python scripts/set_webhook.py <URL>/api/webhook`
+3. 텔레그램 채팅방에서 메시지/PDF 전송
+
+설정 상세: [SETUP.md](SETUP.md)
+
+---
+
 ## 주의사항
 
-- KB시세가 없으면 산출이 불가능합니다
-- 신용점수가 없으면 금리 범위로 표시됩니다
-- UTF-8 인코딩을 사용합니다
-
+- KB시세·보조 시세 모두 없으면 한도 산출이 불가능합니다.
+- 신용점수가 없으면 금리는 범위로 표시됩니다.
+- 모든 파일은 **UTF-8** 인코딩을 사용합니다.
+- Vercel 로그는 요청당 줄 수 제한이 있어, 상세 디버그는 로컬에서 확인하는 것이 좋습니다.

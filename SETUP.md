@@ -1,248 +1,216 @@
 # 설정 가이드
 
-모든 환경변수와 설정값은 **`config/telegram_config.py`** 파일에서 관리합니다.
+봇 토큰, 배포 환경변수, 웹훅, BotFather 설정을 다룹니다.
 
-## 📍 설정 파일 위치
+---
 
-```
-config/telegram_config.py
-```
+## 설정 파일 위치
 
-이 파일 하나에 모든 설정값을 관리합니다.
+| 파일 | 용도 |
+|------|------|
+| `config/telegram_config.py` | 로컬 실행용 (예시: `telegram_config.example.py` 복사) |
+| `.env` / `.env.local` | 로컬 PDF 봇·API 키 |
+| Vercel/Render 환경변수 | 운영 배포 |
 
-## 🔑 텔레그램 봇 API 토큰 설정
+`config/telegram_config.py`는 `.gitignore`에 포함되어 Git에 올라가지 않습니다.
 
-### 방법 1: 환경변수 사용 (권장)
+---
 
-#### 로컬 실행 시
-```bash
-# Windows (PowerShell)
+## 1. 텔레그램 봇 토큰
+
+### BotFather에서 발급
+
+1. 텔레그램에서 `@BotFather` 검색
+2. `/newbot` → 봇 이름·사용자명 설정
+3. 발급된 토큰 복사
+
+### 방법 A: 환경변수 (권장)
+
+**Windows PowerShell (현재 세션)**
+
+```powershell
 $env:TELEGRAM_BOT_TOKEN="your_token_here"
+```
 
-# Windows (CMD)
-set TELEGRAM_BOT_TOKEN=your_token_here
+**Mac/Linux**
 
-# Mac/Linux
+```bash
 export TELEGRAM_BOT_TOKEN="your_token_here"
 ```
 
-또는 `.env` 파일 생성:
+**`.env` 파일 (프로젝트 루트)**
+
 ```env
 TELEGRAM_BOT_TOKEN=your_token_here
 ```
 
-#### Vercel 배포 시
-1. Vercel 대시보드 접속: https://vercel.com
-2. 프로젝트 선택
-3. **Settings** 탭 클릭
-4. **Environment Variables** 섹션으로 이동
-5. **Add New** 버튼 클릭
-6. 다음 정보 입력:
-   - **Key**: `TELEGRAM_BOT_TOKEN`
-   - **Value**: `@BotFather`에서 발급받은 토큰
-   - **Environment**: Production, Preview, Development 모두 선택
-7. **Save** 클릭
+### 방법 B: 설정 파일에 직접 입력
 
-8. **허용된 채팅방 ID 설정** (선택사항):
-   - **Key**: `ALLOWED_CHAT_IDS`
-   - **Value**: 허용할 채팅방 ID (예: `-1003204391811`)
-   - 여러 채팅방을 허용하려면 쉼표로 구분: `-1003204391811,-1001234567890`
-   - 비워두면 모든 채팅방에서 작동
-   - **Environment**: Production, Preview, Development 모두 선택
-   - **Save** 클릭
+```bash
+# Windows
+copy config\telegram_config.example.py config\telegram_config.py
 
-9. **도로명주소 API (선택)** — 도로명만 있는 주소에서 KB 시세 조회 시 사용:
-   - **Key**: `JUSO_API_KEY` (또는 `JUSO_CONFM_KEY`)
-   - **Value**: [juso.go.kr](https://www.juso.go.kr/addrlink/openApi/apiReqst.do)에서 신청 후 발급받은 승인키(confmKey)
-   - 비워두면 도로명 주소는 하드코딩된 소수 케이스만 처리됨
-   - **Environment**: Production, Preview, Development 모두 선택
-   - **Save** 클릭
+# Mac/Linux
+cp config/telegram_config.example.py config/telegram_config.py
+```
 
-### 방법 2: 파일에 직접 입력
+```python
+TELEGRAM_BOT_TOKEN = "실제_토큰_입력"
+```
 
-1. **예시 파일 복사** (처음 한 번만):
-   ```bash
-   # Windows
-   copy config\telegram_config.example.py config\telegram_config.py
-   
-   # Mac/Linux
-   cp config/telegram_config.example.py config/telegram_config.py
-   ```
+---
 
-2. `config/telegram_config.py` 파일 열기
+## 2. Vercel 환경변수
 
-3. 토큰 입력:
-   ```python
-   TELEGRAM_BOT_TOKEN = "실제_토큰_입력"
-   ```
+Vercel 대시보드 → **Settings** → **Environment Variables**
 
-⚠️ **중요**: 
-- `config/telegram_config.py`는 `.gitignore`에 포함되어 있어 **GitHub에 올라가지 않습니다**
-- 실제 토큰을 입력해도 안전하게 Git에 커밋되지 않습니다
-- Vercel 배포 시에는 환경변수 사용을 권장합니다
+| Key | 필수 | 설명 |
+|-----|------|------|
+| `TELEGRAM_BOT_TOKEN` | ✅ | 메인 봇 토큰 |
+| `ALLOWED_CHAT_IDS_BANKS` | 선택 | 금융사 산출 채널 ID (쉼표 구분) |
+| `ALLOWED_CHAT_IDS_BANKS_2` | 선택 | 금융사 산출 2번 채널 |
+| `ALLOWED_CHAT_IDS_LOAN` | 선택 | 대출상품 채널 |
+| `ALLOWED_CHAT_IDS_PDF_ONLY` | 선택 | PDF 파싱만 수행하는 채널 |
+| `JUSO_API_KEY` 또는 `JUSO_CONFM_KEY` | 선택 | 도로명주소 → 법정동코드 API |
+| `REAL_ESTATE_API_KEY` | 선택 | 공공데이터 실거래가 API |
+| `WEBHOOK_URL` | 선택 | 웹훅 URL (스크립트 대신 사용 시) |
 
-## 🌐 텔레그램 웹훅 설정 (Vercel 배포 시 필수)
+채팅방 ID를 비우면 해당 분기 제한 없이 동작합니다.
 
-### 1단계: Vercel에 배포
-1. GitHub에 프로젝트 업로드
-2. Vercel에 프로젝트 연결
-3. 배포 완료 후 URL 확인 (예: `https://your-app.vercel.app`)
+---
 
-### 2단계: 웹훅 URL 확인
-배포 후 생성되는 웹훅 URL:
+## 3. 로컬 PDF 봇 (별도 토큰)
+
+로컬 PDF 전용 봇은 `.env.local`에 별도 토큰을 둡니다.
+
+```env
+TELEGRAM_PDF_BOT_TOKEN=your_pdf_bot_token_here
+```
+
+설치·실행: [README_LOCAL_BOT.md](README_LOCAL_BOT.md)
+
+---
+
+## 4. 웹훅 설정 (Vercel 배포)
+
+### 1단계: 배포
+
+GitHub 연동 → Vercel 배포 → URL 확인 (예: `https://your-app.vercel.app`)
+
+### 2단계: 웹훅 URL
+
 ```
 https://your-app.vercel.app/api/webhook
 ```
 
-### 3단계: 텔레그램에 웹훅 등록
+### 3단계: 등록
 
-**방법 1: 스크립트 사용 (권장)**
+**스크립트 (권장)**
+
 ```bash
 python scripts/set_webhook.py https://your-app.vercel.app/api/webhook
 ```
 
-**방법 2: 수동으로 등록**
-1. 브라우저에서 다음 URL 접속 (YOUR_BOT_TOKEN과 YOUR_WEBHOOK_URL을 실제 값으로 변경):
+**브라우저**
+
 ```
-https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=<YOUR_WEBHOOK_URL>
+https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://your-app.vercel.app/api/webhook
 ```
 
-예시:
-```
-https://api.telegram.org/bot123456789:ABCdefGHIjklMNOpqrsTUVwxyz/setWebhook?url=https://your-app.vercel.app/api/webhook
-```
+**curl**
 
-**방법 3: curl 명령어 사용**
 ```bash
-curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=https://your-app.vercel.app/api/webhook"
+curl -X POST "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://your-app.vercel.app/api/webhook"
 ```
 
-### 웹훅 확인
+### 웹훅 확인·삭제
+
 ```bash
-# 현재 웹훅 정보 확인
 python scripts/set_webhook.py --check
-
-# 웹훅 삭제 (로컬 Polling으로 전환 시)
-python scripts/set_webhook.py --delete
+python scripts/set_webhook.py --delete   # Polling 전환 시
 ```
 
-### 웹훅 설정 확인
-웹훅이 제대로 설정되었는지 확인:
-```
-https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo
-```
-
-성공 시 응답:
-```json
-{
-  "ok": true,
-  "result": {
-    "url": "https://your-app.vercel.app/api/webhook",
-    "has_custom_certificate": false,
-    "pending_update_count": 0
-  }
-}
-```
-
-## 📝 토큰 발급 방법
-
-1. 텔레그램에서 `@BotFather` 검색
-2. `/newbot` 명령어 입력
-3. 봇 이름과 사용자명 설정
-4. 발급받은 토큰을 복사
-5. 위의 방법 중 하나로 설정
-
-## 🤖 BotFather에서 추가 설정 (선택사항이지만 권장)
-
-봇을 더 사용자 친화적으로 만들기 위해 BotFather에서 추가 설정을 할 수 있습니다.
-
-### 1. 명령어 목록 설정 (권장)
-
-사용자가 `/`를 입력하면 자동완성으로 명령어가 나타나게 됩니다.
-
-1. 텔레그램에서 `@BotFather` 검색
-2. `/setcommands` 명령어 입력
-3. 봇 선택 (봇 사용자명 입력)
-4. 다음 명령어 목록 입력:
+Telegram API로 확인:
 
 ```
-start - 봇 시작 및 도움말 보기
-help - 도움말 보기
+https://api.telegram.org/bot<TOKEN>/getWebhookInfo
 ```
 
-또는 한 줄로:
-```
-start - 봇 시작 및 도움말 보기
-help - 도움말 보기
-```
+---
 
-### 2. 봇 설명 설정
+## 5. BotFather 추가 설정 (권장)
 
-봇 검색 시 나타나는 설명을 설정합니다.
-
-1. `@BotFather`에게 `/setdescription` 명령어 전송
-2. 봇 선택
-3. 설명 입력 (예: "여러 금융사의 담보대출 한도와 금리를 계산해드립니다")
-
-### 3. 봇 약식 설명 설정
-
-봇 프로필에서 보이는 짧은 설명을 설정합니다.
-
-1. `@BotFather`에게 `/setabouttext` 명령어 전송
-2. 봇 선택
-3. 약식 설명 입력 (예: "담보대출 계산기 - 여러 금융사 한도/금리 계산")
-
-### 4. 봇 프로필 사진 설정 (선택사항)
-
-1. `@BotFather`에게 `/setuserpic` 명령어 전송
-2. 봇 선택
-3. 사진 전송
-
-### 설정 예시
+### 명령어 목록
 
 ```
 /setcommands
 @your_bot_username
-start - 봇 시작 및 도움말 보기
-help - 도움말 보기
+start - 봇 시작 및 도움말
+help - 도움말
+```
 
+### 설명·약식 설명
+
+```
 /setdescription
 @your_bot_username
-여러 금융사의 담보대출 한도와 금리를 계산해드립니다. 
-담보물건 정보를 입력하시면 자동으로 계산해드립니다.
+여러 금융사의 담보대출 한도와 금리를 계산해드립니다.
 
 /setabouttext
 @your_bot_username
-담보대출 계산기 - 여러 금융사 한도/금리 계산
+담보대출 계산기
 ```
 
-## ✅ 설정 확인
+---
 
-### 로컬 실행 확인
+## 6. 선택 API 키
+
+### 도로명주소 API (JUSO)
+
+동/읍/면이 없는 도로명 주소에서 KB 시세 조회 시 필요합니다.
+
+- 신청: [juso.go.kr Open API](https://www.juso.go.kr/addrlink/openApi/apiReqst.do)
+- 환경변수: `JUSO_API_KEY` 또는 `JUSO_CONFM_KEY`
+
+### 공공데이터 실거래가
+
+KB 일반가가 없을 때 보조 시세로 사용합니다.
+
+- 설정: [docs/공공데이터_실거래가_설정_가이드.md](docs/공공데이터_실거래가_설정_가이드.md)
+- 환경변수: `REAL_ESTATE_API_KEY`
+
+### Render Playwright 스크래퍼
+
+Render 웹훅에서 세대수·사용승인일 등 브라우저 스크래핑이 필요할 때:
+
+- 환경변수: `PLAYWRIGHT_SCRAPER_URL` (별도 Render 서비스 URL)
+- 설정: [render-playwright/README.md](render-playwright/README.md)
+
+---
+
+## 7. 설정 확인
+
+### 로컬 Polling
+
 ```bash
 python main.py
 ```
 
-토큰이 제대로 설정되었으면:
-```
-🤖 텔레그램 봇이 시작되었습니다...
-```
+정상 시: `🤖 텔레그램 봇이 시작되었습니다...`
 
-토큰이 없으면:
-```
-⚠️  텔레그램 봇 토큰을 설정해주세요!
-config/telegram_config.py 파일을 열어서 TELEGRAM_BOT_TOKEN을 입력하세요.
-```
+토큰 미설정 시: `⚠️ 텔레그램 봇 토큰을 설정해주세요!`
 
-### Vercel 배포 확인
-1. Vercel에 배포
-2. 환경변수가 제대로 설정되었는지 확인
-3. Webhook URL을 텔레그램에 등록
+### Vercel
 
-## 🔒 보안 주의사항
+1. 환경변수 저장 후 재배포
+2. 웹훅 등록
+3. 테스트 채팅방에서 메시지 전송
+4. Vercel **Logs** 탭에서 `api/webhook` 로그 확인
 
-- ⚠️ **절대** `config/telegram_config.py` 파일을 Git에 커밋하지 마세요
-- ⚠️ 토큰을 공개 저장소에 올리지 마세요
-- ✅ 환경변수 사용을 권장합니다
-- ✅ `.gitignore`에 `config/telegram_config.py`가 포함되어 있습니다
+---
 
+## 보안 주의사항
+
+- 토큰·API 키를 공개 저장소에 커밋하지 마세요.
+- 운영 환경에서는 환경변수 사용을 권장합니다.
+- `config/telegram_config.py`, `.env`, `.env.local`은 Git 추적 대상이 아닙니다.
