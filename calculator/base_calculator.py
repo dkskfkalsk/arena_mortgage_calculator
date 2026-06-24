@@ -1331,6 +1331,18 @@ class BaseCalculator:
                         other_mortgages.append(mortgage)
                         continue
                     
+                    # refinance_excluded_institution_types: 유형별 대환 불가 (classify_financial_institution 기준)
+                    excluded_institution_types = self.config.get("refinance_excluded_institution_types") or []
+                    if excluded_institution_types:
+                        inst_type = classify_financial_institution(institution)
+                        if inst_type in excluded_institution_types:
+                            print(
+                                f"DEBUG: BaseCalculator.calculate - {self.bank_name}: "
+                                f"'{institution}'는 {inst_type} 유형이라 대환 불가, 후순위로 처리"
+                            )
+                            other_mortgages.append(mortgage)
+                            continue
+                    
                     # refinance_all_requested: data/loan 상품 등 - 요청사항에 따른 대환 모두 허용
                     if self.config.get("refinance_all_requested"):
                         mortgage_amount = float(mortgage.get("amount", 0) or 0)

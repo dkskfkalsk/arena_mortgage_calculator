@@ -5,8 +5,67 @@
 - 금융사 유형별 설정 비율 자동 판별
 """
 
+import json
+import os
 import re
-from typing import Optional, Tuple, Dict
+from typing import List, Optional, Tuple, Dict
+
+_SAVINGS_BANKS_CACHE: Optional[List[str]] = None
+
+
+def _normalize_institution_name(name: str) -> str:
+    """금융사명 비교용 정규화 (공백·(주) 등 제거)."""
+    n = (name or "").strip()
+    for token in (" ", "㈜", "(주)", "（주）"):
+        n = n.replace(token, "")
+    return n
+
+
+def _institution_name_core(name: str) -> str:
+    """저축은행/저축 접미사를 제거한 핵심 명칭 (유니온저축 ↔ 유니온저축은행 매칭용)."""
+    n = _normalize_institution_name(name)
+    for suffix in ("저축은행", "저축"):
+        if n.endswith(suffix):
+            return n[: -len(suffix)]
+    return n
+
+
+def _load_savings_bank_names() -> List[str]:
+    """refinanceable_institutions.json의 savings_banks 목록 (캐시)."""
+    global _SAVINGS_BANKS_CACHE
+    if _SAVINGS_BANKS_CACHE is not None:
+        return _SAVINGS_BANKS_CACHE
+    base = os.path.join(os.path.dirname(__file__), "..", "data", "banks", "refinanceable_institutions.json")
+    try:
+        with open(base, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        _SAVINGS_BANKS_CACHE = list(data.get("savings_banks") or [])
+    except Exception:
+        _SAVINGS_BANKS_CACHE = []
+    return _SAVINGS_BANKS_CACHE
+
+
+def is_known_savings_bank(name: str) -> bool:
+    """
+    저축은행 여부 판별.
+    - '저축은행' 문자열 포함
+    - 마스터 savings_banks 명단 매칭 (유니온저축 등 축약명 포함)
+    """
+    normalized = _normalize_institution_name(name)
+    if not normalized:
+        return False
+    if "저축은행" in normalized:
+        return True
+    core = _institution_name_core(name)
+    for sb in _load_savings_bank_names():
+        sb_norm = _normalize_institution_name(sb)
+        if not sb_norm:
+            continue
+        if sb_norm in normalized or normalized in sb_norm:
+            return True
+        if len(core) >= 3 and core == _institution_name_core(sb):
+            return True
+    return False
 
 
 def classify_financial_institution(name: str) -> str:
@@ -33,8 +92,8 @@ def classify_financial_institution(name: str) -> str:
     if '전세권' in name:
         return '전세권'
     
-    # 저축은행 체크 (은행보다 우선)
-    if '저축은행' in name:
+    # 저축은행 체크 (은행보다 우선) — 마스터 명단 기반 (유니온저축 등 축약명 포함)
+    if is_known_savings_bank(name):
         return '저축은행'
     
     # 조합 체크
