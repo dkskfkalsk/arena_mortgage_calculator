@@ -1032,6 +1032,7 @@ class BaseCalculator:
             # 아파트/주상복합 구분
             is_apartment = property_type and "아파트" in property_type and "주상복합" not in property_type
             is_residential_commercial = property_type and "주상복합" in property_type
+            is_officetel = property_type and "오피스텔" in property_type
             
             # 현재 층수 추출 (주소에서)
             floor = None
@@ -1057,7 +1058,13 @@ class BaseCalculator:
                 rc_rules = lower_bound_config["residential_commercial"].get("rules", [])
                 apply_lower_bound = self._check_lower_bound_rules(rc_rules, floor, total_floors)
                 log_print(f"DEBUG: 주상복합 하한가 규칙 적용 결과: {apply_lower_bound}")
-            elif (is_apartment or is_residential_commercial) and "apartment" not in lower_bound_config and "residential_commercial" not in lower_bound_config:
+            elif is_officetel and "officetel" in lower_bound_config:
+                officetel_rules = lower_bound_config["officetel"].get("rules", [])
+                apply_lower_bound = self._check_lower_bound_rules(officetel_rules, floor, total_floors)
+                log_print(f"DEBUG: 오피스텔 하한가 규칙 적용 결과: {apply_lower_bound}")
+            elif (is_apartment or is_residential_commercial or is_officetel) and not any(
+                k in lower_bound_config for k in ("apartment", "residential_commercial", "officetel")
+            ):
                 # 기존 양식 호환: 단순히 아파트/주상복합 1,2층 체크
                 if floor in [1, 2]:
                     apply_lower_bound = True
@@ -2601,7 +2608,27 @@ class BaseCalculator:
         is_mg_capital_return = final_bank_name == "MG캐피탈" or "MG캐피탈" in final_bank_name
         if is_mg_capital_return and property_data:
             kb_price_raw_str = str(property_data.get("kb_price_raw") or "")
-            if "탁감가" in kb_price_raw_str or "감정가" in kb_price_raw_str or "은행감정가" in kb_price_raw_str:
+            property_type = property_data.get("property_type") or ""
+            is_apartment_or_complex = property_type and (
+                "아파트" in property_type or "주상복합" in property_type
+            )
+            is_appraisal_price = (
+                "탁감가" in kb_price_raw_str
+                or "감정가" in kb_price_raw_str
+                or "은행감정가" in kb_price_raw_str
+            )
+            non_apartment_rate = float(self.config.get("non_apartment_additional_rate") or 0)
+            # 아파트·주상복합 외(오피스텔 등) 가산 — 감정건과 중복 적용 안 함(get_interest_rate와 동일)
+            if not is_apartment_or_complex and non_apartment_rate > 0 and not is_appraisal_price:
+                if "오피스텔" in property_type:
+                    conditions.append(
+                        f"※ 표시금리는 오피스텔 가산금리 {non_apartment_rate:g}%p가 적용된 금리입니다"
+                    )
+                else:
+                    conditions.append(
+                        f"※ 표시금리는 아파트·주상복합 외 물건 가산금리 {non_apartment_rate:g}%p가 적용된 금리입니다"
+                    )
+            if is_appraisal_price:
                 conditions.append("※ 표시금리는 감정건(감정가·탁감가) 가산금리 1%p가 적용된 금리입니다")
         
         # 총액(대환/추가대출) N억 이상 시 안내 문구 추가 (amount_condition_threshold, amount_condition_message)

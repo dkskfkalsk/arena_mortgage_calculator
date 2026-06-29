@@ -580,7 +580,24 @@
         }
       ]
     },
-    "description": "아파트 1~2층 하한가, 주상복합 35층 초과(36층 이상) 1~15층/34층 이하 1~10층 하한가"
+    "officetel": {
+      "rules": [
+        {
+          "total_floors_min": 7,
+          "lower_bound_floors": [
+            1,
+            2
+          ]
+        },
+        {
+          "total_floors_max": 6,
+          "lower_bound_floors": [
+            1
+          ]
+        }
+      ]
+    },
+    "description": "아파트 1~2층 하한가, 주상복합 35층 초과(36층 이상) 1~15층/34층 이하 1~10층, 오피스텔 6층 이하 1층·7층 이상 1~2층 하한가"
   },
   "_comment_show_interest_rate_range": "신용등급 구분 없이 금리 구간 표시 여부 설정 (true: 신용등급 무시하고 최저~최고 금리 구간 표시 예: 9.0~18.0%, false: 신용등급별 금리 표시 예: 9.0% (5등급))",
   "show_interest_rate_range": false,

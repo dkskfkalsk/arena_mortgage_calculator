@@ -515,7 +515,24 @@
         }
       ]
     },
-    "description": "6층 이하 물건 1층 하한가, 7층 이상 물건 1~2층 하한가"
+    "officetel": {
+      "rules": [
+        {
+          "total_floors_min": 7,
+          "lower_bound_floors": [
+            1,
+            2
+          ]
+        },
+        {
+          "total_floors_max": 6,
+          "lower_bound_floors": [
+            1
+          ]
+        }
+      ]
+    },
+    "description": "아파트/주상복합/오피스텔 — 6층 이하 1층, 7층 이상 1~2층 하한가"
   },
   "promotions": [
     {
