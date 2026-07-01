@@ -1314,7 +1314,8 @@ class BaseCalculator:
             is_ok_bank = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
             is_acuon = self.bank_name == "애큐온저축은행" or "애큐온" in self.bank_name
             is_mg_capital = self.bank_name == "MG캐피탈" or "MG캐피탈" in self.bank_name or "엠지케피탈" in self.bank_name
-            is_business_product = is_bnk or is_ok_bank or is_acuon or is_mg_capital
+            is_smart_saving = "스마트저축" in self.bank_name
+            is_business_product = is_bnk or is_ok_bank or is_acuon or is_mg_capital or is_smart_saving
             business_product_names = self._get_business_product_names() if is_business_product else []
             
             for mortgage in mortgages:
@@ -1914,7 +1915,10 @@ class BaseCalculator:
             is_ok_bank_name = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
             is_acuon_bank_name = self.bank_name == "애큐온저축은행" or "애큐온" in self.bank_name
             is_mg_bank_name = self.bank_name == "MG캐피탈" or "MG캐피탈" in self.bank_name or "엠지케피탈" in self.bank_name
-            use_principal_based_required = (not is_refinance) and (is_ok_bank_name or is_acuon_bank_name or is_mg_bank_name)
+            uses_address_rate_group = bool(self.config.get("rate_region_group_by_address"))
+            use_principal_based_required = (not is_refinance) and (
+                is_ok_bank_name or is_acuon_bank_name or is_mg_bank_name or uses_address_rate_group
+            )
 
             if is_refinance:
                 effective_additional = max(0.0, required_amount - refinance_principal)
@@ -2401,8 +2405,9 @@ class BaseCalculator:
                         # OK저축은행, 애큐온저축은행, MG캐피탈인 경우 특별한 계산 방식 적용
                         is_acuon = self.bank_name == "애큐온저축은행" or "애큐온" in self.bank_name
                         is_mg_capital = self.bank_name == "MG캐피탈" or "MG캐피탈" in self.bank_name or "엠지케피탈" in self.bank_name
+                        uses_address_rate_group = bool(self.config.get("rate_region_group_by_address"))
                         
-                        if (is_ok_bank or is_acuon or is_mg_capital) and not is_refinance:
+                        if (is_ok_bank or is_acuon or is_mg_capital or uses_address_rate_group) and not is_refinance:
                             # 저축은행/캐피탈 후순위: 현재 LTV 한도에서 기존 근저당권이 차지하는 LTV 수준의 한도를 차감
                             # 기존 근저당권이 차지하는 LTV = total_mortgage / kb_price * 100
                             existing_ltv = (total_mortgage / kb_price) * 100 if kb_price > 0 else 0
@@ -2416,14 +2421,22 @@ class BaseCalculator:
                                 "available_amount": max(0, available_principal),
                                 "available_limit": max(0, available_principal)  # 후순위는 가한도와 가용금액이 동일
                             }
-                            bank_display_name = "OK저축은행" if is_ok_bank else ("애큐온저축은행" if is_acuon else "MG캐피탈")
+                            bank_display_name = "OK저축은행" if is_ok_bank else (
+                                "애큐온저축은행" if is_acuon else (
+                                    "MG캐피탈" if is_mg_capital else self.bank_name
+                                )
+                            )
                             print(f"DEBUG: BaseCalculator.calculate - {bank_display_name} 후순위 특별 계산: ltv={ltv}%, existing_ltv={existing_ltv:.2f}%, max_amount={max_amount_principal}, existing_limit={existing_ltv_limit}, available={available_principal}")
-                        elif (is_ok_bank or is_acuon or is_mg_capital) and is_refinance:
+                        elif (is_ok_bank or is_acuon or is_mg_capital or uses_address_rate_group) and is_refinance:
                             # 저축은행/캐피탈 대환: 일반 대환 계산 방식 사용 (calculate_available_amount)
                             amount_info = self.calculate_available_amount(
                                 kb_price, ltv, total_mortgage, is_refinance, refinance_principal
                             )
-                            bank_display_name = "OK저축은행" if is_ok_bank else ("애큐온저축은행" if is_acuon else "MG캐피탈")
+                            bank_display_name = "OK저축은행" if is_ok_bank else (
+                                "애큐온저축은행" if is_acuon else (
+                                    "MG캐피탈" if is_mg_capital else self.bank_name
+                                )
+                            )
                             print(f"DEBUG: BaseCalculator.calculate - {bank_display_name} 대환 계산: ltv={ltv}%, amount_info={amount_info}")
                         else:
                             # 일반 계산 방식
@@ -2451,6 +2464,10 @@ class BaseCalculator:
                         credit_grade_for_rate = None if self.config.get("hide_credit_grade") else credit_grade
                         rates_by_group = self.config.get("interest_rates_by_region_group_priority_business", {})
                         rate_info = self.get_interest_rate(credit_score, credit_grade_for_rate, ltv, grade)
+                        if self.config.get("rate_region_group_by_address") and credit_grade is not None:
+                            if rate_info.get("interest_rate") is None and rate_info.get("interest_rate_range") is None:
+                                print(f"DEBUG: LTV {ltv} - 해당 신용등급/LTV 취급불가 금리, skipping")
+                                continue
                         
                         # 한도 제한 적용: 총액 한도(대환금액 포함) vs 가용 한도
                         final_amount = amount_info["available_amount"]
@@ -3165,6 +3182,59 @@ class BaseCalculator:
         
         print(f"DEBUG: get_region_grade - no match found for region: {region} (취급 불가지역)")
         return None
+
+    def _lookup_address_config(self, mapping: Dict[str, Any], region: str) -> Optional[Any]:
+        """주소(시군구) 키 조회 — get_region_grade와 동일한 매칭·부모 fallback"""
+        if not mapping or not region:
+            return None
+        region_clean = region.replace(" ", "")
+        if region in mapping:
+            return mapping[region]
+        if region_clean in mapping:
+            return mapping[region_clean]
+        for key, val in mapping.items():
+            if key.replace(" ", "") == region_clean:
+                return val
+        region_to_parent = {
+            "경기도화성시동탄구": "경기도화성시", "경기도화성시만세구": "경기도화성시",
+            "경기도화성시효행구": "경기도화성시", "경기도화성시병점구": "경기도화성시",
+            "경기도수원시영통구이의동": "경기도수원시영통구",
+            "경기도수원시영통구원천동": "경기도수원시영통구",
+            "경기도수원시영통구하동": "경기도수원시영통구",
+            "경기도성남시수정구창곡동": "경기도성남시수정구",
+            "경기도남양주시별내동": "경기도남양주시", "경기도남양주시다산동": "경기도남양주시",
+            "인천광역시서구청라동": "인천광역시서구", "인천광역시서구가정동": "인천광역시서구",
+            "인천광역시서구신현동": "인천광역시서구",
+        }
+        parent_region = region_to_parent.get(region_clean)
+        if parent_region:
+            return self._lookup_address_config(mapping, parent_region)
+        return None
+
+    def _get_rate_region_group(self, region: str) -> Optional[str]:
+        mapping = self.config.get("rate_region_group_by_address", {})
+        group = self._lookup_address_config(mapping, region)
+        return str(group) if group is not None else None
+
+    def _get_senior_ltv_tier(self, kb_price: float, total_mortgage: float) -> str:
+        thresholds = self.config.get("senior_ltv_tier_thresholds", {"lte_55": 55, "lte_65": 65})
+        t55 = float(thresholds.get("lte_55", 55))
+        t65 = float(thresholds.get("lte_65", 65))
+        existing_ltv = (total_mortgage / kb_price) * 100 if kb_price > 0 else 0
+        if existing_ltv <= t55:
+            return "lte_55"
+        if existing_ltv <= t65:
+            return "lte_65"
+        return "gt_65"
+
+    def _match_ltv_band(self, ltv: float, bands: List[float]) -> Optional[str]:
+        if not bands:
+            return None
+        for band in sorted(float(b) for b in bands):
+            if ltv <= band:
+                return str(int(band)) if band == int(band) else str(band)
+        max_band = max(float(b) for b in bands)
+        return str(int(max_band)) if max_band == int(max_band) else str(max_band)
     
     def _is_metropolitan_key(self, key: str) -> bool:
         """
@@ -3189,6 +3259,17 @@ class BaseCalculator:
         Returns:
             최대 LTV (float) 또는 None
         """
+        max_ltv_by_address = self.config.get("max_ltv_by_address", {})
+        if max_ltv_by_address and region:
+            address_ltv = self._lookup_address_config(max_ltv_by_address, region)
+            if address_ltv is not None:
+                if address_ltv <= 0:
+                    print(f"DEBUG: get_max_ltv_by_grade - max_ltv_by_address {region} -> 취급불가")
+                    return None
+                result = float(address_ltv)
+                print(f"DEBUG: get_max_ltv_by_grade - max_ltv_by_address {region} -> LTV {result}%")
+                return self._apply_kiwoom_ltv_adjustments(result, property_data)
+
         # OK저축은행인 경우 면적과 신용점수 등급을 고려한 LTV 계산 (사업자금만)
         is_ok_bank = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
         # product_type이 "household"이면 가계자금이므로 이 로직을 사용하지 않음
@@ -4005,11 +4086,52 @@ class BaseCalculator:
                         "promotion_applied": False,
                     }
         
-        # 애큐온캐피탈: 급지별·창업/일반사업자별·선후순위별 금리
+        # 주소 기반 금리 1·2·3급지 (스마트저축은행 등)
+        rate_group_map = self.config.get("rate_region_group_by_address", {})
         rates_by_group = self.config.get("interest_rates_by_region_group_priority_business", {})
-        if rates_by_group and credit_grade is not None:
+        if rates_by_group and rate_group_map and credit_grade is not None:
+            property_data = getattr(self, "_current_property_data", None)
+            region = (property_data or {}).get("region", "")
+            group = self._get_rate_region_group(region)
+            if group and group in rates_by_group:
+                is_subordinate = getattr(self, "_is_subordinate", False)
+                bands = self.config.get(
+                    "ltv_bands_subordinate" if is_subordinate else "ltv_bands_primary", []
+                )
+                ltv_key = self._match_ltv_band(float(ltv), bands)
+                if ltv_key:
+                    grade_key = str(credit_grade)
+                    if is_subordinate:
+                        sub_by_senior = self.config.get("subordinate_interest_rates_by_senior_ltv", {})
+                        kb_price = float((property_data or {}).get("kb_price") or 0)
+                        mortgages = (property_data or {}).get("mortgages", [])
+                        total_mortgage = self.calculate_total_mortgage(mortgages)
+                        tier = self._get_senior_ltv_tier(kb_price, total_mortgage)
+                        tier_rates = sub_by_senior.get(group, {}).get(tier, {})
+                        grade_rates = tier_rates.get(ltv_key, {})
+                        print(
+                            f"DEBUG: get_interest_rate - 주소급지 후순위 group={group}, "
+                            f"tier={tier}, ltv_key={ltv_key}, senior_ltv="
+                            f"{(total_mortgage / kb_price * 100) if kb_price else 0:.2f}%"
+                        )
+                    else:
+                        group_rates = rates_by_group[group].get("primary", {}).get("regular", {})
+                        grade_rates = group_rates.get(ltv_key, {})
+                        print(f"DEBUG: get_interest_rate - 주소급지 선순위 group={group}, ltv_key={ltv_key}")
+                    if grade_key in grade_rates:
+                        rate = grade_rates[grade_key]
+                        if rate is not None:
+                            return {
+                                "interest_rate": round(float(rate), 2),
+                                "interest_rate_range": None,
+                                "credit_grade": credit_grade,
+                            }
+                        return {"interest_rate": None, "interest_rate_range": None, "credit_grade": credit_grade}
+
+        # 애큐온캐피탈: 급지별·창업/일반사업자별·선후순위별 금리
+        grade_to_group = self.config.get("region_grade_to_group", {})
+        if rates_by_group and grade_to_group and credit_grade is not None:
             region_grade_str = str(region_grade) if region_grade is not None else None
-            grade_to_group = self.config.get("region_grade_to_group", {})
             group = grade_to_group.get(region_grade_str) if region_grade_str else None
             if group and group in rates_by_group:
                 is_subordinate = getattr(self, '_is_subordinate', False)
