@@ -4089,7 +4089,7 @@ class BaseCalculator:
         # 주소 기반 금리 1·2·3급지 (스마트저축은행 등)
         rate_group_map = self.config.get("rate_region_group_by_address", {})
         rates_by_group = self.config.get("interest_rates_by_region_group_priority_business", {})
-        if rates_by_group and rate_group_map and credit_grade is not None:
+        if rates_by_group and rate_group_map:
             property_data = getattr(self, "_current_property_data", None)
             region = (property_data or {}).get("region", "")
             group = self._get_rate_region_group(region)
@@ -4100,7 +4100,7 @@ class BaseCalculator:
                 )
                 ltv_key = self._match_ltv_band(float(ltv), bands)
                 if ltv_key:
-                    grade_key = str(credit_grade)
+                    grade_rates: Dict[str, Any] = {}
                     if is_subordinate:
                         sub_by_senior = self.config.get("subordinate_interest_rates_by_senior_ltv", {})
                         kb_price = float((property_data or {}).get("kb_price") or 0)
@@ -4108,7 +4108,7 @@ class BaseCalculator:
                         total_mortgage = self.calculate_total_mortgage(mortgages)
                         tier = self._get_senior_ltv_tier(kb_price, total_mortgage)
                         tier_rates = sub_by_senior.get(group, {}).get(tier, {})
-                        grade_rates = tier_rates.get(ltv_key, {})
+                        grade_rates = tier_rates.get(ltv_key, {}) or {}
                         print(
                             f"DEBUG: get_interest_rate - 주소급지 후순위 group={group}, "
                             f"tier={tier}, ltv_key={ltv_key}, senior_ltv="
@@ -4116,17 +4116,47 @@ class BaseCalculator:
                         )
                     else:
                         group_rates = rates_by_group[group].get("primary", {}).get("regular", {})
-                        grade_rates = group_rates.get(ltv_key, {})
+                        grade_rates = group_rates.get(ltv_key, {}) or {}
                         print(f"DEBUG: get_interest_rate - 주소급지 선순위 group={group}, ltv_key={ltv_key}")
-                    if grade_key in grade_rates:
-                        rate = grade_rates[grade_key]
-                        if rate is not None:
+
+                    if credit_grade is not None:
+                        grade_key = str(credit_grade)
+                        if grade_key in grade_rates:
+                            rate = grade_rates[grade_key]
+                            if rate is not None:
+                                return {
+                                    "interest_rate": round(float(rate), 2),
+                                    "interest_rate_range": None,
+                                    "credit_grade": credit_grade,
+                                }
+                            return {"interest_rate": None, "interest_rate_range": None, "credit_grade": credit_grade}
+                    else:
+                        max_cg = int(self.config.get("max_credit_grade") or 8)
+                        valid_rates = [
+                            float(grade_rates[str(g)])
+                            for g in range(1, max_cg + 1)
+                            if str(g) in grade_rates
+                            and grade_rates[str(g)] is not None
+                            and isinstance(grade_rates[str(g)], (int, float))
+                            and float(grade_rates[str(g)]) > 0
+                        ]
+                        if valid_rates:
+                            min_r, max_r = round(min(valid_rates), 2), round(max(valid_rates), 2)
+                            print(
+                                f"DEBUG: get_interest_rate - 주소급지 신용없음 금리구간: "
+                                f"{min_r}~{max_r}% (group={group}, ltv_key={ltv_key})"
+                            )
+                            if min_r == max_r:
+                                return {
+                                    "interest_rate": min_r,
+                                    "interest_rate_range": None,
+                                    "credit_grade": None,
+                                }
                             return {
-                                "interest_rate": round(float(rate), 2),
-                                "interest_rate_range": None,
-                                "credit_grade": credit_grade,
+                                "interest_rate": None,
+                                "interest_rate_range": (min_r, max_r),
+                                "credit_grade": None,
                             }
-                        return {"interest_rate": None, "interest_rate_range": None, "credit_grade": credit_grade}
 
         # 애큐온캐피탈: 급지별·창업/일반사업자별·선후순위별 금리
         grade_to_group = self.config.get("region_grade_to_group", {})

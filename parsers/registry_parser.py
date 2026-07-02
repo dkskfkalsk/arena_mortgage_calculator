@@ -238,16 +238,54 @@ class RegistryParser:
             return match.group(1)
         return ""
     
+    def _is_truncated_address(self, addr: str) -> bool:
+        """1페이지 요약 등에서 '...'로 잘린 주소인지 확인"""
+        return bool(re.search(r'(?:\.{2,}|…)\s*$', addr.strip()))
+
+    def _append_unit_to_address(self, base_addr: str, unit_line: str) -> str:
+        """제N동 제N층 제N호 등 전유부분 표시를 주소에 붙임"""
+        unit = re.sub(r'\s+', ' ', unit_line.strip())
+        if not unit or unit in base_addr:
+            return base_addr
+        return f"{base_addr} {unit}"
+
+    def _extract_collective_building_address(self) -> str:
+        """[집합건물] 주소 추출 - 1페이지 생략(...) 시 표제부 등 후속 페이지 전체 주소 우선"""
+        candidates = []
+        for match in re.finditer(r'\[집합건물\]\s*(.+?)(?:\n|$)', self.text):
+            addr = re.sub(r'\s+', ' ', match.group(1).strip())
+            if len(addr) > 5:
+                candidates.append((match.start(), addr))
+
+        if not candidates:
+            return ""
+
+        # "..." 없는 주소 중 가장 긴 것 우선 (표제부 전체 주소)
+        full_candidates = [
+            (pos, addr) for pos, addr in candidates if not self._is_truncated_address(addr)
+        ]
+        if full_candidates:
+            best_pos, best_addr = max(full_candidates, key=lambda x: len(x[1]))
+        else:
+            best_pos, best_addr = candidates[0]
+            best_addr = re.sub(r'(?:\.{2,}|…)\s*$', '', best_addr).strip()
+
+        # 같은 [집합건물] 블록 다음 줄: 제122동 제13층 제1305호
+        remainder = self.text[best_pos:]
+        unit_match = re.search(
+            r'\[집합건물\]\s*[^\n]+\n\s*(제\s*\d+동\s*제\s*\d+층\s*제\s*\d+호)',
+            remainder
+        )
+        if unit_match:
+            best_addr = self._append_unit_to_address(best_addr, unit_match.group(1))
+
+        return best_addr
+
     def _extract_address(self) -> str:
         """부동산 주소 추출"""
-        # [집합건물] 또는 [토지] 또는 [건물] 뒤의 주소
-        pattern = r'\[집합건물\]\s*(.+?)(?:\n|표)'
-        match = re.search(pattern, self.text)
-        if match:
-            addr = match.group(1).strip()
-            addr = re.sub(r'\s+', ' ', addr)
-            if len(addr) > 5:
-                return addr
+        collective_addr = self._extract_collective_building_address()
+        if collective_addr:
+            return collective_addr
         
         # 소재지 / 소재지번 다음 줄
         pattern = r'소재지번[^\n]*\n\s*(.+?)(?:\n|$)'
