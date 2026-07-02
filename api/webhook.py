@@ -1169,6 +1169,10 @@ def get_application(force_new=False):
             if kb_result and kb_result.get('buildings') is not None and '개동' not in (households or ''):
                 buildings = f" / {kb_result.get('buildings')}개동"
             lines.append(f"세대수 : {households}{buildings}")
+            from parsers.registry_parser import apply_no_land_registry_property_type, should_note_no_land_registry
+            property_type = apply_no_land_registry_property_type(
+                property_type, getattr(result, '대지권미등기', False)
+            )
             lines.append(f"구   분 : {property_type}")
             # 사용승인일 (KB 기본정보에서 추출한 경우)
             if kb_result and (kb_result.get('approval_date') or kb_result.get('years_since_completion') is not None):
@@ -1452,6 +1456,10 @@ def get_application(force_new=False):
             # 별도등기 정보 추가 (말소되지 않은 경우만)
             if hasattr(result, '별도등기') and result.별도등기:
                 special_notes.append("별도등기 있음")
+
+            if should_note_no_land_registry(property_type, getattr(result, '대지권미등기', False)):
+                if "대지권미등기" not in " / ".join(special_notes):
+                    special_notes.append("대지권미등기")
             
             # 특이사항
             lines.append(f"특이사항 : {' / '.join(special_notes) if special_notes else ''}")

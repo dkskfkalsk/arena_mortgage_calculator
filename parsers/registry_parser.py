@@ -102,6 +102,9 @@ class RegistryDocument:
     # 별도등기 정보
     별도등기: bool = False  # True면 별도등기 있음, False면 없거나 말소됨
     
+    # 대지권 미등기 (집합건물 표제부에 대지권 항목 없음)
+    대지권미등기: bool = False
+    
     # 수탁자 여부 (신탁인 경우)
     수탁자여부: bool = False  # True면 수탁자가 있음 (신탁)
     
@@ -223,6 +226,7 @@ class RegistryParser:
         doc.경매목록 = self._extract_auctions()
         doc.환매특약 = self._extract_special_conditions()
         doc.별도등기 = self._extract_separate_registry()
+        doc.대지권미등기 = self._extract_no_land_registry()
         
         # 수탁자 여부 확인 (갑구에 수탁자 키워드가 있는지 확인)
         doc.수탁자여부 = self._check_trustee()
@@ -1441,6 +1445,52 @@ class RegistryParser:
         
         # 별도등기가 있고 말소되지 않았으면 True
         return has_separate and not is_cancelled
+
+    def _get_title_section(self) -> str:
+        """【 표 제 부 】 ~ 【 갑 구 】/【 을 구 】 구간"""
+        m = re.search(
+            r'【\s*표\s*제\s*부\s*】[\s\S]*?(?=【\s*갑\s*구\s*】|【\s*을\s*구\s*】|$)',
+            self.text, re.IGNORECASE
+        )
+        return m.group(0) if m else ""
+
+    def _extract_no_land_registry(self) -> bool:
+        """
+        집합건물 표제부에 대지권 항목이 없으면 대지권 미등기.
+        아파트·주상복합·빌라·오피스텔 등 집합건물 공통.
+        """
+        if not re.search(r'\[집합건물\]', self.text):
+            return False
+        if not re.search(r'전유부분의\s*건물', self.text):
+            return False
+        title_section = self._get_title_section()
+        if not title_section:
+            return False
+        return not re.search(r'대지권', title_section)
+
+
+_NO_LAND_REGISTRY_PROPERTY_TYPES = ("주상복합", "아파트", "오피스텔", "빌라")
+
+
+def apply_no_land_registry_property_type(property_type: str, no_land_registry: bool) -> str:
+    """집합건물 대지권 미등기 시 구분 표기 (예: 아파트(대지권미등기))"""
+    if not no_land_registry or "대지권미등기" in (property_type or ""):
+        return property_type or ""
+    if not property_type:
+        return "아파트(대지권미등기)"
+    for label in _NO_LAND_REGISTRY_PROPERTY_TYPES:
+        if label in property_type:
+            return f"{label}(대지권미등기)"
+    return property_type
+
+
+def should_note_no_land_registry(property_type: str, no_land_registry: bool) -> bool:
+    """집합건물 유형(아파트·주상복합·빌라·오피스텔)에 특이사항 '대지권미등기' 반영"""
+    if not no_land_registry:
+        return False
+    if not property_type:
+        return True
+    return any(k in property_type for k in _NO_LAND_REGISTRY_PROPERTY_TYPES)
 
 
 def analyze_pdf(pdf_path: str) -> RegistryDocument:

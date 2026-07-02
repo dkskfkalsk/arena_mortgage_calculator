@@ -520,6 +520,10 @@ async def format_registry_result(result, caption_info, file_name, caption=""):
         households_display = f"{households}세대"
     
     lines.append(f"세대수 : {households_display}{buildings_str}")
+    from parsers.registry_parser import apply_no_land_registry_property_type, should_note_no_land_registry
+    property_type = apply_no_land_registry_property_type(
+        property_type, getattr(result, '대지권미등기', False)
+    )
     lines.append(f"구   분 : {property_type}")
     
     # 사용승인일
@@ -777,6 +781,10 @@ async def format_registry_result(result, caption_info, file_name, caption=""):
     # 별도등기 (웹훅과 동일 문구)
     if hasattr(result, '별도등기') and result.별도등기:
         special_notes.append("별도등기 있음")
+
+    if should_note_no_land_registry(property_type, getattr(result, '대지권미등기', False)):
+        if "대지권미등기" not in " / ".join(special_notes):
+            special_notes.append("대지권미등기")
 
     lines.append(f"특이사항 : {' / '.join(special_notes) if special_notes else ''}")
     lines.append(f"요청사항 : {caption_info.get('request', '')}")

@@ -1583,7 +1583,7 @@
   },
   "business_property_types": {
     "apartment": 1,
-    "apartment_no_land_registry": 1,
+    "apartment_no_land_registry": 0,
     "residential_commercial": 1,
     "villa": 0,
     "officetel": 0,

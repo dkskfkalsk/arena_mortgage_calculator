@@ -146,7 +146,11 @@ def get_property_type_key(property_type: str, special_notes: str = "") -> Option
     if not property_type:
         return None
     notes = special_notes or ""
-    has_no_land_registry = "대지권" in notes and ("미등기" in notes or "미 등기" in notes)
+    has_no_land_registry = (
+        "대지권미등기" in property_type
+        or "대지권미등기" in notes
+        or ("대지권" in notes and ("미등기" in notes or "미 등기" in notes))
+    )
     if "아파트" in property_type:
         return "apartment_no_land_registry" if has_no_land_registry else "apartment"
     if "주상복합" in property_type:
