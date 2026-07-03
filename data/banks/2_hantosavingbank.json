@@ -22,7 +22,9 @@
   "refinance_excluded_institution_types": [
     "저축은행"
   ],
-  "_comment_refinance_excluded_institution_types": "저축은행 유형 대환 불가(후순위). classify_financial_institution+마스터명단으로 판별(유니온저축 등 축약명 포함). 캐피탈·은행 등은 대환 가능.",
+  "_comment_refinance_excluded_institution_types": "저축은행 유형만 대환 불가(후순위). 캐피탈·은행·대부 등은 대환 가능.",
+  "refinance_exclude_institution_types_only": true,
+  "_comment_refinance_exclude_institution_types_only": "마스터 대환 명단 화이트리스트 미적용. 저축은행 유형 제외만 적용.",
   "_comment_region_grades": "1급지95%(서울10개구) 2급지90%(서울나머지·과천·분당·동안) 3급지85%(경기·인천) 5급지70%(연천등8곳) 9급지 취급불가",
   "region_grades": {
     "서울특별시종로구": 2,

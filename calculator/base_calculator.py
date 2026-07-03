@@ -1321,6 +1321,8 @@ class BaseCalculator:
             is_smart_saving = "스마트저축" in self.bank_name
             is_business_product = is_bnk or is_ok_bank or is_acuon or is_mg_capital or is_smart_saving
             business_product_names = self._get_business_product_names() if is_business_product else []
+            # true: 저축은행 등 refinance_excluded_institution_types만 대환 불가, 그 외 캐피탈·은행 등 대환 가능
+            refinance_exclude_types_only = bool(self.config.get("refinance_exclude_institution_types_only"))
             
             for mortgage in mortgages:
                 if mortgage.get("is_refinance", False):
@@ -1382,7 +1384,9 @@ class BaseCalculator:
                     
                     # BNK캐피탈, OK저축은행, 애큐온저축은행, MG캐피탈인 경우 대환 가능 기관 체크
                     can_refinance = False
-                    if is_business_product and business_product_names:
+                    if refinance_exclude_types_only:
+                        can_refinance = True
+                    elif is_business_product and business_product_names:
                         # 리스트에 있는 기관인지 확인
                         for ref_inst in business_product_names:
                             ref_inst_clean = ref_inst.replace(" ", "")
