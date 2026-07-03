@@ -1590,7 +1590,9 @@
     "detached_house": 0,
     "multi_family_house": 0
   },
-  "conditions": [],
+  "conditions": [
+    "실사업자 매출증빙필수 / 전북,전남,광주,제주보물건 또는 사업장소재지 필수조건"
+  ],
   "amount_condition_threshold": 50000,
   "amount_condition_message": "*5억 초과건 실사업자 현장조사 대상입니다.",
   "lower_bound_price": {
