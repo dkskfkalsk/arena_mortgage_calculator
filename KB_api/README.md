@@ -146,7 +146,6 @@ python scripts/run_scraper_local.py --pdf "path/to/file.pdf"
 |------|------|
 | `전국_dongcode_data.json` | 법정동코드 (필수) |
 | `kb_complex_id_cache.json` | 단지 ID 캐시 |
-| `법정동코드_추가항목_*.json` | 보조 매핑 |
 
 업데이트: [법정동코드_데이터_출처.md](법정동코드_데이터_출처.md)
 

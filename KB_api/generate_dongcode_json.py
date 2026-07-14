@@ -102,62 +102,43 @@ def main():
     
     print("TXT 파일 파싱 중...")
     regions = parse_txt_to_regions(str(txt_path))
-    
-    # 기존 JSON과 비교하여 추가된 항목 찾기
+
+    # 기존 JSON과 비교하여 추가된 항목 수 집계 (콘솔 안내용, 별도 파일 미생성)
     existing_codes = extract_existing_codes(str(json_path))
-    new_entries = []
-    
-    for si_do, r in regions.items():
-        for gu_gun, d in r['districts'].items():
-            for dong_name, dong_data in d['dongs'].items():
-                code = dong_data['code']
-                if code not in existing_codes:
-                    new_entries.append({
-                        'code': code,
-                        'fullName': dong_data['fullName'],
-                        'region': f"{si_do} {gu_gun} {dong_name}"
-                    })
-    
-    # 결과 JSON 생성
+    new_count = 0
+    for r in regions.values():
+        for d in r["districts"].values():
+            for dong_data in d["dongs"].values():
+                if dong_data["code"] not in existing_codes:
+                    new_count += 1
+
+    from datetime import date
+    today = date.today().isoformat()
     result = {
         "metadata": {
-            "created_at": "2025-03-04",
-            "version": "2.1",
+            "created_at": today,
+            "version": "2.2",
             "source": "법정동코드 전체자료.txt",
             "description": "전국 법정동코드 기반 지역 데이터 (최신)",
             "generator": "generate_dongcode_json.py",
             "dongcode_based": True,
             "accuracy": "100%",
-            "new_entries_count": len(new_entries) if new_entries else 0
+            "new_entries_count": new_count,
         },
-        "regions": regions
+        "regions": regions,
     }
-    
-    with open(json_path, 'w', encoding='utf-8') as f:
+
+    with open(json_path, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
-    
+
+    total_dongs = sum(
+        len(d["dongs"]) for r in regions.values() for d in r["districts"].values()
+    )
     print(f"\n[OK] 전국_dongcode_data.json 리뉴얼 완료!")
     print(f"   - 총 시도: {len(regions)}개")
-    total_dongs = sum(
-        len(d['dongs']) 
-        for r in regions.values() 
-        for d in r['districts'].values()
-    )
     print(f"   - 총 동/읍/면/리: {total_dongs:,}개")
-    print(f"   - 새로 추가된 항목: {len(new_entries)}개")
-    
-    if new_entries:
-        print("\n[추가] 새로 추가된 법정동 목록:")
-        for e in sorted(new_entries, key=lambda x: x['fullName']):
-            print(f"   - {e['fullName']} ({e['code']})")
-    
-    # 추가 항목을 파일로도 저장
-    if new_entries:
-        new_file = base / "법정동코드_추가항목_20250304.json"
-        with open(new_file, 'w', encoding='utf-8') as f:
-            json.dump(new_entries, f, ensure_ascii=False, indent=2)
-        print(f"\n   추가 항목 상세: {new_file}")
+    print(f"   - 새로 추가된 항목: {new_count}개")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
