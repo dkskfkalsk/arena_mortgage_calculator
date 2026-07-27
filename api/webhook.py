@@ -1693,8 +1693,6 @@ def get_application(force_new=False):
                 if not property_data.get("address") or not property_data.get("region"):
                     missing_required.append("주소(시/구 포함)")
                 
-                if not property_data.get("mortgages"):
-                    missing_optional.append("선순위 근저당권 설정내역(기관명, 채권최고액/원금)")
                 if not property_data.get("property_type"):
                     missing_optional.append("물건 유형(아파트/빌라/오피스텔 등)")
                 
