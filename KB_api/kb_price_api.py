@@ -196,21 +196,215 @@ def _is_invalid_complex_name(name: str) -> bool:
     return False
 
 
+# 영문 알파벳 한글 글자명 → 라틴 (긴 음절 우선 매칭)
+_LETTER_NAME_TO_LATIN: Tuple[Tuple[str, str], ...] = tuple(
+    sorted(
+        [
+            ("더블유", "W"),
+            ("에이치", "H"),
+            ("에프", "F"),
+            ("엑스", "X"),
+            ("제트", "Z"),
+            ("에이", "A"),
+            ("비", "B"),
+            ("씨", "C"),
+            ("시", "C"),
+            ("디", "D"),
+            ("이", "E"),
+            ("지", "G"),
+            ("아이", "I"),
+            ("제이", "J"),
+            ("케이", "K"),
+            ("엘", "L"),
+            ("엠", "M"),
+            ("엔", "N"),
+            ("오", "O"),
+            ("피", "P"),
+            ("큐", "Q"),
+            ("알", "R"),
+            ("에스", "S"),
+            ("티", "T"),
+            ("유", "U"),
+            ("브이", "V"),
+            ("와이", "Y"),
+        ],
+        key=lambda x: (-len(x[0]), x[0]),
+    )
+)
+
+# 글자명으로 오인하기 쉬운 외래어·일반어 접두 (시+티 → CT 등)
+_LETTER_PREFIX_HANGUL_BLOCKLIST = frozenset(
+    {
+        "시티",
+        "씨티",
+        "센트",
+        "스타",
+        "스마트",
+        "스카이",
+        "파크",
+        "타워",
+        "빌리지",
+        "플라자",
+        "하우스",
+        "미니",
+        "슈퍼",
+    }
+)
+
+# 브랜드 접미사 (추출·꼬리 판별 공용)
+_COMPLEX_BRAND_SUFFIXES = (
+    "힐스테이트",
+    "아이파크",
+    "아이유쉘",
+    "푸르지오",
+    "래미안",
+    "자이",
+    "센트럴",
+    "팰리스",
+    "유쉘",
+    "월드",
+    "보람",
+    "연화",
+    "은하",
+    "중흥",
+    "한라",
+    "포도",
+    "무지개",
+    "덕유",
+    "설악",
+    "복사골",
+    "금강",
+    "동원",
+    "대신",
+    "범양",
+    "영안",
+    "현대",
+    "형진",
+    "풍남",
+    "우방",
+    "그린",
+    "힐스",
+    "꿈",
+    "뉴",
+    "더",
+    "디",
+    "엘",
+    "리",
+)
+
+
+def _parse_hangul_letter_prefix(name: str) -> Tuple[str, str]:
+    """
+    단지명 앞의 영문 알파벳 한글 글자명 접두를 파싱.
+    Returns: (라틴접두 or '', 나머지)
+    예) 디엠씨래미안클라시스 → ('DMC', '래미안클라시스')
+    """
+    s = re.sub(r"[\s\-_·&]+", "", (name or "").strip())
+    if not s:
+        return "", ""
+    # 이미 라틴으로 시작하면 접두 분리만
+    m = re.match(r"^([A-Za-z0-9]+)(.*)$", s)
+    if m:
+        return m.group(1).upper(), m.group(2)
+
+    latin_parts: List[str] = []
+    rest = s
+    consumed = ""
+    while rest:
+        matched = False
+        for hangul, latin in _LETTER_NAME_TO_LATIN:
+            if rest.startswith(hangul):
+                latin_parts.append(latin)
+                consumed += hangul
+                rest = rest[len(hangul) :]
+                matched = True
+                break
+        if not matched:
+            break
+
+    if len(latin_parts) < 2:
+        return "", s
+    if consumed in _LETTER_PREFIX_HANGUL_BLOCKLIST:
+        return "", s
+    # 블록리스트 접두로 시작하면 변환 안 함 (시티자이 등)
+    for blocked in _LETTER_PREFIX_HANGUL_BLOCKLIST:
+        if s.startswith(blocked):
+            return "", s
+    return "".join(latin_parts), rest
+
+
+def _hangul_letter_prefix_to_latin_name(name: str) -> Optional[str]:
+    """
+    앞쪽 알파벳 음차를 영문으로 바꾼 단지명 변형.
+    2글자 이상 변환될 때만 반환. 예) 디엠씨래미안클라시스 → DMC래미안클라시스
+    """
+    latin, rest = _parse_hangul_letter_prefix(name)
+    if not latin or len(latin) < 2:
+        return None
+    # 순수 한글 입력이 아닐 때(이미 영문)는 변형 불필요
+    raw = re.sub(r"[\s\-_·&]+", "", (name or "").strip())
+    if re.match(r"^[A-Za-z0-9]", raw or ""):
+        return None
+    converted = f"{latin}{rest}"
+    if converted == raw:
+        return None
+    return converted
+
+
+def _expand_complex_name_search_variants(name: str) -> List[str]:
+    """검색용 단지명 후보: 원문 + 알파벳 음차 변환본 + (가능 시) 한글 꼬리."""
+    variants: List[str] = []
+    raw = (name or "").strip()
+    if not raw:
+        return variants
+    variants.append(raw)
+    converted = _hangul_letter_prefix_to_latin_name(raw)
+    if converted and converted not in variants:
+        variants.append(converted)
+    tail = _complex_name_hangul_tail(raw)
+    if tail and len(tail) >= 4 and tail not in variants:
+        # 꼬리만으로는 오탐 가능 → dual query 보조로만, 원문과 다를 때
+        if tail != raw and (converted is None or tail != converted):
+            variants.append(tail)
+    return variants
+
+
+def _complex_name_hangul_tail(name: str) -> str:
+    """
+    영문/알파벳음차 접두를 벗긴 공통 한글 꼬리.
+    접두가 실제로 있을 때만 반환 (순수 한글 전체명은 빈 문자열).
+    예) DMC래미안클라시스 / 디엠씨래미안클라시스 → 래미안클라시스
+    """
+    latin, rest = _parse_hangul_letter_prefix(name)
+    if latin and len(latin) >= 2 and rest and re.match(r"^[가-힣]", rest):
+        return rest
+    s = re.sub(r"[\s\-_·&]+", "", (name or "").strip())
+    m = re.match(r"^([A-Za-z0-9]+)([가-힣].*)$", s)
+    if m:
+        return m.group(2)
+    return ""
+
+
 def _normalize_kb_complex_name(name: str) -> str:
     """KB 단지명 비교용 공백 제거"""
     return re.sub(r"\s+", "", (name or "").strip())
 
 
 def _normalize_kb_complex_name_for_match(name: str) -> str:
-    """KB 단지명 매칭용: 공백·하이픈 제거, 영문은 소문자 통일"""
+    """단지명 매칭용: 공백·하이픈 제거, 앞쪽 알파벳 음차→영문, 영문 소문자."""
     s = re.sub(r"[\s\-_·&]+", "", (name or "").strip())
+    if not s:
+        return s
+    converted = _hangul_letter_prefix_to_latin_name(s)
+    if converted:
+        s = converted
     if re.search(r"[A-Za-z]", s):
         return s.lower()
     return s
 
 
 def _complex_names_equivalent(a: str, b: str) -> bool:
-    """단지명 동일 여부 (띄어쓰기·영문 대소문자·e-편한세상 등 무시)"""
+    """단지명 동일 여부 (띄어쓰기·영문 대소문자·알파벳 음차·e-편한세상 등 무시)"""
     na = _normalize_kb_complex_name_for_match(a)
     nb = _normalize_kb_complex_name_for_match(b)
     if not na or not nb:
@@ -222,11 +416,20 @@ def _complex_names_equivalent(a: str, b: str) -> bool:
     base_b = re.sub(r"\d+단지$", "", nb)
     if base_a and base_b and (base_a == base_b or base_a in base_b or base_b in base_a):
         return True
+    # 공통 한글 꼬리 (충분히 길 때만) — 양쪽 모두 영문/음차 접두가 있을 때
+    tail_a = _complex_name_hangul_tail(a)
+    tail_b = _complex_name_hangul_tail(b)
+    if tail_a and tail_b and len(tail_a) >= 4 and len(tail_b) >= 4:
+        if tail_a == tail_b or tail_a in tail_b or tail_b in tail_a:
+            la, _ = _parse_hangul_letter_prefix(a)
+            lb, _ = _parse_hangul_letter_prefix(b)
+            if (la and len(la) >= 2) and (lb and len(lb) >= 2):
+                return True
     return False
 
 
 def _score_complex_name_similarity(target: str, api_name: str) -> float:
-    """단지명 유사도 0~1 (영문·혼합 단지명 부분 매칭)"""
+    """단지명 유사도 0~1 (영문·혼합·알파벳 음차·공통 한글 꼬리)"""
     if _complex_names_equivalent(target, api_name):
         return 1.0
     nt = _normalize_kb_complex_name_for_match(target)
@@ -238,11 +441,29 @@ def _score_complex_name_similarity(target: str, api_name: str) -> float:
     if na in nt:
         return min(0.95, len(na) / len(nt))
 
+    # 공통 한글 꼬리 점수 (래미안클라시스 등)
+    tail_t = _complex_name_hangul_tail(target)
+    tail_a = _complex_name_hangul_tail(api_name)
+    # 한쪽만 접두가 있으면 다른 쪽 전체 한글과 꼬리 비교
+    core_t = tail_t or re.sub(r"[\s\-_·&]+", "", (target or "").strip())
+    core_a = tail_a or re.sub(r"[\s\-_·&]+", "", (api_name or "").strip())
+    if (tail_t or tail_a) and core_t and core_a and len(core_t) >= 4 and len(core_a) >= 4:
+        if core_t == core_a:
+            return 0.88
+        if core_t in core_a or core_a in core_t:
+            shorter, longer = (core_t, core_a) if len(core_t) <= len(core_a) else (core_a, core_t)
+            return min(0.85, 0.7 + 0.15 * (len(shorter) / max(len(longer), 1)))
+
     def _tokens(s: str) -> set:
         return set(re.findall(r"[가-힣]+|[a-z0-9]+", s.lower()))
 
     t_tok, a_tok = _tokens(nt), _tokens(na)
     if t_tok and a_tok:
+        # 영문 약어(DMC 등)만 겹치는 경우는 제외 — 한글 토큰 교집합 필요
+        hangul_t = {t for t in t_tok if re.search(r"[가-힣]", t)}
+        hangul_a = {t for t in a_tok if re.search(r"[가-힣]", t)}
+        if hangul_t and hangul_a and not (hangul_t & hangul_a):
+            return 0.0
         overlap = len(t_tok & a_tok) / max(len(t_tok), len(a_tok))
         if overlap >= 0.5:
             return 0.65 + overlap * 0.25
@@ -719,14 +940,24 @@ class KBPriceAPI:
             name_norm = self._normalize_text(target_complex_name)
             name_match = _normalize_kb_complex_name_for_match(target_complex_name)
             title_match = _normalize_kb_complex_name_for_match(page_info.get("title", ""))
+            title_raw = page_info.get("title", "") or ""
             if name_norm and name_norm in title:
                 score += 2.0
             elif name_match and title_match and (name_match in title_match or title_match in name_match):
                 score += 2.0
-            elif name_norm and (name_norm in cand or cand.find(name_norm[:3]) >= 0):
-                score += 0.8
-            elif name_match and _normalize_kb_complex_name_for_match(cand).find(name_match[:4]) >= 0:
-                score += 0.8
+            elif _complex_names_equivalent(target_complex_name, title_raw):
+                score += 2.0
+            else:
+                tail_t = _complex_name_hangul_tail(target_complex_name)
+                tail_title = _complex_name_hangul_tail(title_raw) or title_match
+                if tail_t and len(tail_t) >= 4 and tail_title and (
+                    tail_t == tail_title or tail_t in tail_title or tail_title in tail_t
+                ):
+                    score += 1.5
+                elif name_norm and (name_norm in cand or cand.find(name_norm[:3]) >= 0):
+                    score += 0.8
+                elif name_match and _normalize_kb_complex_name_for_match(cand).find(name_match[:4]) >= 0:
+                    score += 0.8
 
         return score
 
@@ -759,14 +990,17 @@ class KBPriceAPI:
                     logger.info("✅ KB 캐시 ID 사용: %s (%s)", cid, info.get("url"))
                     return {"complex_id": cid, "complex_name": complex_name}
 
-        keyword_candidates = [complex_name]
+        # 원문 + 알파벳 음차 변환본(DMC…) + 한글 꼬리 dual query
+        name_variants = _expand_complex_name_search_variants(complex_name)
+        keyword_candidates: List[str] = list(name_variants)
         parsed = self.parse_address(address)
-        if parsed.get("dong"):
-            keyword_candidates.append(f"{complex_name} {parsed.get('dong')}")
-        if parsed.get("district"):
-            keyword_candidates.append(f"{complex_name} {parsed.get('district')}")
-        if dongcode:
-            keyword_candidates.append(f"{complex_name} {dongcode}")
+        for variant in name_variants:
+            if parsed.get("dong"):
+                keyword_candidates.append(f"{variant} {parsed.get('dong')}")
+            if parsed.get("district"):
+                keyword_candidates.append(f"{variant} {parsed.get('district')}")
+            if dongcode:
+                keyword_candidates.append(f"{variant} {dongcode}")
 
         search_candidates = self._collect_kb_search_candidates(keyword_candidates, head_limit=12)
 
@@ -1412,8 +1646,11 @@ class KBPriceAPI:
                     best_match = complex
                     logger.debug(f"      매칭 발견: {complex_name_from_api} (점수: {score:.2f})")
             
-            # 부분 매칭 결과 사용 (영문 단지명은 임계값 완화)
-            min_partial_score = 0.65 if re.search(r"[A-Za-z]", complex_name or "") else 0.8
+            # 부분 매칭 결과 사용 (영문·알파벳음차 변환 가능 시 임계값 완화)
+            has_latinish = bool(re.search(r"[A-Za-z]", complex_name or "")) or (
+                _hangul_letter_prefix_to_latin_name(complex_name or "") is not None
+            )
+            min_partial_score = 0.65 if has_latinish else 0.8
             if not selected_complex and best_match and best_score >= min_partial_score:
                 selected_complex = best_match
                 complex_name_from_api = selected_complex.get('단지명', '알 수 없음')
@@ -1786,6 +2023,12 @@ def get_kb_price_from_registry(address: str, area: str) -> Optional[Dict[str, An
     if complex_name:
         logger.info(f"✅ 주소에서 단지명 추출 (띄어쓰기/브랜드): {complex_name}")
 
+    # 브랜드 접미사: 브랜드 뒤 한글(클라시스 등)까지 포함. 짧은 1글자 접미(디/엘/리)는 제외해 과매칭 방지
+    _brand_alt = "|".join(
+        re.escape(b)
+        for b in _COMPLEX_BRAND_SUFFIXES
+        if len(b) >= 2 and b not in ("뉴", "더", "디", "엘", "리", "꿈")
+    )
     complex_patterns = [
         r'([가-힣A-Za-z0-9]+(?:\s+[가-힣A-Za-z0-9]+){0,3}\s*\d*\s*(?:단지|타운|빌리지|시티|아파트|오피스텔))',
         r'((?:e|E)[\s\-]?편한세상\s*[가-힣A-Za-z0-9]+)',
@@ -1796,8 +2039,9 @@ def get_kb_price_from_registry(address: str, area: str) -> Optional[Dict[str, An
         r'([가-힣]+)다가구',    # OO다가구 또는 다가구
         r'([가-힣]+마을)',
         r'([가-힣]+단지)',
-        r'([가-힣]+(?:힐스|힐스테이트))',
-        r'([가-힣]+(?:아이파크|래미안|자이|힐스테이트|푸르지오|센트럴|팰리스|월드|뉴|더|디|엘|리|그린|보람|연화|은하|중흥|한라|포도|무지개|꿈|덕유|설악|복사골|금강|동원|대신|범양|영안|현대|형진|풍남|우방|아이유쉘|유쉘))',
+        r'([가-힣]+(?:힐스|힐스테이트)[가-힣]*)',
+        # 디엠씨래미안클라시스처럼 브랜드 앞·뒤 한글까지 한 덩어리로 추출
+        rf'([가-힣A-Za-z0-9]*(?:{_brand_alt})[가-힣A-Za-z0-9]*)',
     ]
     for pattern in complex_patterns:
         if complex_name:
