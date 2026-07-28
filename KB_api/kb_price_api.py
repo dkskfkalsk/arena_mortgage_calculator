@@ -351,8 +351,34 @@ def _hangul_letter_prefix_to_latin_name(name: str) -> Optional[str]:
     return converted
 
 
-def _expand_complex_name_search_variants(name: str) -> List[str]:
-    """검색용 단지명 후보: 원문 + 알파벳 음차 변환본 + (가능 시) 한글 꼬리."""
+def _extract_registry_building_dong(address: str) -> Optional[str]:
+    """등기부 주소의 제N동 건물동 번호 (예: 제200동 → '200')."""
+    if not address:
+        return None
+    m = re.search(r"제(\d{2,4})동", address)
+    return m.group(1) if m else None
+
+
+def _complex_name_has_building_dong_label(api_name: str, building_dong: str) -> bool:
+    """
+    KB 단지명에 건물동 번호가 단지 식별자로 붙어 있는지.
+    예) 개포현대(200동), 개포현대200동 — 일반 101동·102동 대단지와 구분.
+    """
+    if not api_name or not building_dong:
+        return False
+    norm = re.sub(r"\s+", "", api_name)
+    patterns = (
+        rf"\({building_dong}동\)",
+        rf"\({building_dong}\)",
+        rf"{building_dong}동(?:\)|$)",
+    )
+    return any(re.search(p, norm) for p in patterns)
+
+
+def _expand_complex_name_search_variants(
+    name: str, address: Optional[str] = None
+) -> List[str]:
+    """검색용 단지명 후보: 원문 + 알파벳 음차 변환본 + (가능 시) 한글 꼬리 + 제N동 변형."""
     variants: List[str] = []
     raw = (name or "").strip()
     if not raw:
@@ -366,6 +392,16 @@ def _expand_complex_name_search_variants(name: str) -> List[str]:
         # 꼬리만으로는 오탐 가능 → dual query 보조로만, 원문과 다를 때
         if tail != raw and (converted is None or tail != converted):
             variants.append(tail)
+    building_dong = _extract_registry_building_dong(address or "")
+    if building_dong:
+        base = _strip_complex_name_decorations(raw) or raw
+        for fmt in (
+            f"{base}({building_dong}동)",
+            f"{base}{building_dong}동",
+            f"{base} {building_dong}동",
+        ):
+            if fmt and fmt not in variants:
+                variants.append(fmt)
     return variants
 
 
@@ -390,11 +426,41 @@ def _normalize_kb_complex_name(name: str) -> str:
     return re.sub(r"\s+", "", (name or "").strip())
 
 
-def _normalize_kb_complex_name_for_match(name: str) -> str:
-    """단지명 매칭용: 공백·하이픈 제거, 앞쪽 알파벳 음차→영문, 영문 소문자."""
+def _strip_complex_name_decorations(name: str) -> str:
+    """
+    단지명 장식 제거 → 코어명.
+    예) 대림아파트 → 대림, 대림(1차) → 대림, 힐스테이트리버시티1단지 → 힐스테이트리버시티
+    """
     s = re.sub(r"[\s\-_·&]+", "", (name or "").strip())
     if not s:
         return s
+    # (1차) (제2차) 등
+    s = re.sub(r"\((?:제)?\d+차\)", "", s)
+    s = re.sub(r"[()\[\]{}]", "", s)
+    # 끝의 1차/2차/1단지
+    s = re.sub(r"(?:제)?\d+차$", "", s)
+    s = re.sub(r"\d+단지$", "", s)
+    for suf in (
+        "아파트형공장",
+        "도시형생활주택",
+        "오피스텔",
+        "아파트",
+        "연립주택",
+        "다세대",
+        "빌라",
+        "연립",
+    ):
+        if s.endswith(suf) and len(s) - len(suf) >= 2:
+            s = s[: -len(suf)]
+            break
+    return s
+
+
+def _complex_name_core(name: str) -> str:
+    """매칭용 코어 단지명 (장식 제거 + 알파벳 음차 정규화)."""
+    s = _strip_complex_name_decorations(name)
+    if not s:
+        return ""
     converted = _hangul_letter_prefix_to_latin_name(s)
     if converted:
         s = converted
@@ -403,15 +469,20 @@ def _normalize_kb_complex_name_for_match(name: str) -> str:
     return s
 
 
+def _normalize_kb_complex_name_for_match(name: str) -> str:
+    """단지명 매칭용: 장식 제거·알파벳 음차→영문·영문 소문자."""
+    return _complex_name_core(name)
+
+
 def _complex_names_equivalent(a: str, b: str) -> bool:
-    """단지명 동일 여부 (띄어쓰기·영문 대소문자·알파벳 음차·e-편한세상 등 무시)"""
+    """단지명 동일 여부 (띄어쓰기·영문·알파벳 음차·아파트/(N차) 장식 무시)"""
     na = _normalize_kb_complex_name_for_match(a)
     nb = _normalize_kb_complex_name_for_match(b)
     if not na or not nb:
         return False
     if na == nb or na in nb or nb in na:
         return True
-    # 숫자+단지 변형: 리버시티1단지 vs 리버시티
+    # 숫자+단지 변형: 리버시티1단지 vs 리버시티 (장식 제거 후에도 남을 경우)
     base_a = re.sub(r"\d+단지$", "", na)
     base_b = re.sub(r"\d+단지$", "", nb)
     if base_a and base_b and (base_a == base_b or base_a in base_b or base_b in base_a):
@@ -426,6 +497,13 @@ def _complex_names_equivalent(a: str, b: str) -> bool:
             if (la and len(la) >= 2) and (lb and len(lb) >= 2):
                 return True
     return False
+
+
+def _complex_names_core_equal(a: str, b: str) -> bool:
+    """코어명 완전 일치 (대림아파트 ↔ 대림(1차)). 부분문자열 아님."""
+    ca = _complex_name_core(a)
+    cb = _complex_name_core(b)
+    return bool(ca and cb and len(ca) >= 2 and ca == cb)
 
 
 def _score_complex_name_similarity(target: str, api_name: str) -> float:
@@ -499,7 +577,7 @@ def _score_address_token_match(tokens: List[str], api_address: str) -> float:
 
 
 def _clean_extracted_complex_name(name: str) -> str:
-    """추출된 단지명 후처리: 동번호·행정구역 오탐 제거"""
+    """추출된 단지명 후처리: 동번호·행정구역·번지 오탐 제거"""
     s = _normalize_kb_complex_name(name)
     if not s:
         return s
@@ -514,6 +592,15 @@ def _clean_extracted_complex_name(name: str) -> str:
         "",
         s,
     )
+    # 해운대구좌동1396대림아파트 → 대림아파트
+    # ※ '시' 단독 접미 제거 금지 (클라시스 → 스 오절단)
+    s = re.sub(r"^(?:[가-힣]+구)", "", s)
+    s = re.sub(r"^(?:[가-힣]+군)", "", s)
+    s = re.sub(r"^[가-힣]+동", "", s)
+    s = re.sub(r"^\d+(?:-\d+)?", "", s)
+    s = re.sub(r"^(?:[가-힣]+구)", "", s)
+    s = re.sub(r"^[가-힣]+동", "", s)
+    s = re.sub(r"^\d+(?:-\d+)?", "", s)
     return s.strip()
 
 
@@ -611,6 +698,51 @@ def _lot_matches_complex_address(lot: str, complex_address: str) -> bool:
         rf"(?:^|\s){re.escape(lot)}(?:번지)",
     ]
     return any(re.search(p, ca) for p in patterns)
+
+
+def _extract_road_name_and_number(address: str) -> Optional[Tuple[str, str]]:
+    """도로명+건물번호 추출 (예: 언주로 105, 선릉로18길 12)."""
+    if not address:
+        return None
+    m = re.search(
+        r"([가-힣]+(?:로|길)(?:\d+길)?)\s*(\d+(?:-\d+)?)",
+        address,
+    )
+    if m:
+        return m.group(1), m.group(2)
+    return None
+
+
+def _score_road_address_match(address: str, api_address: str) -> float:
+    """등기 도로명·건물번호가 KB 단지 주소와 일치하면 1.0."""
+    road = _extract_road_name_and_number(address)
+    if not road or not api_address:
+        return 0.0
+    road_name, road_num = road
+    norm_api = re.sub(r"\s+", "", api_address)
+    norm_road = re.sub(r"\s+", "", road_name)
+    if norm_road in norm_api and road_num in norm_api:
+        return 1.0
+    return 0.0
+
+
+def _select_complex_by_dong_and_lot(
+    complexes: List[Dict[str, Any]],
+    dong_name: str,
+    lot_number: str,
+) -> Optional[Dict[str, Any]]:
+    """법정동+번지로 단지 1건 확정 (이름 무관)."""
+    if not dong_name or not lot_number:
+        return None
+    hits = [
+        c
+        for c in complexes
+        if dong_name in (c.get("주소") or "")
+        and _lot_matches_complex_address(lot_number, c.get("주소") or "")
+    ]
+    if len(hits) == 1:
+        return hits[0]
+    return None
 
 
 class KBPriceAPI:
@@ -958,6 +1090,15 @@ class KBPriceAPI:
                     score += 0.8
                 elif name_match and _normalize_kb_complex_name_for_match(cand).find(name_match[:4]) >= 0:
                     score += 0.8
+            building_dong = _extract_registry_building_dong(target_address)
+            if building_dong and _complex_name_has_building_dong_label(title_raw, building_dong):
+                score += 1.5
+
+        road_score = _score_road_address_match(
+            target_address, f"{page_info.get('road_address', '')} {page_info.get('jibun_address', '')}"
+        )
+        if road_score > 0:
+            score += road_score * 1.5
 
         return score
 
@@ -990,8 +1131,8 @@ class KBPriceAPI:
                     logger.info("✅ KB 캐시 ID 사용: %s (%s)", cid, info.get("url"))
                     return {"complex_id": cid, "complex_name": complex_name}
 
-        # 원문 + 알파벳 음차 변환본(DMC…) + 한글 꼬리 dual query
-        name_variants = _expand_complex_name_search_variants(complex_name)
+        # 원문 + 알파벳 음차 변환본(DMC…) + 한글 꼬리 + 제N동 변형 dual query
+        name_variants = _expand_complex_name_search_variants(complex_name, address)
         keyword_candidates: List[str] = list(name_variants)
         parsed = self.parse_address(address)
         for variant in name_variants:
@@ -1601,28 +1742,52 @@ class KBPriceAPI:
             dong_name = ""
         if dong_name and lot_number:
             logger.debug(f"   동+번지 매칭 키: {dong_name} {lot_number}")
-        
+
+        building_dong = _extract_registry_building_dong(address)
+        if building_dong:
+            logger.debug(f"   등기 건물동 번호: {building_dong}")
+
         if complex_name:
             logger.debug(f"   단지명으로 매칭 시도: {complex_name}")
-            # 단지명 매칭 우선순위: 정확 매칭 > 부분 매칭 (앞부분) > 부분 매칭 (뒷부분)
+            # 단지명 매칭: 동등 후보 수집 → 동·번지로 차수(1차/2차) 확정
+            exact_matches: List[Dict[str, Any]] = []
             best_match = None
-            best_score = 0
+            best_score = 0.0
             
             for i, complex in enumerate(complexes):
                 complex_name_from_api = complex.get("단지명") or complex.get("name", "")
                 complex_address_from_api = complex.get("주소", "")
                 logger.debug(f"   [{i+1}] {complex_name_from_api} (주소: {complex_address_from_api})")
                 
-                # 정확 매칭 (공백·영문 대소문자 무시)
-                if _complex_names_equivalent(complex_name, complex_name_from_api):
-                    selected_complex = complex
-                    logger.info(f"✅ 단지명 정확 매칭: {complex_name_from_api}")
-                    print(f"[OK] 단지명 정확 매칭: {complex_name_from_api}")
-                    break
+                # 정확/코어 매칭 (대림아파트 ↔ 대림(1차) 포함)
+                name_equiv = _complex_names_equivalent(complex_name, complex_name_from_api)
+                # 제N동 변형 매칭 (개포현대아파트 + 제200동 ↔ 개포현대(200동))
+                if not name_equiv and building_dong:
+                    for variant in _expand_complex_name_search_variants(complex_name, address):
+                        if variant != complex_name and _complex_names_equivalent(
+                            variant, complex_name_from_api
+                        ):
+                            name_equiv = True
+                            break
+                if name_equiv:
+                    exact_matches.append(complex)
+                    logger.debug(f"      동등/코어 후보: {complex_name_from_api}")
+                    continue
                 
                 # 부분/유사 매칭 점수 (영문·혼합 단지명 포함)
                 score = _score_complex_name_similarity(complex_name, complex_name_from_api)
                 name_related = score >= 0.5
+                if (
+                    building_dong
+                    and name_related
+                    and _complex_name_has_building_dong_label(complex_name_from_api, building_dong)
+                ):
+                    score += 0.4
+                    logger.debug(f"      건물동 단지명 보너스: {building_dong}동")
+                road_bonus = _score_road_address_match(address, complex_address_from_api)
+                if name_related and road_bonus > 0:
+                    score += road_bonus * 0.35
+                    logger.debug(f"      도로명+번호 보너스")
                 if name_related and lot_number and _lot_matches_complex_address(lot_number, complex_address_from_api):
                     score += 0.2
                     logger.debug(f"      번지수 일치 보너스: {lot_number}")
@@ -1646,6 +1811,99 @@ class KBPriceAPI:
                     best_match = complex
                     logger.debug(f"      매칭 발견: {complex_name_from_api} (점수: {score:.2f})")
             
+            if exact_matches:
+                if len(exact_matches) == 1:
+                    only = exact_matches[0]
+                    only_addr = (only.get("주소") or "").strip()
+                    # 이름 1건이어도 등기 번지가 있으면 반드시 검증
+                    if dong_name and lot_number:
+                        if (
+                            dong_name in only_addr
+                            and _lot_matches_complex_address(lot_number, only_addr)
+                        ):
+                            selected_complex = only
+                        else:
+                            logger.warning(
+                                "⚠️ 단지명 일치 but 번지 불일치 → 기각: %s (주소: %s, 기대: %s %s)",
+                                only.get("단지명"),
+                                only_addr,
+                                dong_name,
+                                lot_number,
+                            )
+                            print(
+                                f"[!] 단지명 일치 but 번지 불일치 → 기각: "
+                                f"{only.get('단지명')} (기대 {dong_name} {lot_number})"
+                            )
+                    else:
+                        selected_complex = only
+                elif dong_name and lot_number:
+                    lot_hits = [
+                        c for c in exact_matches
+                        if dong_name in (c.get("주소") or "")
+                        and _lot_matches_complex_address(lot_number, c.get("주소") or "")
+                    ]
+                    if len(lot_hits) == 1:
+                        selected_complex = lot_hits[0]
+                        logger.info(
+                            "✅ 코어명 동률 → 동+번지로 확정: %s (%s %s)",
+                            selected_complex.get("단지명"),
+                            dong_name,
+                            lot_number,
+                        )
+                        print(
+                            f"[OK] 코어명 동률 → 동+번지 확정: "
+                            f"{selected_complex.get('단지명')} ({dong_name} {lot_number})"
+                        )
+                    elif lot_hits:
+                        selected_complex = lot_hits[0]
+                    else:
+                        # 번지 불일치(또는 주소 없는 임대형 등) → 코어 완전일치만 채택
+                        core_hits = [
+                            c for c in exact_matches
+                            if _complex_names_core_equal(
+                                complex_name,
+                                c.get("단지명") or c.get("name") or "",
+                            )
+                        ]
+                        if len(core_hits) == 1:
+                            selected_complex = core_hits[0]
+                            logger.info(
+                                "✅ 코어명 완전일치로 확정(번지 미일치): %s",
+                                selected_complex.get("단지명"),
+                            )
+                            print(f"[OK] 단지명 코어 매칭: {selected_complex.get('단지명')}")
+                        else:
+                            logger.warning(
+                                "⚠️ 코어명 후보 %d개이나 동+번지(%s %s)로 확정 불가 → 추가 매칭 시도",
+                                len(exact_matches),
+                                dong_name,
+                                lot_number,
+                            )
+                else:
+                    # 번지 없으면 코어 완전일치 우선, 없으면 첫 후보
+                    core_hits = [
+                        c for c in exact_matches
+                        if _complex_names_core_equal(
+                            complex_name,
+                            c.get("단지명") or c.get("name") or "",
+                        )
+                    ]
+                    selected_complex = core_hits[0] if len(core_hits) == 1 else (
+                        core_hits[0] if core_hits else exact_matches[0]
+                    )
+                
+                if selected_complex:
+                    complex_name_from_api = selected_complex.get("단지명", "알 수 없음")
+                    # 동+번지 확정 로그는 위에서 이미 출력
+                    if len(exact_matches) == 1:
+                        logger.info(f"✅ 단지명 정확 매칭: {complex_name_from_api}")
+                        print(f"[OK] 단지명 정확 매칭: {complex_name_from_api}")
+                    elif dong_name and lot_number and dong_name in (selected_complex.get("주소") or "") and _lot_matches_complex_address(lot_number, selected_complex.get("주소") or ""):
+                        pass  # 이미 동+번지 로그 출력
+                    elif not (dong_name and lot_number):
+                        logger.info(f"✅ 단지명 코어 매칭: {complex_name_from_api}")
+                        print(f"[OK] 단지명 코어 매칭: {complex_name_from_api}")
+            
             # 부분 매칭 결과 사용 (영문·알파벳음차 변환 가능 시 임계값 완화)
             has_latinish = bool(re.search(r"[A-Za-z]", complex_name or "")) or (
                 _hangul_letter_prefix_to_latin_name(complex_name or "") is not None
@@ -1657,6 +1915,43 @@ class KBPriceAPI:
                 logger.info(f"✅ 단지명 부분 매칭: {complex_name_from_api} (점수: {best_score:.2f})")
                 print(f"[OK] 단지명 부분 매칭: {complex_name_from_api}")
         
+        # 단지명 코어는 맞지만 위 단계에서 미확정 → 동+번지로 코어 후보만 재확정
+        if not selected_complex and complex_name and dong_name and lot_number:
+            core_lot_hits = []
+            for complex in complexes:
+                api_name = complex.get("단지명") or complex.get("name") or ""
+                api_addr = (complex.get("주소") or "").strip()
+                if not _complex_names_core_equal(complex_name, api_name):
+                    continue
+                if dong_name in api_addr and _lot_matches_complex_address(lot_number, api_addr):
+                    core_lot_hits.append(complex)
+            if len(core_lot_hits) == 1:
+                selected_complex = core_lot_hits[0]
+                logger.info(
+                    "✅ 코어명+동·번지 매칭: %s (%s %s)",
+                    selected_complex.get("단지명"),
+                    dong_name,
+                    lot_number,
+                )
+                print(
+                    f"[OK] 코어명+동·번지 매칭: "
+                    f"{selected_complex.get('단지명')} ({dong_name} {lot_number})"
+                )
+        # 이름은 맞았으나 번지 불일치 등으로 미확정 → 동+번지만으로 재검색
+        if not selected_complex and dong_name and lot_number:
+            lot_hit = _select_complex_by_dong_and_lot(complexes, dong_name, lot_number)
+            if lot_hit:
+                selected_complex = lot_hit
+                logger.info(
+                    "✅ 동+번지 단독 매칭: %s (%s %s)",
+                    selected_complex.get("단지명"),
+                    dong_name,
+                    lot_number,
+                )
+                print(
+                    f"[OK] 동+번지 단독 매칭: "
+                    f"{selected_complex.get('단지명')} ({dong_name} {lot_number})"
+                )
         # 단지명 없을 때: 주소 토큰(블럭/롯트/지구)으로 단지 선택
         if not selected_complex and not complex_name:
             addr_tokens = _extract_address_match_tokens(address)
