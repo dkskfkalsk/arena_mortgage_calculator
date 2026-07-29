@@ -79,19 +79,7 @@ Vercel 대시보드 → **Settings** → **Environment Variables**
 
 ---
 
-## 3. 로컬 PDF 봇 (별도 토큰)
-
-로컬 PDF 전용 봇은 `.env.local`에 별도 토큰을 둡니다.
-
-```env
-TELEGRAM_PDF_BOT_TOKEN=your_pdf_bot_token_here
-```
-
-설치·실행: [README_LOCAL_BOT.md](README_LOCAL_BOT.md)
-
----
-
-## 4. 웹훅 설정 (Vercel 배포)
+## 3. 웹훅 설정 (Vercel 배포)
 
 ### 1단계: 배포
 
@@ -123,12 +111,13 @@ https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://your-app.vercel.app/a
 curl -X POST "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://your-app.vercel.app/api/webhook"
 ```
 
-### 웹훅 확인·삭제
+### 웹훅 확인
 
 ```bash
 python scripts/set_webhook.py --check
-python scripts/set_webhook.py --delete   # Polling 전환 시
 ```
+
+`set_webhook.py`는 `*.vercel.app/api/webhook`만 허용하며, 로컬·터널 URL과 웹훅 삭제는 기본 차단합니다.
 
 Telegram API로 확인:
 

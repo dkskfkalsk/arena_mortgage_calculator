@@ -23,8 +23,7 @@
 
 ```
 2512_mortgage_calculator/
-├── main.py                      # 로컬 Polling 봇 (개발·테스트용)
-├── local_pdf_bot.py             # 로컬 PDF 전용 Polling 봇
+├── main.py                      # 로컬 Polling 비활성 (가드)
 ├── api/
 │   ├── webhook.py               # Vercel/Render 웹훅 (메인 서비스)
 │   └── kb-households.js         # Vercel Node: 세대수·동수 스크래핑
@@ -104,21 +103,17 @@ cp config/telegram_config.example.py config/telegram_config.py
 `TELEGRAM_BOT_TOKEN`을 입력하거나 환경변수로 설정합니다.  
 상세 내용은 [SETUP.md](SETUP.md)를 참고하세요.
 
-### 3. 로컬 실행
-
-```bash
-python main.py
-```
-
-### 4. Vercel 배포 (운영)
+### 3. Vercel 배포 (운영)
 
 1. GitHub 연동 후 Vercel 배포
 2. 환경변수 설정 (`TELEGRAM_BOT_TOKEN` 등)
-3. 웹훅 등록:
+3. 웹훅 등록 (Vercel URL만 허용, 터널/로컬 차단):
 
 ```bash
 python scripts/set_webhook.py https://your-app.vercel.app/api/webhook
 ```
+
+로컬 Polling·PC 터널 봇은 제거되어 있습니다. `python main.py`는 실행되지 않습니다.
 
 ---
 
@@ -128,7 +123,6 @@ python scripts/set_webhook.py https://your-app.vercel.app/api/webhook
 |------|------|--------|
 | **Vercel** | 운영 웹훅, KB Node API | `api/webhook.py`, `api/kb-households.js` |
 | **Render** | 웹훅 + Playwright 분리 배포 | `run_webhook_render.py`, `render-playwright/` |
-| **로컬 Polling** | 개발·PDF 전용 봇 | `main.py`, `local_pdf_bot.py` |
 
 ---
 
@@ -139,7 +133,6 @@ python scripts/set_webhook.py https://your-app.vercel.app/api/webhook
 | [SETUP.md](SETUP.md) | 토큰, 환경변수, 웹훅, BotFather 설정 |
 | [USAGE.md](USAGE.md) | 메시지 형식, 금융사 조견 수정, 기능 사용법 |
 | [PROJECT_SUMMARY.md](PROJECT_SUMMARY.md) | 아키텍처·계산 로직·모듈 상세 |
-| [README_LOCAL_BOT.md](README_LOCAL_BOT.md) | 로컬 PDF 봇 설치·실행 |
 | [RENDER_무응답_대응.md](RENDER_무응답_대응.md) | Render 무응답 트러블슈팅 |
 | [KB_api/README.md](KB_api/README.md) | KB 시세 API 사용법 |
 | [kb-price-node/README.md](kb-price-node/README.md) | Node.js KB 시세 모듈 |

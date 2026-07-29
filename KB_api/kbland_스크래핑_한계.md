@@ -37,7 +37,7 @@ Vercel Node Puppeteer는 Chromium 네이티브 라이브러리(`libnss3.so` 등)
 
 ## 대안
 
-1. **로컬 PDF 봇** — Playwright 로컬 실행 ([README_LOCAL_BOT.md](../README_LOCAL_BOT.md))
+1. **Render Playwright 분리 서비스** — [`render-playwright/`](../render-playwright/)
 2. **Render Playwright 서비스** — [render-playwright/README.md](../render-playwright/README.md)
 3. **공공데이터** — 건축물대장 등 사용승인일 API (별도 연동)
 4. **외부 브라우저 서비스** — Browserless, ScrapingBee 등

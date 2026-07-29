@@ -87,7 +87,7 @@ KB시세 : 시세없음
 | Render | Playwright 분리 서비스 연동 가능 |
 | 로컬 PDF 봇 | Playwright 로컬 실행, 2~3초 수준 |
 
-로컬 PDF 봇: [README_LOCAL_BOT.md](README_LOCAL_BOT.md)
+PDF는 Vercel 웹훅(`api/webhook.py`)에서 처리합니다. 로컬 PDF 봇은 제거되었습니다.
 
 ---
 
@@ -167,17 +167,13 @@ KB시세 : 시세없음
 
 ## 7. 실행 방법
 
-### 로컬 (Polling)
-
-```bash
-python main.py
-```
-
-### Vercel (Webhook)
+### Vercel (Webhook) — 운영 전용
 
 1. 배포 + 환경변수
-2. `python scripts/set_webhook.py <URL>/api/webhook`
+2. `python scripts/set_webhook.py https://<app>.vercel.app/api/webhook` (Vercel만 허용)
 3. 텔레그램 채팅방에서 메시지/PDF 전송
+
+로컬 Polling·PC 터널 봇은 제거되었습니다.
 
 설정 상세: [SETUP.md](SETUP.md)
 

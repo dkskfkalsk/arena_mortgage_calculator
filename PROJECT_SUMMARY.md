@@ -25,7 +25,7 @@
 |------|------|
 | `main.py` | 로컬 Polling 봇 (개발·간단 테스트) |
 | `api/webhook.py` | Vercel/Render 서버리스 웹훅 (운영) |
-| `local_pdf_bot.py` | 로컬 PDF 전용 Polling 봇 |
+| `main.py` | 로컬 Polling 비활성 가드 (Vercel 웹훅만 사용) |
 | `run_webhook_render.py` | Render 웹훅 실행 |
 
 ---
