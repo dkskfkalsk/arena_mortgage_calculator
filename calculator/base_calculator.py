@@ -975,11 +975,12 @@ class BaseCalculator:
         max_priority_limit = self.config.get("max_priority_limit")
         if max_priority_limit is not None:
             mortgages_raw = property_data.get("mortgages", [])
+            from utils.tenant_extractor import is_tenant_institution
             liens = [
                 m for m in mortgages_raw
                 if not m.get("is_tenant", False)
                 and not m.get("is_refinance", False)
-                and (m.get("institution") or "").strip() not in ("전세입자", "월세입자", "세입자")
+                and not is_tenant_institution(m.get("institution"))
             ]
             liens_sorted = sorted(liens, key=lambda x: x.get("priority", 999))
             groups = []

@@ -318,12 +318,12 @@ class MessageParser:
             i += 1
         
         # 세입자 추출 (전체 텍스트) - 공통 유틸 사용, 신탁 1순위 시 2순위, 없으면 1순위
-        # 설정내역에 이미 전세입자/월세입자가 1순위로 있으면 중복 삽입하지 않음 (순위 밀림 방지)
-        from utils.tenant_extractor import extract_tenant_info, tenant_to_mortgage
+        # 설정내역에 이미 전세/월세세입자가 있으면 중복 삽입하지 않음 (순위 밀림 방지)
+        from utils.tenant_extractor import extract_tenant_info, tenant_to_mortgage, is_tenant_institution
         from utils.validators import parse_amount
         tenant = extract_tenant_info(message_text, parse_amount_fn=lambda t: parse_amount(t) if t else None)
         has_tenant_in_mortgages = any(
-            (m.get("institution") or "").strip() in ("전세입자", "월세입자", "세입자")
+            is_tenant_institution(m.get("institution"))
             for m in data["mortgages"]
         )
         if tenant and not has_tenant_in_mortgages:
@@ -561,9 +561,8 @@ class MessageParser:
                                                     break
                                         # 전세퇴거자금/전세퇴거 → 전세입자/월세입자/세입자 매칭
                                         if not found and "전세퇴거" in institution_keyword_clean:
-                                            tenant_types = ("전세입자", "월세입자", "세입자")
                                             for mortgage in data["mortgages"]:
-                                                if mortgage.get("priority") == priority and (mortgage.get("institution", "") or "").strip() in tenant_types:
+                                                if mortgage.get("priority") == priority and is_tenant_institution(mortgage.get("institution")):
                                                     mortgage["is_refinance"] = True
                                                     found = True
                                                     print(f"DEBUG: Set is_refinance=True for mortgage (전세퇴거자금→전세입자): priority={priority}, institution='{mortgage.get('institution')}'")
@@ -967,9 +966,9 @@ class MessageParser:
             else:
                 institution = None
         
-        # 전세입자/월세입자/세입자: 원금·채권최고액 구분 불필요 → 원금 없거나 LTV(%)로 잘못 인식된 경우 채권최고액을 원금으로 사용
-        tenant_types = ("전세입자", "월세입자", "세입자")
-        is_tenant = (institution or "").strip() in tenant_types
+        # 전세/월세세입자: 원금·채권최고액 구분 불필요 → 원금 없거나 LTV(%)로 잘못 인식된 경우 채권최고액을 원금으로 사용
+        from utils.tenant_extractor import is_tenant_institution
+        is_tenant = is_tenant_institution(institution)
         if is_tenant:
             if amount is None or (max_amount and amount < max_amount * 0.1):
                 amount = max_amount

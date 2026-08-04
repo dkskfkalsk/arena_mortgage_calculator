@@ -10,6 +10,26 @@ from typing import Dict, Optional, Any
 # 세입자 인식 키워드
 TENANT_KEYWORDS = r'전세세입자|월세세입자|전세입자|월세입자|세입자|임차보증금'
 
+# 설정내역 기관명으로 쓰이는 세입자 표기 (완전일치 + '세입자' 포함 변형)
+TENANT_INSTITUTION_NAMES = (
+    "전세세입자",
+    "월세세입자",
+    "전세입자",
+    "월세입자",
+    "세입자",
+    "임차보증금",
+)
+
+
+def is_tenant_institution(name: Optional[str]) -> bool:
+    """근저당 기관명이 세입자(전세/월세) 표기인지 여부."""
+    n = (name or "").strip()
+    if not n:
+        return False
+    if n in TENANT_INSTITUTION_NAMES:
+        return True
+    return "세입자" in n
+
 
 def extract_tenant_info(text: str, parse_amount_fn=None) -> Optional[Dict[str, Any]]:
     """
