@@ -20,13 +20,47 @@ def _normalize_refinance_hyphens(text: str) -> str:
 
 
 def _has_priority_range_before_refi(text: str) -> bool:
-    """'1-3순위 대환' / '1~3순위 대환' 형태가 있으면 단일 'N순위 대환조건' 패턴으로 덮어쓰지 않음 (3순위만 대환 오인 방지)."""
+    """'1-3순위 대환' / '1~3순위 대환' / '2, 3, 4 순위 대환' 형태가 있으면 단일·기관명 패턴으로 덮어쓰지 않음."""
     if not text:
         return False
     return bool(
         re.search(r"\d+\s*-\s*\d+\s*순위\s*대환", text)
         or re.search(r"\d+\s*~\s*\d+\s*순위\s*대환", text)
+        or _comma_priority_list_before_refi(text)
     )
+
+
+def _comma_priority_list_before_refi(text: str) -> bool:
+    """'2, 3, 4 순위 대환'처럼 쉼표/공백으로 나열된 복수 순위 대환 요청인지."""
+    if not text:
+        return False
+    m = re.search(r"([\d,\s]+)\s*순위\s*대환", text)
+    if not m:
+        return False
+    priorities = [n for n in re.split(r"[,\s]+", m.group(1)) if n.strip().isdigit()]
+    return len(priorities) >= 2
+
+
+def _is_valid_institution_keyword(keyword: str) -> bool:
+    """기관명 매칭용 키워드인지. 숫자만·'순위' 등은 설정일 오매칭 방지를 위해 제외."""
+    kw = (keyword or "").strip()
+    if not kw or kw in ("대환", "대환조건", "순위", "조건"):
+        return False
+    if kw.isdigit():
+        return False
+    if re.fullmatch(r"\d+\s*순위?", kw):
+        return False
+    if len(kw.replace(" ", "")) < 2:
+        return False
+    return True
+
+
+def _looks_like_priority_list_keyword(text: str) -> bool:
+    """'2, 3, 4 순위'처럼 기관명이 아니라 순위 나열로만 보이는 문자열."""
+    t = (text or "").strip()
+    if not t:
+        return False
+    return bool(re.fullmatch(r"[\d,\s]+순위?", t))
 
 
 class MessageParser:
@@ -422,7 +456,9 @@ class MessageParser:
                     req_ref = _normalize_refinance_hyphens(data["requests"])
                     # 패턴: "N순위 [기관명] 대환" 또는 "[기관명] 대환" 또는 "N순위 대환조건" 등
                     # 0-1. "N~M순위 대환" / "N-M순위 대환" / "1, 2순위 대환" 패턴
-                    range_match = re.search(r'(\d+)~(\d+)순위\s*대환', req_ref)
+                    # 복수 순위가 처리되면 아래 기관명 폴백으로 넘어가지 않음 (숫자 키워드→설정일 오매칭 방지)
+                    priority_pattern_handled = False
+                    range_match = re.search(r'(\d+)~(\d+)\s*순위\s*대환', req_ref)
                     hyphen_match = re.search(r'(\d+)\s*-\s*(\d+)\s*순위\s*대환', req_ref)
                     comma_match = re.search(r'([\d,\s]+)\s*순위\s*대환', req_ref)
                     if range_match or hyphen_match:
@@ -435,8 +471,9 @@ class MessageParser:
                             if priority and start_priority <= priority <= end_priority:
                                 mortgage["is_refinance"] = True
                                 print(f"DEBUG: Set is_refinance=True for mortgage: priority={priority}, institution='{mortgage.get('institution')}'")
+                        priority_pattern_handled = True
                     elif comma_match:
-                        # "1, 2순위 대환" 또는 "1,2,3순위 대환" - 쉼표로 구분된 순위
+                        # "1, 2순위 대환" 또는 "2, 3, 4 순위 대환조건" - 쉼표/공백으로 구분된 순위
                         nums_str = comma_match.group(1)
                         priorities = [int(n.strip()) for n in re.split(r'[,\s]+', nums_str) if n.strip().isdigit()]
                         if len(priorities) >= 2:
@@ -447,112 +484,116 @@ class MessageParser:
                                 if priority and priority in priority_set:
                                     mortgage["is_refinance"] = True
                                     print(f"DEBUG: Set is_refinance=True for mortgage: priority={priority}, institution='{mortgage.get('institution')}'")
-                    # 0-2. "1순위 [기관1], 2순위 [기관2] 대환조건" 패턴 (기관명이 사이에 있어도 됨) - 2개 이상 순위
-                    multi_match = re.search(r'(.+?)\s*대환\s*조?건?', req_ref)
-                    multi_handled = False
-                    if multi_match:
-                        part_before = multi_match.group(1)
-                        priorities = re.findall(r'(\d+)순위', part_before)
-                        if len(priorities) >= 2:
-                            priority_set = set(int(p) for p in priorities)
-                            print(f"DEBUG: Found 'N순위 ..., M순위 ... 대환조건' pattern - priorities: {priority_set}, treating as refinance request")
-                            for mortgage in data["mortgages"]:
-                                priority = mortgage.get("priority")
-                                if priority and priority in priority_set:
-                                    mortgage["is_refinance"] = True
-                                    print(f"DEBUG: Set is_refinance=True for mortgage: priority={priority}, institution='{mortgage.get('institution')}'")
-                            multi_handled = True
-                    
-                    if not multi_handled:
-                        if re.search(r'\d+순위\s+\d+순위\s*대환\s*조?건?', req_ref):
-                            # "대환조건" 앞에 인접한 순위들 (예: "1순위 2순위 대환조건")
-                            match = re.search(r'((?:\d+순위\s+)+)대환\s*조?건?', req_ref)
-                            if match:
-                                priorities_text = match.group(1)
-                                priorities = re.findall(r'(\d+)순위', priorities_text)
-                                if priorities:
-                                    priority_set = set(int(p) for p in priorities)
-                                    print(f"DEBUG: Found 'N순위 M순위 대환조건' pattern - priorities: {priority_set}, treating as refinance request")
-                                    for mortgage in data["mortgages"]:
-                                        priority = mortgage.get("priority")
-                                        if priority and priority in priority_set:
-                                            mortgage["is_refinance"] = True
-                                            print(f"DEBUG: Set is_refinance=True for mortgage: priority={priority}, institution='{mortgage.get('institution')}'")
-                        else:
-                            # 0-3. "N순위 대환조건" 또는 "N순위 [기관명] 대환" 패턴 (단일/기관명)
-                            # "1-3순위 대환조건" 에서 3순위만 잡히면 1·2순위가 담보에 남아 LTV 초과로 오인 → N-M순위 범위가 있으면 스킵
-                            refinance_match = None
-                            if not _has_priority_range_before_refi(req_ref):
-                                refinance_match = re.search(r'(\d+)순위\s*대환\s*조?건?', req_ref)
-                            if refinance_match:
-                                priority = int(refinance_match.group(1))
-                                print(f"DEBUG: Found 'N순위 대환조건' pattern - priority: {priority}, treating as refinance request")
+                            priority_pattern_handled = True
+
+                    if not priority_pattern_handled:
+                        # 0-2. "1순위 [기관1], 2순위 [기관2] 대환조건" 패턴 (기관명이 사이에 있어도 됨) - 2개 이상 순위
+                        multi_match = re.search(r'(.+?)\s*대환\s*조?건?', req_ref)
+                        multi_handled = False
+                        if multi_match:
+                            part_before = multi_match.group(1)
+                            priorities = re.findall(r'(\d+)\s*순위', part_before)
+                            if len(priorities) >= 2:
+                                priority_set = set(int(p) for p in priorities)
+                                print(f"DEBUG: Found 'N순위 ..., M순위 ... 대환조건' pattern - priorities: {priority_set}, treating as refinance request")
                                 for mortgage in data["mortgages"]:
-                                    if mortgage.get("priority") == priority:
+                                    priority = mortgage.get("priority")
+                                    if priority and priority in priority_set:
                                         mortgage["is_refinance"] = True
                                         print(f"DEBUG: Set is_refinance=True for mortgage: priority={priority}, institution='{mortgage.get('institution')}'")
-                                        break
+                                multi_handled = True
+                        
+                        if not multi_handled:
+                            if re.search(r'\d+\s*순위\s+\d+\s*순위\s*대환\s*조?건?', req_ref):
+                                # "대환조건" 앞에 인접한 순위들 (예: "1순위 2순위 대환조건")
+                                match = re.search(r'((?:\d+\s*순위\s+)+)대환\s*조?건?', req_ref)
+                                if match:
+                                    priorities_text = match.group(1)
+                                    priorities = re.findall(r'(\d+)\s*순위', priorities_text)
+                                    if priorities:
+                                        priority_set = set(int(p) for p in priorities)
+                                        print(f"DEBUG: Found 'N순위 M순위 대환조건' pattern - priorities: {priority_set}, treating as refinance request")
+                                        for mortgage in data["mortgages"]:
+                                            priority = mortgage.get("priority")
+                                            if priority and priority in priority_set:
+                                                mortgage["is_refinance"] = True
+                                                print(f"DEBUG: Set is_refinance=True for mortgage: priority={priority}, institution='{mortgage.get('institution')}'")
                             else:
-                                # 1. "N순위 [기관명] 대환" 또는 "N순위 [기관명] 대환조건" 패턴
-                                refinance_match = re.search(r'(\d+)순위\s+(.+?)\s*대환', req_ref)
+                                # 0-3. "N순위 대환조건" 또는 "N순위 [기관명] 대환" 패턴 (단일/기관명)
+                                # "1-3순위 대환조건" 에서 3순위만 잡히면 1·2순위가 담보에 남아 LTV 초과로 오인 → N-M순위 범위가 있으면 스킵
+                                refinance_match = None
+                                if not _has_priority_range_before_refi(req_ref):
+                                    refinance_match = re.search(r'(\d+)\s*순위\s*대환\s*조?건?', req_ref)
                                 if refinance_match:
                                     priority = int(refinance_match.group(1))
-                                    institution_keyword = refinance_match.group(2).strip()
-                                    institution_keyword_clean = institution_keyword.replace(" ", "")
-                                    print(f"DEBUG: Found refinance - priority: {priority}, institution_keyword: '{institution_keyword}'")
-                                    found = False
+                                    print(f"DEBUG: Found 'N순위 대환조건' pattern - priority: {priority}, treating as refinance request")
                                     for mortgage in data["mortgages"]:
                                         if mortgage.get("priority") == priority:
-                                            institution = mortgage.get("institution", "")
-                                            if institution_keyword_clean in institution or institution.replace(" ", "") in institution_keyword_clean or \
-                                               any(keyword in institution for keyword in institution_keyword.split() if len(keyword) > 2):
-                                                mortgage["is_refinance"] = True
-                                                found = True
-                                                print(f"DEBUG: Set is_refinance=True for mortgage: priority={priority}, institution='{institution}', keyword='{institution_keyword}'")
-                                                break
-                                    if not found and len(institution_keyword_clean) >= 2:
-                                        for mortgage in data["mortgages"]:
-                                            institution = mortgage.get("institution", "")
-                                            institution_clean = institution.replace(" ", "")
-                                            if institution_keyword_clean in institution_clean or institution_clean in institution_keyword_clean:
-                                                mortgage["is_refinance"] = True
-                                                found = True
-                                                print(f"DEBUG: Set is_refinance=True for mortgage (institution fallback): priority={mortgage.get('priority')}, institution='{mortgage.get('institution')}', keyword='{institution_keyword}'")
-                                                break
-                                    # 전세퇴거자금/전세퇴거 → 전세입자/월세입자/세입자 매칭
-                                    if not found and "전세퇴거" in institution_keyword_clean:
-                                        tenant_types = ("전세입자", "월세입자", "세입자")
-                                        for mortgage in data["mortgages"]:
-                                            if mortgage.get("priority") == priority and (mortgage.get("institution", "") or "").strip() in tenant_types:
-                                                mortgage["is_refinance"] = True
-                                                found = True
-                                                print(f"DEBUG: Set is_refinance=True for mortgage (전세퇴거자금→전세입자): priority={priority}, institution='{mortgage.get('institution')}'")
-                                                break
-                                    if not found:
-                                        print(f"DEBUG: Warning - Could not find matching mortgage for priority {priority} with keyword '{institution_keyword}'")
+                                            mortgage["is_refinance"] = True
+                                            print(f"DEBUG: Set is_refinance=True for mortgage: priority={priority}, institution='{mortgage.get('institution')}'")
+                                            break
                                 else:
-                                    # 2. "[기관명] 대환" 패턴 (순위 없이) - 기관명이 명시된 경우만
-                                    refinance_match = re.search(r'([가-힣a-zA-Z0-9]+(?:[가-힣a-zA-Z0-9\s,]+)?)\s*대환', req_ref)
+                                    # 1. "N순위 [기관명] 대환" 또는 "N순위 [기관명] 대환조건" 패턴
+                                    refinance_match = re.search(r'(\d+)\s*순위\s+(.+?)\s*대환', req_ref)
                                     if refinance_match:
-                                        institution_keyword = refinance_match.group(1).strip()
-                                        if institution_keyword != "대환":
-                                            print(f"DEBUG: Found refinance (no priority) - institution_keyword: '{institution_keyword}'")
-                                            keywords = re.split(r'[,\s]+', institution_keyword)
-                                            keywords = [kw.strip() for kw in keywords if kw.strip() and kw.strip() != "대환"]
-                                            print(f"DEBUG: Split institution keywords: {keywords}")
-                                            found = False
+                                        priority = int(refinance_match.group(1))
+                                        institution_keyword = refinance_match.group(2).strip()
+                                        institution_keyword_clean = institution_keyword.replace(" ", "")
+                                        print(f"DEBUG: Found refinance - priority: {priority}, institution_keyword: '{institution_keyword}'")
+                                        found = False
+                                        for mortgage in data["mortgages"]:
+                                            if mortgage.get("priority") == priority:
+                                                institution = mortgage.get("institution", "")
+                                                if institution_keyword_clean in institution or institution.replace(" ", "") in institution_keyword_clean or \
+                                                   any(keyword in institution for keyword in institution_keyword.split() if len(keyword) > 2):
+                                                    mortgage["is_refinance"] = True
+                                                    found = True
+                                                    print(f"DEBUG: Set is_refinance=True for mortgage: priority={priority}, institution='{institution}', keyword='{institution_keyword}'")
+                                                    break
+                                        if not found and len(institution_keyword_clean) >= 2:
                                             for mortgage in data["mortgages"]:
                                                 institution = mortgage.get("institution", "")
                                                 institution_clean = institution.replace(" ", "")
-                                                for keyword in keywords:
-                                                    keyword_clean = keyword.replace(" ", "")
-                                                    if keyword_clean in institution_clean or institution_clean in keyword_clean:
-                                                        mortgage["is_refinance"] = True
-                                                        found = True
-                                                        print(f"DEBUG: Set is_refinance=True for mortgage: priority={mortgage.get('priority')}, institution='{institution}', keyword='{keyword}'")
-                                                        break
-                                            if not found:
-                                                print(f"DEBUG: Warning - Could not find matching mortgage with keywords {keywords}")
+                                                if institution_keyword_clean in institution_clean or institution_clean in institution_keyword_clean:
+                                                    mortgage["is_refinance"] = True
+                                                    found = True
+                                                    print(f"DEBUG: Set is_refinance=True for mortgage (institution fallback): priority={mortgage.get('priority')}, institution='{mortgage.get('institution')}', keyword='{institution_keyword}'")
+                                                    break
+                                        # 전세퇴거자금/전세퇴거 → 전세입자/월세입자/세입자 매칭
+                                        if not found and "전세퇴거" in institution_keyword_clean:
+                                            tenant_types = ("전세입자", "월세입자", "세입자")
+                                            for mortgage in data["mortgages"]:
+                                                if mortgage.get("priority") == priority and (mortgage.get("institution", "") or "").strip() in tenant_types:
+                                                    mortgage["is_refinance"] = True
+                                                    found = True
+                                                    print(f"DEBUG: Set is_refinance=True for mortgage (전세퇴거자금→전세입자): priority={priority}, institution='{mortgage.get('institution')}'")
+                                                    break
+                                        if not found:
+                                            print(f"DEBUG: Warning - Could not find matching mortgage for priority {priority} with keyword '{institution_keyword}'")
+                                    else:
+                                        # 2. "[기관명] 대환" 패턴 (순위 없이) - 기관명이 명시된 경우만
+                                        refinance_match = re.search(r'([가-힣a-zA-Z0-9]+(?:[가-힣a-zA-Z0-9\s,]+)?)\s*대환', req_ref)
+                                        if refinance_match:
+                                            institution_keyword = refinance_match.group(1).strip()
+                                            # "2, 3, 4 순위"처럼 순위 나열은 기관명으로 취급하지 않음
+                                            if institution_keyword != "대환" and not _looks_like_priority_list_keyword(institution_keyword):
+                                                print(f"DEBUG: Found refinance (no priority) - institution_keyword: '{institution_keyword}'")
+                                                keywords = re.split(r'[,\s]+', institution_keyword)
+                                                keywords = [kw.strip() for kw in keywords if _is_valid_institution_keyword(kw)]
+                                                print(f"DEBUG: Split institution keywords: {keywords}")
+                                                found = False
+                                                for mortgage in data["mortgages"]:
+                                                    institution = mortgage.get("institution", "")
+                                                    institution_clean = institution.replace(" ", "")
+                                                    for keyword in keywords:
+                                                        keyword_clean = keyword.replace(" ", "")
+                                                        if keyword_clean in institution_clean or institution_clean in keyword_clean:
+                                                            mortgage["is_refinance"] = True
+                                                            found = True
+                                                            print(f"DEBUG: Set is_refinance=True for mortgage: priority={mortgage.get('priority')}, institution='{institution}', keyword='{keyword}'")
+                                                            break
+                                                if not found:
+                                                    print(f"DEBUG: Warning - Could not find matching mortgage with keywords {keywords}")
         
         # 요청사항이 없거나 요청사항에서 대환 조건이 처리되지 않은 경우, 전체 텍스트에서 "대환조건" 또는 "대환 조건" 패턴 검색
         # 순위가 명시되지 않은 경우 같은 기관명을 가진 모든 순위를 대환 처리
@@ -565,7 +606,7 @@ class MessageParser:
             
             # 먼저 범위 패턴과 연속 순위 패턴 확인
             # 1. "N~M순위 대환" / "N-M순위 대환" / "1, 2순위 대환" 패턴
-            range_match = re.search(r'(\d+)~(\d+)순위\s*대환', msg_ref)
+            range_match = re.search(r'(\d+)~(\d+)\s*순위\s*대환', msg_ref)
             hyphen_match = re.search(r'(\d+)\s*-\s*(\d+)\s*순위\s*대환', msg_ref)
             comma_match = re.search(r'([\d,\s]+)\s*순위\s*대환', msg_ref)
             if range_match or hyphen_match:
@@ -597,7 +638,7 @@ class MessageParser:
                 multi_match = re.search(r'(.+?)\s*대환\s*조?건?', message_text)
                 if multi_match:
                     part_before = multi_match.group(1)
-                    priorities = re.findall(r'(\d+)순위', part_before)
+                    priorities = re.findall(r'(\d+)\s*순위', part_before)
                     if len(priorities) >= 2:
                         priority_set = set(int(p) for p in priorities)
                         print(f"DEBUG: Found 'N순위 ..., M순위 ... 대환조건' pattern in full text - priorities: {priority_set}, treating as refinance request")
@@ -609,10 +650,10 @@ class MessageParser:
                                 print(f"DEBUG: Set is_refinance=True for mortgage: priority={priority}, institution='{mortgage.get('institution')}'")
             # 3. "N순위 M순위 대환조건" 패턴 (인접한 연속 순위)
             if not has_refinance:
-                match = re.search(r'((?:\d+순위\s+)+)대환\s*조?건?', message_text)
+                match = re.search(r'((?:\d+\s*순위\s+)+)대환\s*조?건?', message_text)
                 if match:
                     priorities_text = match.group(1)
-                    priorities = re.findall(r'(\d+)순위', priorities_text)
+                    priorities = re.findall(r'(\d+)\s*순위', priorities_text)
                     if len(priorities) >= 2:  # 최소 2개 이상의 순위가 있어야 함
                         priority_set = set(int(p) for p in priorities)
                         print(f"DEBUG: Found 'N순위 M순위 대환조건' pattern in full text - priorities: {priority_set}, treating as refinance request")
@@ -632,9 +673,9 @@ class MessageParser:
             # 4. 기존 패턴들 확인
             if not has_refinance:
                 refinance_condition_patterns = [
-                    r'(\d+)순위\s*대환\s*조?건?',  # "N순위 대환조건" 또는 "N순위 대환 조건" (기관명 없이 순위만)
-                    r'(\d+)순위\s+([가-힣a-zA-Z0-9]+(?:[가-힣a-zA-Z0-9\s,]+)?)\s*대환\s*조건',  # "N순위 [기관명] 대환 조건" (공백 있음, 순위 명시)
-                    r'(\d+)순위\s+([가-힣a-zA-Z0-9]+(?:[가-힣a-zA-Z0-9\s,]+)?)대환조건',  # "N순위 [기관명] 대환조건" (공백 없음, 순위 명시)
+                    r'(\d+)\s*순위\s*대환\s*조?건?',  # "N순위 대환조건" 또는 "N순위 대환 조건" (기관명 없이 순위만)
+                    r'(\d+)\s*순위\s+([가-힣a-zA-Z0-9]+(?:[가-힣a-zA-Z0-9\s,]+)?)\s*대환\s*조건',  # "N순위 [기관명] 대환 조건" (공백 있음, 순위 명시)
+                    r'(\d+)\s*순위\s+([가-힣a-zA-Z0-9]+(?:[가-힣a-zA-Z0-9\s,]+)?)대환조건',  # "N순위 [기관명] 대환조건" (공백 없음, 순위 명시)
                     r'([가-힣a-zA-Z0-9]+(?:[가-힣a-zA-Z0-9\s,]+)?)\s*대환\s*조건',  # "[기관명] 대환 조건" (공백 있음, 순위 없음)
                     r'([가-힣a-zA-Z0-9]+(?:[가-힣a-zA-Z0-9\s,]+)?)대환조건',  # "[기관명] 대환조건" (공백 없음, 순위 없음)
                 ]
@@ -707,15 +748,18 @@ class MessageParser:
                             else:
                                 institution_keyword = ""
                             
-                            # "대환조건"이라는 단어 자체는 제외
-                            if institution_keyword and institution_keyword != "대환조건" and institution_keyword != "대환":
+                            # "대환조건"이라는 단어 자체·순위 나열은 제외
+                            if (
+                                institution_keyword
+                                and institution_keyword != "대환조건"
+                                and institution_keyword != "대환"
+                                and not _looks_like_priority_list_keyword(institution_keyword)
+                            ):
                                 print(f"DEBUG: Found refinance condition in full text (no priority) - institution_keyword: '{institution_keyword}'")
                                 
                                 # 쉼표(,) 또는 공백으로 구분된 여러 기관명 분리
-                                # 쉼표와 공백을 모두 구분자로 사용
-                                # 쉼표나 공백으로 분리 (연속된 공백/쉼표는 하나로 처리)
                                 keywords = re.split(r'[,\s]+', institution_keyword)
-                                keywords = [kw.strip() for kw in keywords if kw.strip() and kw.strip() != "대환조건" and kw.strip() != "대환"]
+                                keywords = [kw.strip() for kw in keywords if _is_valid_institution_keyword(kw)]
                                 print(f"DEBUG: Split institution keywords from full text: {keywords}")
                                 
                                 # 기관명이 일치하는 모든 근저당권 찾기 (break 제거하여 모든 매칭 처리)
