@@ -2629,6 +2629,16 @@ class BaseCalculator:
             else:
                 _grade_note = ""
 
+            # 금융사별 적용 급지 + 최대 LTV 표기 (예: 3급지 최대 LTV 80%)
+            if grade is not None:
+                try:
+                    _grade_disp = int(grade)
+                except (TypeError, ValueError):
+                    _grade_disp = grade
+                _ltv_label = f"{_grade_disp}급지 최대 LTV {max_ltv:g}%"
+            else:
+                _ltv_label = f"최대 LTV {max_ltv:g}%"
+
             # 대환 요청이 있었으나 전부 불가로 후순위 전환된 경우 안내 접두어
             refinance_denied_prefix = ""
             if refinance_denied and refinance_principal <= 0:
@@ -2645,7 +2655,7 @@ class BaseCalculator:
                     "conditions": self.config.get("conditions", []),
                     "errors": [
                         f"{refinance_denied_prefix}"
-                        f"기존 근저당권이 최대 LTV {max_ltv:g}% 한도 초과{_grade_note} "
+                        f"기존 근저당권이 {_ltv_label} 한도 초과{_grade_note} "
                         f"(선순위 채권최고 약 {existing_pct:.2f}%, 담보한도 {max_ltv:g}% 대비 초과 {shortage:,.0f}만원)"
                     ],
                     "min_amount": min_amount
@@ -2663,7 +2673,7 @@ class BaseCalculator:
                         "errors": [
                             f"{refinance_denied_prefix}"
                             f"최소진행금액 부족{_grade_note} "
-                            f"(최대 LTV {max_ltv:g}% 적용 시 가용한도: {max_available_rounded:,.0f}만원, "
+                            f"({_ltv_label} 적용 시 가용한도: {max_available_rounded:,.0f}만원, "
                             f"최소진행금액: {min_amount:,.0f}만원)"
                         ],
                         "min_amount": min_amount
@@ -2678,7 +2688,8 @@ class BaseCalculator:
             if max_avail_rnd <= 0:
                 fallback_err = (
                     f"{refinance_denied_prefix}"
-                    f"{loan_phase} 가용 한도 없음 (선순위 채권최고 약 {existing_pct:.2f}%{_grade_note} / 담보 여력 없음)"
+                    f"{loan_phase} 가용 한도 없음 (선순위 채권최고 약 {existing_pct:.2f}%{_grade_note} / "
+                    f"{_ltv_label} 기준 담보 여력 없음)"
                 )
             elif is_refinance and refinance_principal > 0:
                 # 1차 여력은 있으나 대환 원금 차감 후 가용 부족(마이너스 포함)
@@ -2686,14 +2697,14 @@ class BaseCalculator:
                 after_refi_rnd = self.round_down_to_hundred_thousand(after_refi_raw)
                 fallback_err = (
                     f"{refinance_denied_prefix}"
-                    f"한도 미산출 ({loan_phase}, 최대 LTV {max_ltv:g}%{_grade_note} · "
+                    f"한도 미산출 ({loan_phase}, {_ltv_label}{_grade_note} · "
                     f"선순위 차감 후 여력 약 {max_avail_rnd:,.0f}만원이나 "
                     f"대환 원금 차감 시 가용 약 {after_refi_rnd:,.0f}만원)"
                 )
             else:
                 fallback_err = (
                     f"{refinance_denied_prefix}"
-                    f"한도 미산출 ({loan_phase}, 최대 LTV {max_ltv:g}%{_grade_note} 기준 가용 약 {max_avail_rnd:,.0f}만원)"
+                    f"한도 미산출 ({loan_phase}, {_ltv_label}{_grade_note} 기준 가용 약 {max_avail_rnd:,.0f}만원)"
                 )
             print(f"DEBUG: BaseCalculator.calculate - no results for {self.bank_name}, fallback message: {fallback_err}")
             return {
