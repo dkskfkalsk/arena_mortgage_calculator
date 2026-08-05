@@ -424,6 +424,39 @@ class BaseCalculator:
             return from_config
         master = _load_refinanceable_master_names()
         return self._exclude_self_from_refinance_names(master)
+
+    @staticmethod
+    def _short_institution_name(institution: str) -> str:
+        """표시용 기관명 (괄호·부가문구 제거)."""
+        inst = (institution or "").strip()
+        if "(" in inst:
+            inst = inst.split("(", 1)[0].strip()
+        for suffix in (" 감액등기", "감액등기"):
+            if inst.endswith(suffix):
+                inst = inst[: -len(suffix)].strip()
+        return inst or (institution or "").strip()
+
+    @staticmethod
+    def _format_refinance_denied_subordinate_prefix(denied_list: List[Dict[str, Any]]) -> str:
+        """
+        대환 요청이 있었으나 전부 불가로 후순위 산출로 전환된 경우 안내 접두어.
+        예: '2순위 대환 요청 → 본인(페퍼저축은행) 대환 불가로 후순위 산출. '
+        """
+        if not denied_list:
+            return ""
+        priorities = sorted({
+            int(d["priority"]) for d in denied_list
+            if d.get("priority") is not None
+        })
+        pri_text = ", ".join(f"{p}순위" for p in priorities) if priorities else "대환"
+        reasons: List[str] = []
+        for d in denied_list:
+            reason = (d.get("reason") or "").strip()
+            if reason and reason not in reasons:
+                reasons.append(reason)
+        if not reasons:
+            return f"{pri_text} 대환 요청 → 대환 불가로 후순위 산출. "
+        return f"{pri_text} 대환 요청 → {', '.join(reasons)}로 후순위 산출. "
     
     def round_down_to_hundred_thousand(self, amount: float) -> float:
         """
@@ -1288,6 +1321,7 @@ class BaseCalculator:
         refinance_institutions = []  # 대환하는 금융사 이름 리스트 (가계자금용)
         all_refinance_institutions = []  # 대환하는 모든 금융사 이름 리스트 (전체용)
         other_mortgages = []  # 나머지 근저당권들
+        refinance_denied = []  # 대환 요청됐으나 불가로 후순위 전환된 항목 [{priority, reason}]
         
         # 가계자금인 경우: 물상담보 제외, business_product_names(공통 목록)에 없는 것만 대환 가능
         if is_household_for_ok:
@@ -1344,6 +1378,8 @@ class BaseCalculator:
                 if mortgage.get("is_refinance", False):
                     institution = mortgage.get("institution", "")
                     institution_clean = institution.replace(" ", "")
+                    institution_short = self._short_institution_name(institution)
+                    priority = mortgage.get("priority")
                     
                     # self_refinance_excluded 체크: 본인 금융사 대환 불가
                     is_self_refinance_excluded = False
@@ -1358,6 +1394,10 @@ class BaseCalculator:
                     
                     if is_self_refinance_excluded:
                         # 본인 금융사 대환 불가이므로 후순위로 처리
+                        refinance_denied.append({
+                            "priority": priority,
+                            "reason": f"본인({institution_short}) 대환 불가",
+                        })
                         other_mortgages.append(mortgage)
                         continue
                     
@@ -1370,6 +1410,10 @@ class BaseCalculator:
                                 f"DEBUG: BaseCalculator.calculate - {self.bank_name}: "
                                 f"'{institution}'는 {inst_type} 유형이라 대환 불가, 후순위로 처리"
                             )
+                            refinance_denied.append({
+                                "priority": priority,
+                                "reason": f"{inst_type}({institution_short}) 대환 불가",
+                            })
                             other_mortgages.append(mortgage)
                             continue
                     
@@ -1388,6 +1432,10 @@ class BaseCalculator:
                         if product_type == "business" and "household" in refinance_rules.get("business_cannot_refinance", []):
                             if "가계" in institution or "가계자금" in institution:
                                 other_mortgages.append(mortgage)
+                                refinance_denied.append({
+                                    "priority": priority,
+                                    "reason": f"가계자금({institution_short}) 대환 불가",
+                                })
                                 print(f"DEBUG: BaseCalculator.calculate - {self.bank_name} 사업자: '{institution}'는 가계자금이라 대환 불가, 후순위로 처리")
                                 continue
                         if product_type == "household" and "business" in refinance_rules.get("household_can_refinance", []):
@@ -1395,6 +1443,10 @@ class BaseCalculator:
                             can_refinance_rr = any(ref_inst.replace(" ", "") in institution_clean for ref_inst in rr_business_names) or "사업자금" in institution
                             if not can_refinance_rr:
                                 other_mortgages.append(mortgage)
+                                refinance_denied.append({
+                                    "priority": priority,
+                                    "reason": f"사업자금 아님({institution_short}) 대환 불가",
+                                })
                                 print(f"DEBUG: BaseCalculator.calculate - {self.bank_name} 가계자금: '{institution}'는 사업자금이 아니라 대환 불가, 후순위로 처리")
                                 continue
                     
@@ -1429,6 +1481,10 @@ class BaseCalculator:
                         # 대환 불가능한 기관은 후순위로 처리
                         bank_display_name = "BNK캐피탈" if is_bnk else ("OK저축은행" if is_ok_bank else ("애큐온저축은행" if is_acuon else "MG캐피탈"))
                         print(f"DEBUG: BaseCalculator.calculate - {bank_display_name}: '{institution}'는 대환 가능 기관이 아니므로 후순위로 처리")
+                        refinance_denied.append({
+                            "priority": priority,
+                            "reason": f"대환 가능 기관 아님({institution_short})",
+                        })
                         other_mortgages.append(mortgage)
                 else:
                     other_mortgages.append(mortgage)
@@ -2573,6 +2629,11 @@ class BaseCalculator:
             else:
                 _grade_note = ""
 
+            # 대환 요청이 있었으나 전부 불가로 후순위 전환된 경우 안내 접두어
+            refinance_denied_prefix = ""
+            if refinance_denied and refinance_principal <= 0:
+                refinance_denied_prefix = self._format_refinance_denied_subordinate_prefix(refinance_denied)
+
             # 선순위 채권최고(대환 제외 분 = other_mortgages)가 담보한도를 넘는지. 대환 대상 원금은 여기서 제외(2단계에서 차감).
             if total_mortgage > max_ltv_amount:
                 shortage = total_mortgage - max_ltv_amount
@@ -2583,6 +2644,7 @@ class BaseCalculator:
                     "results": [],
                     "conditions": self.config.get("conditions", []),
                     "errors": [
+                        f"{refinance_denied_prefix}"
                         f"기존 근저당권이 최대 LTV {max_ltv:g}% 한도 초과{_grade_note} "
                         f"(선순위 채권최고 약 {existing_pct:.2f}%, 담보한도 {max_ltv:g}% 대비 초과 {shortage:,.0f}만원)"
                     ],
@@ -2599,6 +2661,7 @@ class BaseCalculator:
                         "results": [],
                         "conditions": self.config.get("conditions", []),
                         "errors": [
+                            f"{refinance_denied_prefix}"
                             f"최소진행금액 부족{_grade_note} "
                             f"(최대 LTV {max_ltv:g}% 적용 시 가용한도: {max_available_rounded:,.0f}만원, "
                             f"최소진행금액: {min_amount:,.0f}만원)"
@@ -2606,7 +2669,7 @@ class BaseCalculator:
                         "min_amount": min_amount
                     }
 
-            # 위 분기에서 사유를 못 담은 경우(가용 0·반올림, 금리 미산출 등): 한도 없음 이유를 errors로 반환 (MG캐피탈 등 동일)
+            # 위 분기에서 사유를 못 담은 경우(가용 0·반올림, 대환 후 마이너스 등): 한도 없음 이유를 errors로 반환
             tm_check = total_mortgage
             max_avail_raw = max_ltv_amount - tm_check
             max_avail_rnd = self.round_down_to_hundred_thousand(max_avail_raw)
@@ -2614,11 +2677,23 @@ class BaseCalculator:
             loan_phase = "대환" if is_refinance else "후순위"
             if max_avail_rnd <= 0:
                 fallback_err = (
+                    f"{refinance_denied_prefix}"
                     f"{loan_phase} 가용 한도 없음 (선순위 채권최고 약 {existing_pct:.2f}%{_grade_note} / 담보 여력 없음)"
+                )
+            elif is_refinance and refinance_principal > 0:
+                # 1차 여력은 있으나 대환 원금 차감 후 가용 부족(마이너스 포함)
+                after_refi_raw = max_avail_raw - refinance_principal
+                after_refi_rnd = self.round_down_to_hundred_thousand(after_refi_raw)
+                fallback_err = (
+                    f"{refinance_denied_prefix}"
+                    f"한도 미산출 ({loan_phase}, 최대 LTV {max_ltv:g}%{_grade_note} · "
+                    f"선순위 차감 후 여력 약 {max_avail_rnd:,.0f}만원이나 "
+                    f"대환 원금 차감 시 가용 약 {after_refi_rnd:,.0f}만원)"
                 )
             else:
                 fallback_err = (
-                    f"한도 미산출 ({loan_phase}, 최대 LTV {max_ltv:g}%{_grade_note} 기준 가용 약 {max_avail_rnd:,.0f}만원, 금리·조건 미충족 가능)"
+                    f"{refinance_denied_prefix}"
+                    f"한도 미산출 ({loan_phase}, 최대 LTV {max_ltv:g}%{_grade_note} 기준 가용 약 {max_avail_rnd:,.0f}만원)"
                 )
             print(f"DEBUG: BaseCalculator.calculate - no results for {self.bank_name}, fallback message: {fallback_err}")
             return {
