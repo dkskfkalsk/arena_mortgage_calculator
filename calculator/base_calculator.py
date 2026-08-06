@@ -146,9 +146,11 @@ def get_property_type_key(property_type: str, special_notes: str = "") -> Option
     if not property_type:
         return None
     notes = special_notes or ""
+    ptype_compact = (property_type or "").replace(" ", "")
+    notes_compact = notes.replace(" ", "")
     has_no_land_registry = (
-        "대지권미등기" in property_type
-        or "대지권미등기" in notes
+        "대지권미등기" in ptype_compact
+        or "대지권미등기" in notes_compact
         or ("대지권" in notes and ("미등기" in notes or "미 등기" in notes))
     )
     if "아파트" in property_type:
@@ -972,7 +974,7 @@ class BaseCalculator:
             log_print(f"DEBUG: BaseCalculator.calculate - {self.bank_name} 개인설정 후순위 취급 불가")
             validation_errors.append("개인설정 후순위는 취급 불가")
         
-        # 고객 나이 검증: 75세 이하만 취급
+        # 고객 나이 검증 (max_age: 초과 시 취급 불가)
         max_age = self.config.get("max_age")
         if max_age is not None:
             age = property_data.get("age")
@@ -982,7 +984,13 @@ class BaseCalculator:
                     if age_int > max_age:
                         log_print(f"DEBUG: BaseCalculator.calculate - 나이 {age_int}세 > max_age {max_age}세, 취급 불가")
                         logger.warning(f"BaseCalculator.calculate - 나이 {age_int}세 > max_age {max_age}세, 취급 불가")
-                        validation_errors.append(f"고객 나이 {age_int}세는 {max_age}세 이하여야 취급 가능합니다 (초과: {age_int - max_age}세)")
+                        age_error = self.config.get("max_age_error_message")
+                        if age_error:
+                            validation_errors.append(age_error)
+                        else:
+                            validation_errors.append(
+                                f"고객 나이 {age_int}세는 {max_age}세 이하여야 취급 가능합니다 (초과: {age_int - max_age}세)"
+                            )
                 except (ValueError, TypeError):
                     pass  # 나이가 숫자가 아니면 무시
         
@@ -1995,7 +2003,10 @@ class BaseCalculator:
             is_ok_bank_name = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
             is_acuon_bank_name = self.bank_name == "애큐온저축은행" or "애큐온" in self.bank_name
             is_mg_bank_name = self.bank_name == "MG캐피탈" or "MG캐피탈" in self.bank_name or "엠지케피탈" in self.bank_name
-            uses_address_rate_group = bool(self.config.get("rate_region_group_by_address"))
+            uses_address_rate_group = bool(
+                self.config.get("rate_region_group_by_address")
+                or self.config.get("rate_region_group_prefix_rules")
+            )
             use_principal_based_required = (not is_refinance) and (
                 is_ok_bank_name or is_acuon_bank_name or is_mg_bank_name or uses_address_rate_group
             )
@@ -2485,7 +2496,10 @@ class BaseCalculator:
                         # OK저축은행, 애큐온저축은행, MG캐피탈인 경우 특별한 계산 방식 적용
                         is_acuon = self.bank_name == "애큐온저축은행" or "애큐온" in self.bank_name
                         is_mg_capital = self.bank_name == "MG캐피탈" or "MG캐피탈" in self.bank_name or "엠지케피탈" in self.bank_name
-                        uses_address_rate_group = bool(self.config.get("rate_region_group_by_address"))
+                        uses_address_rate_group = bool(
+                self.config.get("rate_region_group_by_address")
+                or self.config.get("rate_region_group_prefix_rules")
+            )
                         
                         if (is_ok_bank or is_acuon or is_mg_capital or uses_address_rate_group) and not is_refinance:
                             # 저축은행/캐피탈 후순위: 현재 LTV 한도에서 기존 근저당권이 차지하는 LTV 수준의 한도를 차감
@@ -2544,7 +2558,10 @@ class BaseCalculator:
                         credit_grade_for_rate = None if self.config.get("hide_credit_grade") else credit_grade
                         rates_by_group = self.config.get("interest_rates_by_region_group_priority_business", {})
                         rate_info = self.get_interest_rate(credit_score, credit_grade_for_rate, ltv, grade)
-                        if self.config.get("rate_region_group_by_address") and credit_grade is not None:
+                        if (
+                            self.config.get("rate_region_group_by_address")
+                            or self.config.get("rate_region_group_prefix_rules")
+                        ) and credit_grade is not None:
                             if rate_info.get("interest_rate") is None and rate_info.get("interest_rate_range") is None:
                                 print(f"DEBUG: LTV {ltv} - 해당 신용등급/LTV 취급불가 금리, skipping")
                                 continue
@@ -2767,6 +2784,23 @@ class BaseCalculator:
                 if total >= amount_condition_threshold:
                     conditions.append(amount_condition_message)
                     break
+
+        # 세대수 미만 시 안내 문구 (household_condition_lt + household_condition_message)
+        # 예: 100세대 미만이면 주석 추가 (취급 거절이 아님)
+        household_condition_lt = self.config.get("household_condition_lt")
+        household_condition_message = self.config.get("household_condition_message")
+        if (
+            household_condition_lt is not None
+            and household_condition_message
+            and results
+            and property_data
+        ):
+            household_count = property_data.get("household_count")
+            try:
+                if household_count is not None and int(household_count) < int(household_condition_lt):
+                    conditions.append(household_condition_message)
+            except (ValueError, TypeError):
+                pass
         
         # 적용 시세 타입 및 금액 (금융사별 시세 표시용)
         if lower_bound_applied:
@@ -3326,6 +3360,21 @@ class BaseCalculator:
         return None
 
     def _get_rate_region_group(self, region: str) -> Optional[str]:
+        prefix_rules = self.config.get("rate_region_group_prefix_rules")
+        if prefix_rules:
+            region_clean = region.replace(" ", "")
+            default_group = None
+            for rule in prefix_rules:
+                sw = rule.get("starts_with")
+                gr = rule.get("group")
+                if sw is None or sw == "":
+                    default_group = gr
+                    continue
+                sw_clean = sw.replace(" ", "")
+                if region.startswith(sw) or region_clean.startswith(sw_clean):
+                    return str(gr) if gr is not None else None
+            if default_group is not None:
+                return str(default_group)
         mapping = self.config.get("rate_region_group_by_address", {})
         group = self._lookup_address_config(mapping, region)
         return str(group) if group is not None else None
@@ -3383,6 +3432,31 @@ class BaseCalculator:
                 result = float(address_ltv)
                 print(f"DEBUG: get_max_ltv_by_grade - max_ltv_by_address {region} -> LTV {result}%")
                 return self._apply_kiwoom_ltv_adjustments(result, property_data)
+
+        # 물건유형 x 급지( region_grade_prefix_rules 등)별 최대 LTV (IM SOHO아파트론 등)
+        max_ltv_by_grade_property_type = self.config.get("max_ltv_by_grade_property_type", {})
+        if max_ltv_by_grade_property_type and property_data is not None and grade is not None:
+            ptype_key = get_property_type_key(
+                property_data.get("property_type", ""),
+                property_data.get("special_notes", ""),
+            )
+            if ptype_key and ptype_key in max_ltv_by_grade_property_type:
+                region_map = max_ltv_by_grade_property_type[ptype_key]
+                grade_str = str(grade)
+                if grade_str in region_map:
+                    result = region_map[grade_str]
+                    if result is None or result <= 0:
+                        print(
+                            f"DEBUG: get_max_ltv_by_grade - max_ltv_by_grade_property_type "
+                            f"{ptype_key}/{grade_str} -> 취급불가"
+                        )
+                        return None
+                    result = float(result)
+                    print(
+                        f"DEBUG: get_max_ltv_by_grade - max_ltv_by_grade_property_type "
+                        f"{ptype_key}/{grade_str} -> LTV {result}%"
+                    )
+                    return self._apply_kiwoom_ltv_adjustments(result, property_data)
 
         # OK저축은행인 경우 면적과 신용점수 등급을 고려한 LTV 계산 (사업자금만)
         is_ok_bank = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
@@ -4200,10 +4274,11 @@ class BaseCalculator:
                         "promotion_applied": False,
                     }
         
-        # 주소 기반 금리 1·2·3급지 (스마트저축은행 등)
+        # 주소 기반 금리 1·2·3급지 (스마트저축은행·IM SOHO아파트론 등)
         rate_group_map = self.config.get("rate_region_group_by_address", {})
         rates_by_group = self.config.get("interest_rates_by_region_group_priority_business", {})
-        if rates_by_group and rate_group_map:
+        has_rate_region_group = rate_group_map or self.config.get("rate_region_group_prefix_rules")
+        if rates_by_group and has_rate_region_group:
             property_data = getattr(self, "_current_property_data", None)
             region = (property_data or {}).get("region", "")
             group = self._get_rate_region_group(region)
