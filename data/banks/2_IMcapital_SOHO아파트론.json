@@ -30,6 +30,10 @@
   "max_age": 65,
   "_comment_max_age": "차주 만65세 초과 취급 불가 (담보제공자 나이제한 없음)",
   "max_age_error_message": "*차주 기준 만65세 초과 진행 불가(담보제공 나이제한 없음)",
+  "tenant_subordinate_allowed": true,
+  "_comment_tenant_subordinate_allowed": "세입자 있는 후순위 취급 허용",
+  "tenant_consent_caption": "※ 전,월세 동의·미동의 진행 가능",
+  "_comment_tenant_consent_caption": "세입자 있을 때 한도 밑에 동의/미동의 가능 안내",
   "corporate_business_restriction": {
     "enabled": false,
     "keywords": [

@@ -170,14 +170,22 @@ def get_property_type_key(property_type: str, special_notes: str = "") -> Option
 
 def has_tenant_in_property(property_data: Dict[str, Any]) -> bool:
     """
-    거주 또는 특이사항에 세입자 관련 키워드가 있으면 True.
+    거주·특이사항 또는 근저당(세입자)에 세입자 관련 정보가 있으면 True.
     키워드: 전세입자, 월세입자, 세입자, 전세세입자, 월세세입자
     """
     keywords = ("전세입자", "월세입자", "세입자", "전세세입자", "월세세입자")
     residence = (property_data.get("residence") or "") or ""
     notes = (property_data.get("special_notes") or "") or ""
     combined = f"{residence} {notes}"
-    return any(kw in combined for kw in keywords)
+    if any(kw in combined for kw in keywords):
+        return True
+    for m in property_data.get("mortgages") or []:
+        if m.get("is_tenant"):
+            return True
+        inst = str(m.get("institution") or "")
+        if any(kw in inst for kw in keywords):
+            return True
+    return False
 
 
 def infer_fractional_ownership(property_data: Dict[str, Any]) -> Optional[bool]:
@@ -4291,18 +4299,30 @@ class BaseCalculator:
                 if ltv_key:
                     grade_rates: Dict[str, Any] = {}
                     if is_subordinate:
+                        # 스마트저축: subordinate_interest_rates_by_senior_ltv (선순위 LTV tier별)
+                        # IM SOHO아파트론 등: 미설정 시 interest_rates_by_region_group 의 subordinate.regular 사용
                         sub_by_senior = self.config.get("subordinate_interest_rates_by_senior_ltv", {})
-                        kb_price = float((property_data or {}).get("kb_price") or 0)
-                        mortgages = (property_data or {}).get("mortgages", [])
-                        total_mortgage = self.calculate_total_mortgage(mortgages)
-                        tier = self._get_senior_ltv_tier(kb_price, total_mortgage)
-                        tier_rates = sub_by_senior.get(group, {}).get(tier, {})
-                        grade_rates = tier_rates.get(ltv_key, {}) or {}
-                        print(
-                            f"DEBUG: get_interest_rate - 주소급지 후순위 group={group}, "
-                            f"tier={tier}, ltv_key={ltv_key}, senior_ltv="
-                            f"{(total_mortgage / kb_price * 100) if kb_price else 0:.2f}%"
-                        )
+                        if sub_by_senior:
+                            kb_price = float((property_data or {}).get("kb_price") or 0)
+                            mortgages = (property_data or {}).get("mortgages", [])
+                            total_mortgage = self.calculate_total_mortgage(mortgages)
+                            tier = self._get_senior_ltv_tier(kb_price, total_mortgage)
+                            tier_rates = sub_by_senior.get(group, {}).get(tier, {})
+                            grade_rates = tier_rates.get(ltv_key, {}) or {}
+                            print(
+                                f"DEBUG: get_interest_rate - 주소급지 후순위(senior_ltv) group={group}, "
+                                f"tier={tier}, ltv_key={ltv_key}, senior_ltv="
+                                f"{(total_mortgage / kb_price * 100) if kb_price else 0:.2f}%"
+                            )
+                        if not grade_rates:
+                            group_rates = rates_by_group[group].get("subordinate", {}).get("regular", {})
+                            if not group_rates:
+                                group_rates = rates_by_group[group].get("primary", {}).get("regular", {})
+                            grade_rates = group_rates.get(ltv_key, {}) or {}
+                            print(
+                                f"DEBUG: get_interest_rate - 주소급지 후순위(regular) group={group}, "
+                                f"ltv_key={ltv_key}"
+                            )
                     else:
                         group_rates = rates_by_group[group].get("primary", {}).get("regular", {})
                         grade_rates = group_rates.get(ltv_key, {}) or {}
