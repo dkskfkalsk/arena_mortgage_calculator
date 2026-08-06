@@ -326,6 +326,10 @@ apart = {
     "conditions": [
         "*고정금리 원리금균등상환(최대84개월)",
     ],
+    "non_metro_amount_condition_lt": 5000,
+    "non_metro_amount_condition_message": "*오프라인 등기시 진행 불가",
+    "_comment_non_metro_amount_condition": "수도권(서울·경기·인천) 외이고 가용한도 5천만 미만일 때 주석 추가",
+    "metro_region_prefixes": ["서울특별시", "경기도", "인천광역시"],
     "target_regions": [
         "서울", "경기", "인천", "부산", "광주", "대전", "울산",
         "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주", "대구", "세종",
@@ -381,7 +385,18 @@ apart = {
     "_comment_interest_structure": "지역그룹(1~4) x LTV(70~95) x 신용등급. 선·후순위 동일",
     "min_amount": 2000,
     "max_amount_limit": 10000,
-    "_comment_max_amount_limit": "최대 한도 1억원",
+    "max_amount_limit_applies_to_total": True,
+    "_comment_max_amount_limit": "대환: 총실행(대환+신규) 최대 1억원",
+    "max_amount_limit_subordinate": 5000,
+    "_comment_max_amount_limit_subordinate": "후순위(대환 아님): 최대 5천만원",
+    "refinance_over_amount_age_check": {
+        "enabled": True,
+        "threshold_total_amount": 5000,
+        "min_months": 12,
+        "reject_message": "*대환 대상 취급 1년 미만으로 대환 불가",
+        "missing_date_message": "*대환 설정일 미확인 — 5천만 초과 시 취급 1년 경과 여부 확인 필요",
+        "_comment": "총실행 5천만 초과 시에만 설정일 1년 검사. 미경과→대환불가(후순위 재산출), 설정일없음→한도유지+주석",
+    },
     "min_kb_price": 8000,
     "_comment_min_kb_price": "물건 시세 8천만원 이상",
     "price_sources": {

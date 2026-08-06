@@ -4,6 +4,7 @@
 개별 금융사 계산 및 모든 금융사 계산 관리
 """
 
+import copy
 import json
 import os
 import re
@@ -1870,6 +1871,20 @@ class BaseCalculator:
         if max_amount_limit_primary is not None and not self._is_subordinate:
             max_amount_limit = max_amount_limit_primary
             print(f"DEBUG: BaseCalculator.calculate - 선순위, max_amount_limit_primary 적용: {max_amount_limit}만원")
+
+        # 후순위(대환 아님) 전용 한도 (IM SOHO아파트론: 후순위 최대 5천만)
+        max_amount_limit_subordinate = self.config.get("max_amount_limit_subordinate")
+        if (
+            max_amount_limit_subordinate is not None
+            and not is_refinance
+            and self._is_subordinate
+        ):
+            if max_amount_limit is None or max_amount_limit > max_amount_limit_subordinate:
+                max_amount_limit = max_amount_limit_subordinate
+            print(
+                f"DEBUG: BaseCalculator.calculate - 후순위, max_amount_limit_subordinate 적용: "
+                f"{max_amount_limit}만원"
+            )
         
         # min_amount_by_grade: 급지별 최소진행금액 (디에스론: 4~5급지 3천만원)
         effective_min_amount = self.config.get("min_amount")
@@ -2809,6 +2824,68 @@ class BaseCalculator:
                     conditions.append(household_condition_message)
             except (ValueError, TypeError):
                 pass
+
+        # 수도권 외 + 한도 미만 시 안내 (non_metro_amount_condition_lt + message)
+        # 예: IM SOHO아파트론 — 수도권 외 & 가용한도 5천만 미만 → 오프라인 등기 불가 안내
+        non_metro_lt = self.config.get("non_metro_amount_condition_lt")
+        non_metro_msg = self.config.get("non_metro_amount_condition_message")
+        if non_metro_lt is not None and non_metro_msg and results and property_data:
+            region = str(property_data.get("region") or "")
+            region_clean = region.replace(" ", "")
+            metro_prefixes = self.config.get(
+                "metro_region_prefixes",
+                ["서울특별시", "경기도", "인천광역시"],
+            )
+            is_metro = any(
+                region.startswith(p) or region_clean.startswith(p.replace(" ", ""))
+                for p in metro_prefixes
+            )
+            if not is_metro:
+                max_avail = 0.0
+                for r in results:
+                    if r.get("limit_not_calculated"):
+                        continue
+                    amt = r.get("available_amount")
+                    if amt is None:
+                        amt = r.get("amount")
+                    try:
+                        max_avail = max(max_avail, float(amt or 0))
+                    except (TypeError, ValueError):
+                        pass
+                if max_avail < float(non_metro_lt):
+                    conditions.append(non_metro_msg)
+
+        # 대환 총실행 N 초과 시 설정일(취급개월) 검사
+        # - 설정일 있고 미경과: 대환 불가 → 후순위로 재산출
+        # - 설정일 없음: 한도 유지 + 주석
+        age_action = self._apply_refinance_over_amount_age_check(
+            property_data, results, is_refinance, conditions
+        )
+        if age_action == "reject_refinance" and not getattr(
+            self, "_refinance_age_fallback_done", False
+        ):
+            self._refinance_age_fallback_done = True
+            try:
+                pd_copy = copy.deepcopy(property_data) if property_data else {}
+                for m in pd_copy.get("mortgages") or []:
+                    if m.get("is_refinance"):
+                        m["is_refinance"] = False
+                fallback = self.calculate(pd_copy)
+                if fallback is None:
+                    return None
+                reject_msg = (
+                    (self.config.get("refinance_over_amount_age_check") or {}).get(
+                        "reject_message"
+                    )
+                    or "*대환 대상 취급 1년 미만으로 대환 불가"
+                )
+                fb_conditions = list(fallback.get("conditions") or [])
+                if reject_msg not in fb_conditions:
+                    fb_conditions.insert(0, reject_msg)
+                fallback["conditions"] = fb_conditions
+                return fallback
+            finally:
+                self._refinance_age_fallback_done = False
         
         # 적용 시세 타입 및 금액 (금융사별 시세 표시용)
         if lower_bound_applied:
@@ -3214,6 +3291,88 @@ class BaseCalculator:
                 logger.warning(f"BaseCalculator._validate_validation_rules - 복합 규칙 '{rule.get('name')}' 충족, 취급 불가")
                 validation_errors.append(error_msg)
                 return  # 복합 규칙 충족 시 다른 규칙 체크는 하지 않음
+
+    def _apply_refinance_over_amount_age_check(
+        self,
+        property_data: Optional[Dict[str, Any]],
+        results: List[Dict[str, Any]],
+        is_refinance: bool,
+        conditions: List[str],
+    ) -> Optional[str]:
+        """
+        대환 총실행이 임계치 초과일 때 설정일 경과 검사.
+        반환: "reject_refinance" | None (주석만 추가한 경우도 None)
+        """
+        cfg = self.config.get("refinance_over_amount_age_check") or {}
+        if not cfg.get("enabled") or not is_refinance or not results or not property_data:
+            return None
+
+        try:
+            threshold = float(cfg.get("threshold_total_amount", 5000))
+            min_months = int(cfg.get("min_months", 12))
+        except (TypeError, ValueError):
+            return None
+
+        has_over = False
+        for r in results:
+            if r.get("limit_not_calculated"):
+                continue
+            total = r.get("total_amount")
+            if total is None:
+                total = r.get("available_amount")
+            if total is None:
+                total = r.get("amount")
+            try:
+                if float(total or 0) > threshold:
+                    has_over = True
+                    break
+            except (TypeError, ValueError):
+                continue
+        if not has_over:
+            return None
+
+        date_field_candidates = cfg.get(
+            "date_field_candidates",
+            ["setup_date", "설정일", "registration_date", "date"],
+        )
+        too_young = False
+        missing_date = False
+        for m in property_data.get("mortgages") or []:
+            if not m.get("is_refinance", False):
+                continue
+            date_str = None
+            for f in date_field_candidates:
+                val = m.get(f)
+                if isinstance(val, str) and val.strip():
+                    date_str = val.strip()
+                    break
+            if not date_str:
+                missing_date = True
+                continue
+            parsed = self._parse_mortgage_date(date_str)
+            if parsed is None:
+                missing_date = True
+                continue
+            if self._months_since(parsed) < min_months:
+                too_young = True
+
+        if too_young:
+            print(
+                "DEBUG: BaseCalculator - 대환 총실행 임계 초과 + 설정일 미경과 → 대환 불가"
+            )
+            return "reject_refinance"
+
+        if missing_date:
+            note = cfg.get(
+                "missing_date_message",
+                "*대환 설정일 미확인 — 5천만 초과 시 취급 1년 경과 여부 확인 필요",
+            )
+            if note and note not in conditions:
+                conditions.append(note)
+            print(
+                "DEBUG: BaseCalculator - 대환 총실행 임계 초과 + 설정일 없음 → 주석 추가"
+            )
+        return None
 
     def _parse_mortgage_date(self, value: str) -> Optional[date]:
         """
