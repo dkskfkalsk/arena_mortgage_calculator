@@ -11,7 +11,7 @@ import re
 import sys
 import logging
 from datetime import date
-from typing import Dict, List, Optional, Any, Union, Set
+from typing import Dict, List, Optional, Any, Union, Set, Tuple
 from utils.validators import (
     validate_kb_price, extract_lower_bound_price, extract_kb_ai_price_from_special_notes,
     extract_bank_appraisal_price_from_special_notes, extract_realestatetech_price_from_special_notes,
@@ -1691,6 +1691,11 @@ class BaseCalculator:
                     else:
                         max_ltv = max_ltv_primary
                     print(f"DEBUG: BaseCalculator.calculate - 선순위 대출, max_ltv_primary 적용: {max_ltv_primary}%, 기존 max_ltv(급지별): {original_max_ltv}%, 최종 max_ltv: {max_ltv}%")
+
+        # 세대수 기반 LTV 차감 (솔브레인저축은행 등: 100세대 미만 LTV 5%p)
+        max_ltv, self._household_ltv_reduction_meta = self._apply_household_ltv_reduction(
+            max_ltv, property_data
+        )
         
         # 가계 상품: 빌라인 경우 선순위만 산출
         if is_household_product:
@@ -2232,7 +2237,11 @@ class BaseCalculator:
                             final_total_amount = final_amount
                         elif final_amount > max_amount_limit:
                             final_amount = self.round_down_to_hundred_thousand(max_amount_limit)
-                            if not is_refinance:
+                            if is_refinance:
+                                final_total_amount = self.round_down_to_hundred_thousand(
+                                    refinance_principal + final_amount
+                                )
+                            else:
                                 final_total_amount = final_amount
                     # 해당 조건(창업/일반사업자)에 맞는 한도만 산출
                     is_startup = getattr(self, '_is_startup_business', False)
@@ -2412,11 +2421,14 @@ class BaseCalculator:
                         
                         # 100만 단위로 절삭
                         final_amount = self.round_down_to_hundred_thousand(final_amount)
-                        final_total_amount = self.round_down_to_hundred_thousand(amount_info["total_amount"])
+                        if is_refinance and max_amount_limit is not None and amount_info["available_amount"] > max_amount_limit:
+                            final_total_amount = self.round_down_to_hundred_thousand(refinance_principal + final_amount)
+                        else:
+                            final_total_amount = self.round_down_to_hundred_thousand(amount_info["total_amount"])
                         
                         # 최소진행금액 체크: 대환 시 총 실행금액(대환+추가), 후순위 시 가한도 기준
                         min_amount = effective_min_amount
-                        amount_for_min_check = amount_info["total_amount"] if is_refinance else amount_info.get("available_limit", amount_info.get("available_amount", 0))
+                        amount_for_min_check = final_total_amount if is_refinance else amount_info.get("available_limit", amount_info.get("available_amount", 0))
                         amount_for_min_rounded = self.round_down_to_hundred_thousand(amount_for_min_check)
                         if min_amount is not None and amount_for_min_rounded < min_amount:
                             print(f"DEBUG: BaseCalculator.calculate - MG캐피탈 대환: 총실행금액 {amount_for_min_rounded}만원이 min_amount {min_amount}만원보다 작아서 제외")
@@ -2475,11 +2487,14 @@ class BaseCalculator:
                             
                             # 100만 단위로 절삭
                             final_amount = self.round_down_to_hundred_thousand(final_amount)
-                            final_total_amount = self.round_down_to_hundred_thousand(amount_info["total_amount"])
+                            if is_refinance and max_amount_limit is not None and amount_info["available_amount"] > max_amount_limit:
+                                final_total_amount = self.round_down_to_hundred_thousand(refinance_principal + final_amount)
+                            else:
+                                final_total_amount = self.round_down_to_hundred_thousand(amount_info["total_amount"])
                             
                             # 최소진행금액 체크: 대환 시 총 실행금액(대환+추가), 후순위 시 가한도 기준
                             min_amount = effective_min_amount
-                            amount_for_min_check = amount_info["total_amount"] if is_refinance else amount_info.get("available_limit", amount_info.get("available_amount", 0))
+                            amount_for_min_check = final_total_amount if is_refinance else amount_info.get("available_limit", amount_info.get("available_amount", 0))
                             amount_for_min_rounded = self.round_down_to_hundred_thousand(amount_for_min_check)
                             if min_amount is not None and amount_for_min_rounded < min_amount:
                                 print(f"DEBUG: BaseCalculator.calculate - MG캐피탈 대환: LTV {ltv}% - 총실행금액 {amount_for_min_rounded}만원이 min_amount {min_amount}만원보다 작아서 제외")
@@ -2608,6 +2623,9 @@ class BaseCalculator:
                                 print(f"DEBUG: BaseCalculator.calculate - 총액 한도 적용(후순위): 가용 {amount_info['available_amount']} -> {final_amount}만원")
                             elif not max_amount_limit_applies_to_total and final_amount > max_amount_limit:
                                 final_amount = max_amount_limit
+                                if is_refinance:
+                                    # 가용 상한만 제한 → 총실행 = 대환원금 + 캡된 가용
+                                    final_total_amount = refinance_principal + final_amount
                                 print(f"DEBUG: BaseCalculator.calculate - 가계 상품 한도 제한 적용: {amount_info['available_amount']}만원 -> {final_amount}만원")
                         
                         # 100만 단위로 절삭
@@ -2683,6 +2701,38 @@ class BaseCalculator:
             refinance_denied_prefix = ""
             if refinance_denied and refinance_principal <= 0:
                 refinance_denied_prefix = self._format_refinance_denied_subordinate_prefix(refinance_denied)
+
+            # 세대수 LTV 차감 때문에만 한도가 사라진 경우 전용 회신
+            hh_meta = getattr(self, "_household_ltv_reduction_meta", None) or {}
+            if hh_meta.get("applied"):
+                before_ltv = hh_meta.get("before_ltv")
+                no_limit_msg = hh_meta.get("no_limit_error_message") or hh_meta.get("message")
+                if (
+                    before_ltv is not None
+                    and no_limit_msg
+                    and self._would_have_available_limit_at_ltv(
+                        kb_price=kb_price,
+                        max_ltv=float(before_ltv),
+                        total_mortgage=total_mortgage,
+                        refinance_principal=refinance_principal if is_refinance else 0,
+                        min_amount=min_amount,
+                        is_refinance=is_refinance,
+                    )
+                ):
+                    hh_conditions = list(self.config.get("conditions", []))
+                    if hh_meta.get("message") and hh_meta["message"] not in hh_conditions:
+                        hh_conditions.append(hh_meta["message"])
+                    print(
+                        f"DEBUG: BaseCalculator.calculate - {self.bank_name}: "
+                        f"세대수 LTV 차감({hh_meta.get('before_ltv')}%→{hh_meta.get('after_ltv')}%)으로 한도 불가"
+                    )
+                    return {
+                        "bank_name": self.bank_name,
+                        "results": [],
+                        "conditions": hh_conditions,
+                        "errors": [f"{refinance_denied_prefix}{no_limit_msg}"],
+                        "min_amount": min_amount,
+                    }
 
             # 선순위 채권최고(대환 제외 분 = other_mortgages)가 담보한도를 넘는지. 대환 대상 원금은 여기서 제외(2단계에서 차감).
             if total_mortgage > max_ltv_amount:
@@ -2824,6 +2874,18 @@ class BaseCalculator:
                     conditions.append(household_condition_message)
             except (ValueError, TypeError):
                 pass
+
+        # 세대수 LTV 차감 적용 시 안내 멘트 (솔브레인저축은행 등)
+        hh_meta = getattr(self, "_household_ltv_reduction_meta", None) or {}
+        if results and hh_meta.get("applied") and hh_meta.get("message"):
+            if hh_meta["message"] not in conditions:
+                conditions.append(hh_meta["message"])
+
+        # 조건부 캡션 (공동명의·별도등기·대지권미등기 등) — 한도와 함께 멘트만
+        if results and property_data:
+            for caption_msg in self._collect_caption_rule_messages(property_data):
+                if caption_msg not in conditions:
+                    conditions.append(caption_msg)
 
         # 수도권 외 + 한도 미만 시 안내 (non_metro_amount_condition_lt + message)
         # 예: IM SOHO아파트론 — 수도권 외 & 가용한도 5천만 미만 → 오프라인 등기 불가 안내
@@ -3822,6 +3884,107 @@ class BaseCalculator:
         result = self._apply_kiwoom_ltv_adjustments(result, property_data)
         
         return result
+
+    def _apply_household_ltv_reduction(
+        self,
+        max_ltv: Optional[float],
+        property_data: Optional[Dict[str, Any]],
+    ) -> Tuple[Optional[float], Optional[Dict[str, Any]]]:
+        """
+        세대수 조건 LTV 차감 (config: household_ltv_reduction).
+        예: 100세대 미만이면 최대 LTV 5%p 차감.
+        Returns: (adjusted_max_ltv, meta_dict_or_None)
+        """
+        cfg = self.config.get("household_ltv_reduction") or {}
+        if not cfg.get("enabled"):
+            return max_ltv, None
+        if max_ltv is None or property_data is None:
+            return max_ltv, None
+
+        threshold = cfg.get("household_count_lt")
+        reduction = cfg.get("ltv_reduction")
+        if threshold is None or reduction is None:
+            return max_ltv, None
+
+        household_count = property_data.get("household_count")
+        try:
+            if household_count is None or int(household_count) >= int(threshold):
+                return max_ltv, None
+            reduction_f = float(reduction)
+            before = float(max_ltv)
+            after = max(0.0, before - reduction_f)
+            meta = {
+                "applied": True,
+                "before_ltv": before,
+                "after_ltv": after,
+                "reduction": reduction_f,
+                "household_count": int(household_count),
+                "message": cfg.get("message") or f"*{threshold}세대미만 LTV{reduction:g}%차감",
+                "no_limit_error_message": cfg.get("no_limit_error_message")
+                or f"*{threshold}세대미만 LTV{reduction:g}%차감으로 한도 불가",
+            }
+            print(
+                f"DEBUG: _apply_household_ltv_reduction - {self.bank_name}: "
+                f"세대수 {household_count} < {threshold}, LTV {before}% → {after}%"
+            )
+            return after, meta
+        except (ValueError, TypeError):
+            return max_ltv, None
+
+    def _would_have_available_limit_at_ltv(
+        self,
+        kb_price: float,
+        max_ltv: float,
+        total_mortgage: float,
+        refinance_principal: float,
+        min_amount: float,
+        is_refinance: bool,
+    ) -> bool:
+        """특정 최대 LTV 기준에서 최소진행금액 이상 가용한도가 나오는지 여부."""
+        try:
+            max_ltv_amount = float(kb_price) * (float(max_ltv) / 100.0)
+            available = max_ltv_amount - float(total_mortgage or 0)
+            if is_refinance:
+                available -= float(refinance_principal or 0)
+            rounded = self.round_down_to_hundred_thousand(available)
+            return rounded >= float(min_amount or 0)
+        except (TypeError, ValueError):
+            return False
+
+    def _collect_caption_rule_messages(
+        self, property_data: Optional[Dict[str, Any]]
+    ) -> List[str]:
+        """
+        caption_rules: 키워드 매칭 시 한도 회신 멘트만 추가 (거절 아님).
+        check_fields 기본: special_notes, requests, ownership, property_type
+        """
+        rules = self.config.get("caption_rules") or []
+        if not rules or not property_data:
+            return []
+
+        messages: List[str] = []
+        for rule in rules:
+            keywords = rule.get("keywords") or []
+            message = rule.get("message")
+            if not keywords or not message:
+                continue
+            check_fields = rule.get(
+                "check_fields",
+                ["special_notes", "requests", "ownership", "property_type"],
+            )
+            haystacks: List[str] = []
+            for field in check_fields:
+                val = property_data.get(field)
+                if val is None:
+                    continue
+                haystacks.append(str(val))
+            blob = " / ".join(haystacks)
+            if not blob:
+                continue
+            if any(kw in blob for kw in keywords):
+                if message not in messages:
+                    messages.append(message)
+        return messages
     
     def _apply_kiwoom_ltv_adjustments(self, max_ltv: Optional[float], property_data: Optional[Dict[str, Any]]) -> Optional[float]:
         """
