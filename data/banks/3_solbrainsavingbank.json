@@ -161,7 +161,10 @@
   "min_amount": 3100,
   "_comment_min_amount": "최소 신청금액 3,100만원",
   "max_amount_limit": 10000,
-  "_comment_max_amount_limit": "가용자금 최대 1억원 (대환 시 총실행=대환원금+가용, 가용만 1억 상한)",
+  "max_amount_limit_applies_to_total": false,
+  "_comment_max_amount_limit": "가용자금 최대 1억원",
+  "max_total_amount_limit": 50000,
+  "_comment_max_total_amount_limit": "총실행(대환원금+가용) 최대 5억원. 예: 대환 4억→가용 최대 1억(총 5억), 대환 3억→가용 최대 1억(총 4억). 대환원금 5억 초과 시 한도 미산출",
   "min_kb_price": 20000,
   "_comment_min_kb_price": "KB시세 2억원 이상",
   "price_sources": {

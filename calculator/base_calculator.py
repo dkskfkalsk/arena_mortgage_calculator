@@ -1912,6 +1912,7 @@ class BaseCalculator:
         # JB하이론 / DSFNC 하이론: 대환 원금이 한도 초과 시 한도 미산출 (결과 전체 없음)
         is_jb = "JB" in self.bank_name or "제이비" in self.bank_name
         max_amount_limit_applies_to_total = self.config.get("max_amount_limit_applies_to_total", False)
+        max_total_amount_limit = self.config.get("max_total_amount_limit")
         if is_refinance and max_amount_limit is not None and refinance_principal > max_amount_limit:
             if is_jb:
                 print(f"DEBUG: BaseCalculator.calculate - JB하이론: 대환 원금 {refinance_principal}만원 > {max_amount_limit}만원, 한도 미산출")
@@ -1919,6 +1920,17 @@ class BaseCalculator:
                 print(f"DEBUG: BaseCalculator.calculate - 한도 총액 적용 상품: 대환 원금 {refinance_principal}만원 > {max_amount_limit}만원, 한도 미산출")
             if is_jb or max_amount_limit_applies_to_total:
                 return None
+        # 총실행 상한(max_total_amount_limit): 대환원금이 총상한 초과 시 한도 미산출
+        if (
+            is_refinance
+            and max_total_amount_limit is not None
+            and refinance_principal > float(max_total_amount_limit)
+        ):
+            print(
+                f"DEBUG: BaseCalculator.calculate - 총실행 상한: 대환 원금 {refinance_principal}만원 > "
+                f"{max_total_amount_limit}만원, 한도 미산출"
+            )
+            return None
         
         # 필요자금이 있으면 LTV별 계산을 건너뛰고 필요자금 기준으로 역산 계산
         required_amount = property_data.get("required_amount")
@@ -2627,6 +2639,26 @@ class BaseCalculator:
                                     # 가용 상한만 제한 → 총실행 = 대환원금 + 캡된 가용
                                     final_total_amount = refinance_principal + final_amount
                                 print(f"DEBUG: BaseCalculator.calculate - 가계 상품 한도 제한 적용: {amount_info['available_amount']}만원 -> {final_amount}만원")
+
+                        # 가용 상한과 별도로 총실행 상한(max_total_amount_limit) 추가 적용
+                        # 예: 가용 최대 1억 + 총실행 최대 5억 → 대환 3억이면 가용 1억(총 4억)
+                        if max_total_amount_limit is not None:
+                            capped = self._apply_max_total_amount_limit(
+                                final_amount=final_amount,
+                                final_total_amount=final_total_amount,
+                                is_refinance=is_refinance,
+                                refinance_principal=refinance_principal,
+                                max_total_amount_limit=float(max_total_amount_limit),
+                            )
+                            if capped is None:
+                                if not allow_negative_available:
+                                    print(
+                                        f"DEBUG: BaseCalculator.calculate - 총실행 상한: LTV {ltv}% "
+                                        f"대환 후 가용 없음, 스킵"
+                                    )
+                                    continue
+                            else:
+                                final_amount, final_total_amount = capped
                         
                         # 100만 단위로 절삭
                         final_amount = self.round_down_to_hundred_thousand(final_amount)
@@ -2634,8 +2666,8 @@ class BaseCalculator:
                         
                         # 최소진행금액 체크: 대환 시 총 실행금액(대환+추가), 후순위 시 가한도 기준
                         min_amount = effective_min_amount
-                        if max_amount_limit_applies_to_total:
-                            amount_for_min_check = final_total_amount
+                        if max_amount_limit_applies_to_total or max_total_amount_limit is not None:
+                            amount_for_min_check = final_total_amount if is_refinance else final_amount
                         else:
                             amount_for_min_check = amount_info["total_amount"] if is_refinance else amount_info.get("available_limit", amount_info.get("available_amount", 0))
                         amount_for_min_rounded = self.round_down_to_hundred_thousand(amount_for_min_check)
@@ -3884,6 +3916,42 @@ class BaseCalculator:
         result = self._apply_kiwoom_ltv_adjustments(result, property_data)
         
         return result
+
+    def _apply_max_total_amount_limit(
+        self,
+        final_amount: float,
+        final_total_amount: float,
+        is_refinance: bool,
+        refinance_principal: float,
+        max_total_amount_limit: float,
+    ) -> Optional[Tuple[float, float]]:
+        """
+        총실행 상한(max_total_amount_limit) 적용.
+        - 대환: total = min(대환원금+가용, 상한), available = total - 대환원금
+          가용 ≤ 0이면 None (한도 없음)
+        - 비대환: available/total = min(가용, 상한)
+        Returns: (final_amount, final_total_amount) 또는 None
+        """
+        if is_refinance:
+            total = float(refinance_principal or 0) + float(final_amount or 0)
+            capped_total = min(total, float(max_total_amount_limit))
+            capped_available = capped_total - float(refinance_principal or 0)
+            if capped_available <= 0:
+                return None
+            if capped_total < total or capped_available < float(final_amount or 0):
+                print(
+                    f"DEBUG: _apply_max_total_amount_limit - 대환 총실행 상한: "
+                    f"total {total} -> {capped_total}만원, 가용 {final_amount} -> {capped_available}만원"
+                )
+            return capped_available, capped_total
+
+        capped = min(float(final_amount or 0), float(max_total_amount_limit))
+        if capped < float(final_amount or 0):
+            print(
+                f"DEBUG: _apply_max_total_amount_limit - 비대환 총실행 상한: "
+                f"{final_amount} -> {capped}만원"
+            )
+        return capped, capped
 
     def _apply_household_ltv_reduction(
         self,
