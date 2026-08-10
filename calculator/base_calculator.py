@@ -856,7 +856,26 @@ class BaseCalculator:
                     "min_amount": self.config.get("min_amount", 3000)
                 }
         
+        # 지역 검증을 시세·직업 등 상세 거절보다 먼저 수행
+        # (예: 솔브레인 — 부산·울산·경남 외 지역은 KB시세/직업 멘트 대신 지역 불가만 회신)
+        region = property_data.get("region", "")
+        if not region:
+            log_print(f"DEBUG: BaseCalculator.calculate - region is empty")
+            logger.warning("BaseCalculator.calculate - region is empty")
+            return None
+
+        region_errors, grade = self._collect_region_validation(region)
+        if region_errors:
+            return {
+                "bank_name": self.bank_name,
+                "results": [],
+                "conditions": self.config.get("conditions", []),
+                "errors": region_errors,
+                "min_amount": self.config.get("min_amount", 3000)
+            }
+
         # KB시세 최소 금액 확인 (property_type_conditions에 없으면 전역 min_kb_price 사용)
+        # ※ 대상 지역(솔브레인: 부산·울산·경남)인 경우에만 이 한도/조건 멘트가 회신됨
         min_kb_price = self.config.get("min_kb_price")
         if min_kb_price is not None:
             # property_type_conditions에서 이미 체크했는지 확인
@@ -1151,80 +1170,7 @@ class BaseCalculator:
                     log_print(f"DEBUG: BaseCalculator.calculate - 하한가 적용 조건 충족하지만 하한가 추출 실패")
                     logger.warning("BaseCalculator.calculate - 하한가 적용 조건 충족하지만 하한가 추출 실패")
         
-        # 지역 확인
-        region = property_data.get("region", "")
-        if not region:
-            log_print(f"DEBUG: BaseCalculator.calculate - region is empty")
-            logger.warning("BaseCalculator.calculate - region is empty")
-            return None
-        
-        # 메인 계산기 전체 지역 리스트 기준 검증
-        region_clean = region.replace(" ", "")
-        is_valid_region = False
-        for valid_region in self.ALL_REGIONS:
-            if valid_region.replace(" ", "") == region_clean:
-                is_valid_region = True
-                break
-        
-        # 지역 및 급지 검증 오류 수집
-        region_errors = []
-        
-        if not is_valid_region:
-            print(f"DEBUG: BaseCalculator.calculate - Region {region} is not in ALL_REGIONS list, 취급 불가지역")
-            region_errors.append(f"지역 '{region}'은(는) 취급 가능한 지역 목록에 없습니다")
-        
-        # 대상 지역 확인 (광역 단위로 체크)
-        target_regions = self.config.get("target_regions", [])
-        if target_regions:
-            is_target_region = False
-            # 약자 매핑 (target_regions의 약자를 실제 지역명으로 변환)
-            region_abbreviation_map = {
-                "경북": "경상북도",
-                "경남": "경상남도",
-                "충북": "충청북도",
-                "충남": "충청남도",
-                "전북": "전라북도",
-                "전남": "전라남도",
-                "강원": "강원특별자치도"
-            }
-            
-            for target in target_regions:
-                # 약자 매핑 적용
-                target_full = region_abbreviation_map.get(target, target)
-                # "광주": 광주광역시만 매칭, 경기도광주시 제외 (경기도광주시에 "광주" 포함으로 인한 오매칭 방지)
-                if target == "광주":
-                    if region.startswith("광주광역시"):
-                        is_target_region = True
-                        break
-                    continue
-                if target_full in region or target in region:  # "서울" in "서울특별시광진구" 또는 "경상북도" in "경상북도구미시"
-                    is_target_region = True
-                    break
-            if not is_target_region:
-                print(f"DEBUG: BaseCalculator.calculate - Region {region} is not in target regions: {target_regions}")
-                region_errors.append("취급 대상 지역이 아닙니다")
-        
-        # 급지 확인
-        grade = self.get_region_grade(region)
-        print(f"DEBUG: BaseCalculator.calculate - region: {region}, grade: {grade}")
-        if grade is None:
-            print(f"DEBUG: BaseCalculator.calculate - grade is None for region: {region}, 취급 불가지역")
-            region_errors.append("취급 불가지역")
-        
-        # 9급지인 경우 취급 불가지역으로 처리 (grade는 config에 따라 9 또는 "9"로 올 수 있음)
-        if grade in (9, "9"):
-            print(f"DEBUG: BaseCalculator.calculate - grade 9 for region: {region}, 취급 불가지역")
-            region_errors.append("9급지로 취급 불가")
-        
-        # 지역 검증 오류가 있으면 반환
-        if region_errors:
-            return {
-                "bank_name": self.bank_name,
-                "results": [],
-                "conditions": self.config.get("conditions", []),
-                "errors": region_errors,
-                "min_amount": self.config.get("min_amount", 3000)
-            }
+        # 지역·급지는 상단(_collect_region_validation)에서 이미 검증·할당됨
         
         # 면적 제한 확인 (BNK캐피탈 등 특정 금융사만)
         area_limit_config = self.config.get("area_limit", {})
@@ -3512,6 +3458,64 @@ class BaseCalculator:
         result = validate_kb_price(kb_price)
         print(f"DEBUG: BaseCalculator.validate_kb_price - output: {result}")
         return result
+
+    def _collect_region_validation(self, region: str) -> tuple:
+        """
+        지역·급지 검증. (errors, grade) 반환.
+        errors가 비어 있지 않으면 취급 불가(대상 지역 아님 / 9급지 등).
+        """
+        region_errors = []
+
+        region_clean = region.replace(" ", "")
+        is_valid_region = False
+        for valid_region in self.ALL_REGIONS:
+            if valid_region.replace(" ", "") == region_clean:
+                is_valid_region = True
+                break
+
+        if not is_valid_region:
+            print(f"DEBUG: BaseCalculator.calculate - Region {region} is not in ALL_REGIONS list, 취급 불가지역")
+            region_errors.append(f"지역 '{region}'은(는) 취급 가능한 지역 목록에 없습니다")
+
+        target_regions = self.config.get("target_regions", [])
+        if target_regions:
+            is_target_region = False
+            region_abbreviation_map = {
+                "경북": "경상북도",
+                "경남": "경상남도",
+                "충북": "충청북도",
+                "충남": "충청남도",
+                "전북": "전라북도",
+                "전남": "전라남도",
+                "강원": "강원특별자치도"
+            }
+
+            for target in target_regions:
+                target_full = region_abbreviation_map.get(target, target)
+                # "광주": 광주광역시만 매칭, 경기도광주시 제외
+                if target == "광주":
+                    if region.startswith("광주광역시"):
+                        is_target_region = True
+                        break
+                    continue
+                if target_full in region or target in region:
+                    is_target_region = True
+                    break
+            if not is_target_region:
+                print(f"DEBUG: BaseCalculator.calculate - Region {region} is not in target regions: {target_regions}")
+                region_errors.append("취급 대상 지역이 아닙니다")
+
+        grade = self.get_region_grade(region)
+        print(f"DEBUG: BaseCalculator.calculate - region: {region}, grade: {grade}")
+        if grade is None:
+            print(f"DEBUG: BaseCalculator.calculate - grade is None for region: {region}, 취급 불가지역")
+            region_errors.append("취급 불가지역")
+
+        if grade in (9, "9"):
+            print(f"DEBUG: BaseCalculator.calculate - grade 9 for region: {region}, 취급 불가지역")
+            region_errors.append("9급지로 취급 불가")
+
+        return region_errors, grade
     
     def get_region_grade(self, region: str) -> Optional[Union[int, str]]:
         """

@@ -187,6 +187,10 @@ def format_result(bank_result: Dict[str, Any], requests: str = "") -> str:
     # 9급지 취급 불가인 경우
     if errors and "9급지로 취급 불가" in errors:
         return f"* {bank_name}\n9급지로 취급 불가"
+
+    # 대상 지역 아님 (솔브레인 부산·울산·경남 외 등)
+    if errors and "취급 대상 지역이 아닙니다" in errors:
+        return f"* {bank_name}\n취급 대상 지역이 아닙니다"
     
     # 가용 한도 부족 등 에러가 있는 경우
     if errors and len(errors) > 0:
