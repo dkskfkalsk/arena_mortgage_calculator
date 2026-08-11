@@ -413,6 +413,29 @@ class BaseCalculator:
         
         self.config = config
         self.bank_name = config.get("bank_name", "Unknown")
+        # bank_id: bank_name(표시명)과 분리된 고정 식별자. config에 지정해두면
+        # bank_name을 자유롭게 바꿔도 아래 금융사별 특례 로직이 깨지지 않음.
+        self.bank_id = (config.get("bank_id") or "").strip()
+
+        # 금융사별 특례 로직에서 사용하는 식별 플래그. bank_id가 있으면 그것으로 판별하고,
+        # 없으면(레거시 config) 기존처럼 bank_name 문자열 매칭으로 판별해 하위호환을 유지한다.
+        self.is_mg_capital = self._match_bank_id("mg_capital", ["MG캐피탈", "엠지케피탈"])
+        self.is_ok_bank = self._match_bank_id("ok_savingbank", ["OK저축은행", "오케이저축은행"])
+        self.is_bnk = self._match_bank_id("bnk_capital", ["BNK캐피탈", "비엔케이캐피탈"])
+        self.is_acuon = self._match_bank_id(["acuon_savingbank", "acuon_capital"], ["애큐온"])
+        self.is_smart_saving = self._match_bank_id("smart_savingbank", ["스마트저축"])
+        self.is_jb = self._match_bank_id("jb", ["JB", "제이비"])
+        self.is_kiwoom_retail = self._match_bank_id("kiwoom_retail", ["키움저축-리테일", "키움저축리테일"])
+
+    def _match_bank_id(self, bank_ids, legacy_name_substrings: List[str]) -> bool:
+        """금융사 식별: config의 bank_id(고정 식별자)가 있으면 그것으로 비교하고,
+        없으면 bank_name에 legacy_name_substrings 중 하나가 포함되는지로 판별한다(하위호환).
+        bank_id를 config에 지정해두면 bank_name(표시명)을 자유롭게 수정해도 이 판별 결과는 바뀌지 않는다.
+        """
+        ids = [bank_ids] if isinstance(bank_ids, str) else list(bank_ids)
+        if self.bank_id:
+            return self.bank_id in ids
+        return any(s in self.bank_name for s in legacy_name_substrings)
 
     def _refinance_self_alias_strings(self) -> List[str]:
         """이 계산기가 나타내는 금융사(자기) — 마스터 명단에서 제외할 때 사용."""
@@ -788,7 +811,7 @@ class BaseCalculator:
         special_notes = property_data.get("special_notes", "") or ""
         
         # OK저축은행인 경우 사업자/가계 상품에 따라 다른 설정 사용
-        is_ok_bank = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
+        is_ok_bank = self.is_ok_bank
         if is_ok_bank:
             # OK저축은행: product_type에 따라 적절한 설정 선택
             if product_type == "household":
@@ -1170,7 +1193,7 @@ class BaseCalculator:
         is_below_standard = below_standard_ltv is not None
         
         # OK저축은행 가계자금인 경우 확인 (최대 LTV 계산 전에 먼저 확인)
-        is_ok_bank = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
+        is_ok_bank = self.is_ok_bank
         is_household_for_ok = False
         if is_ok_bank:
             # product_type이 "household"이면 가계자금
@@ -1287,11 +1310,11 @@ class BaseCalculator:
             # 일반 처리
             # self_refinance_excluded 체크 (본인 금융사 대환 불가)
             self_refinance_excluded = self.config.get("self_refinance_excluded", [])
-            is_bnk = self.bank_name == "BNK캐피탈" or "BNK캐피탈" in self.bank_name or "비엔케이캐피탈" in self.bank_name
-            is_ok_bank = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
-            is_acuon = self.bank_name == "애큐온저축은행" or "애큐온" in self.bank_name
-            is_mg_capital = self.bank_name == "MG캐피탈" or "MG캐피탈" in self.bank_name or "엠지케피탈" in self.bank_name
-            is_smart_saving = "스마트저축" in self.bank_name
+            is_bnk = self.is_bnk
+            is_ok_bank = self.is_ok_bank
+            is_acuon = self.is_acuon
+            is_mg_capital = self.is_mg_capital
+            is_smart_saving = self.is_smart_saving
             is_business_product = is_bnk or is_ok_bank or is_acuon or is_mg_capital or is_smart_saving
             business_product_names = self._get_business_product_names() if is_business_product else []
             # true: 저축은행 등 refinance_excluded_institution_types만 대환 불가, 그 외 캐피탈·은행 등 대환 가능
@@ -1388,8 +1411,7 @@ class BaseCalculator:
                         # 리스트에 없지만 '사업자금' 문자열이 있으면 대환 가능
                         if not can_refinance and "사업자금" in institution:
                             can_refinance = True
-                            bank_display_name = "BNK캐피탈" if is_bnk else ("OK저축은행" if is_ok_bank else ("애큐온저축은행" if is_acuon else "MG캐피탈"))
-                            print(f"DEBUG: BaseCalculator.calculate - {bank_display_name}: '{institution}'에 '사업자금' 포함되어 대환 가능")
+                            print(f"DEBUG: BaseCalculator.calculate - {self.bank_name}: '{institution}'에 '사업자금' 포함되어 대환 가능")
                     else:
                         # BNK캐피탈, OK저축은행, 애큐온저축은행, MG캐피탈이 아니면 대환 가능
                         can_refinance = True
@@ -1402,8 +1424,7 @@ class BaseCalculator:
                         print(f"DEBUG: BaseCalculator.calculate - 대환할 근저당권 발견: priority={mortgage.get('priority')}, institution={institution}, principal={mortgage_amount}만원")
                     else:
                         # 대환 불가능한 기관은 후순위로 처리
-                        bank_display_name = "BNK캐피탈" if is_bnk else ("OK저축은행" if is_ok_bank else ("애큐온저축은행" if is_acuon else "MG캐피탈"))
-                        print(f"DEBUG: BaseCalculator.calculate - {bank_display_name}: '{institution}'는 대환 가능 기관이 아니므로 후순위로 처리")
+                        print(f"DEBUG: BaseCalculator.calculate - {self.bank_name}: '{institution}'는 대환 가능 기관이 아니므로 후순위로 처리")
                         refinance_denied.append({
                             "priority": priority,
                             "reason": f"대환 가능 기관 아님({institution_short})",
@@ -1422,7 +1443,7 @@ class BaseCalculator:
         print(f"DEBUG: BaseCalculator.calculate - mortgages: {mortgages}")  # 추가
         
         # BNK캐피탈인 경우 대환 요청이 있었는데 대환 가능한 기관이 없는지 확인
-        is_bnk = self.bank_name == "BNK캐피탈" or "BNK캐피탈" in self.bank_name or "비엔케이캐피탈" in self.bank_name
+        is_bnk = self.is_bnk
         if is_bnk:
             # 대환 요청된 근저당권이 있는지 확인
             has_refinance_request = any(m.get("is_refinance", False) for m in mortgages)
@@ -1464,7 +1485,7 @@ class BaseCalculator:
                 print(f"DEBUG: BaseCalculator.calculate - 가계자금: 대환할 근저당권 없음, 후순위로 산출")
         
         # OK 저축은행 사업자/가계 상품 구분
-        is_ok_bank = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
+        is_ok_bank = self.is_ok_bank
         is_business_product = False
         is_household_product = False
         
@@ -1595,7 +1616,7 @@ class BaseCalculator:
                     return self._error_result(["빌라인 경우 선순위만 산출 가능"])
         
         # OK저축은행: 오피스텔인 경우 선순위만 산출 (세입자 1순위 있어도 2순위 불가)
-        is_ok_bank = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
+        is_ok_bank = self.is_ok_bank
         if is_ok_bank and self._is_subordinate:
             property_type = property_data.get("property_type", "")
             if property_type and "오피스텔" in property_type:
@@ -1633,7 +1654,7 @@ class BaseCalculator:
         credit_grade = self.credit_score_to_grade(credit_score)
         
         # MG캐피탈: 내부 등급 파싱 (등급 우선)
-        is_mg_capital = self.bank_name == "MG캐피탈" or "MG캐피탈" in self.bank_name or "엠지케피탈" in self.bank_name
+        is_mg_capital = self.is_mg_capital
         if is_mg_capital:
             mg_internal_grade = self._parse_mg_internal_grade(property_data)
             if mg_internal_grade is not None:
@@ -1766,7 +1787,7 @@ class BaseCalculator:
             print(f"DEBUG: BaseCalculator.calculate - 지분조건 요청 → 최소진행금액 하한 {fm}만원 (큰 값 적용): {effective_min_amount}만원")
         
         # JB하이론 / DSFNC 하이론: 대환 원금이 한도 초과 시 한도 미산출 (결과 전체 없음)
-        is_jb = "JB" in self.bank_name or "제이비" in self.bank_name
+        is_jb = self.is_jb
         max_amount_limit_applies_to_total = self.config.get("max_amount_limit_applies_to_total", False)
         max_total_amount_limit = self.config.get("max_total_amount_limit")
         if is_refinance and max_amount_limit is not None and refinance_principal > max_amount_limit:
@@ -1896,9 +1917,9 @@ class BaseCalculator:
             # - 비대환: 후순위 표기와 동일 기준을 맞추기 위해
             #          MG/OK/애큐온은 원금 기준으로 역산 (필금과 후순위 표기 일치)
             #          그 외 금융사는 기존 채권최고액 기준 유지
-            is_ok_bank_name = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
-            is_acuon_bank_name = self.bank_name == "애큐온저축은행" or "애큐온" in self.bank_name
-            is_mg_bank_name = self.bank_name == "MG캐피탈" or "MG캐피탈" in self.bank_name or "엠지케피탈" in self.bank_name
+            is_ok_bank_name = self.is_ok_bank
+            is_acuon_bank_name = self.is_acuon
+            is_mg_bank_name = self.is_mg_capital
             uses_address_rate_group = bool(
                 self.config.get("rate_region_group_by_address")
                 or self.config.get("rate_region_group_prefix_rules")
@@ -2241,7 +2262,7 @@ class BaseCalculator:
                     results.sort(key=lambda x: (x.get("credit_grade_sort", 99), -(x.get("ltv", 0))))
             else:
                 # 대환조건일 때는 0.1% 단위로 LTV 계산 (MG캐피탈 등)
-                is_mg_capital = self.bank_name == "MG캐피탈" or "MG캐피탈" in self.bank_name or "엠지케피탈" in self.bank_name
+                is_mg_capital = self.is_mg_capital
                 if is_refinance and is_mg_capital and max_ltv is not None:
                     # 대환조건: max_ltv부터 0.1%씩 감소시키며 한도가 나오는 최대 LTV 찾기
                     # 그리고 ltv_steps에 있는 LTV 단계들도 추가 산출
@@ -2400,8 +2421,8 @@ class BaseCalculator:
                         
                         # 가용 한도 계산
                         # OK저축은행, 애큐온저축은행, MG캐피탈인 경우 특별한 계산 방식 적용
-                        is_acuon = self.bank_name == "애큐온저축은행" or "애큐온" in self.bank_name
-                        is_mg_capital = self.bank_name == "MG캐피탈" or "MG캐피탈" in self.bank_name or "엠지케피탈" in self.bank_name
+                        is_acuon = self.is_acuon
+                        is_mg_capital = self.is_mg_capital
                         uses_address_rate_group = bool(
                 self.config.get("rate_region_group_by_address")
                 or self.config.get("rate_region_group_prefix_rules")
@@ -2421,23 +2442,13 @@ class BaseCalculator:
                                 "available_amount": max(0, available_principal),
                                 "available_limit": max(0, available_principal)  # 후순위는 가한도와 가용금액이 동일
                             }
-                            bank_display_name = "OK저축은행" if is_ok_bank else (
-                                "애큐온저축은행" if is_acuon else (
-                                    "MG캐피탈" if is_mg_capital else self.bank_name
-                                )
-                            )
-                            print(f"DEBUG: BaseCalculator.calculate - {bank_display_name} 후순위 특별 계산: ltv={ltv}%, existing_ltv={existing_ltv:.2f}%, max_amount={max_amount_principal}, existing_limit={existing_ltv_limit}, available={available_principal}")
+                            print(f"DEBUG: BaseCalculator.calculate - {self.bank_name} 후순위 특별 계산: ltv={ltv}%, existing_ltv={existing_ltv:.2f}%, max_amount={max_amount_principal}, existing_limit={existing_ltv_limit}, available={available_principal}")
                         elif (is_ok_bank or is_acuon or is_mg_capital or uses_address_rate_group) and is_refinance:
                             # 저축은행/캐피탈 대환: 일반 대환 계산 방식 사용 (calculate_available_amount)
                             amount_info = self.calculate_available_amount(
                                 kb_price, ltv, total_mortgage, is_refinance, refinance_principal
                             )
-                            bank_display_name = "OK저축은행" if is_ok_bank else (
-                                "애큐온저축은행" if is_acuon else (
-                                    "MG캐피탈" if is_mg_capital else self.bank_name
-                                )
-                            )
-                            print(f"DEBUG: BaseCalculator.calculate - {bank_display_name} 대환 계산: ltv={ltv}%, amount_info={amount_info}")
+                            print(f"DEBUG: BaseCalculator.calculate - {self.bank_name} 대환 계산: ltv={ltv}%, amount_info={amount_info}")
                         else:
                             # 일반 계산 방식
                             amount_info = self.calculate_available_amount(
@@ -2696,7 +2707,7 @@ class BaseCalculator:
         
         # MG캐피탈 감정건(감정가·탁감가 동일 취급) 시 한도 밑에 가산금리 안내 문구 추가
         conditions = list(self.config.get("conditions", []))
-        is_mg_capital_return = final_bank_name == "MG캐피탈" or "MG캐피탈" in final_bank_name
+        is_mg_capital_return = self.is_mg_capital
         if is_mg_capital_return and property_data:
             kb_price_raw_str = str(property_data.get("kb_price_raw") or "")
             property_type = property_data.get("property_type") or ""
@@ -3612,7 +3623,7 @@ class BaseCalculator:
                     return self._apply_kiwoom_ltv_adjustments(result, property_data)
 
         # OK저축은행인 경우 면적과 신용점수 등급을 고려한 LTV 계산 (사업자금만)
-        is_ok_bank = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
+        is_ok_bank = self.is_ok_bank
         # product_type이 "household"이면 가계자금이므로 이 로직을 사용하지 않음
         is_household_for_ok = False
         if is_ok_bank and property_data is not None:
@@ -3962,7 +3973,7 @@ class BaseCalculator:
         if max_ltv is None or property_data is None:
             return max_ltv
         
-        is_kiwoom_retail = "키움저축-리테일" in self.bank_name or "키움저축리테일" in self.bank_name
+        is_kiwoom_retail = self.is_kiwoom_retail
         if not is_kiwoom_retail:
             return max_ltv
         
@@ -4805,8 +4816,8 @@ class BaseCalculator:
         print(f"DEBUG: get_interest_rate - ltv_key: {ltv_key}, available ltv_keys: {list(ltv_rates.keys())}")  # 추가
         
         # 애큐온저축은행, MG캐피탈: LTV 키가 없으면 범위 기반으로 금리 조회
-        is_acuon = self.bank_name == "애큐온저축은행" or "애큐온" in self.bank_name
-        is_mg_capital = self.bank_name == "MG캐피탈" or "MG캐피탈" in self.bank_name or "엠지케피탈" in self.bank_name
+        is_acuon = self.is_acuon
+        is_mg_capital = self.is_mg_capital
         if ltv_key not in ltv_rates:
             if (is_acuon or is_mg_capital) and ((is_subordinate and subordinate_rates_by_region) or (not is_subordinate and primary_rates) or (is_subordinate and subordinate_rates)):
                 # MG캐피탈: LTV 범위 기반 매칭
@@ -4860,11 +4871,9 @@ class BaseCalculator:
                             ltv_key = str(int(closest_key))
                         else:
                             ltv_key = str(round(closest_key, 1))
-                        bank_display_name = "애큐온저축은행"
-                        print(f"DEBUG: get_interest_rate - {bank_display_name}: LTV {ltv}%에 대한 키 없음, 가장 가까운 이상 금리 키 {ltv_key}% 사용")
+                        print(f"DEBUG: get_interest_rate - {self.bank_name}: LTV {ltv}%에 대한 키 없음, 가장 가까운 이상 금리 키 {ltv_key}% 사용")
                     else:
-                        bank_display_name = "애큐온저축은행"
-                        print(f"DEBUG: get_interest_rate - {bank_display_name}: LTV {ltv}%에 대한 적절한 금리 키를 찾을 수 없음")
+                        print(f"DEBUG: get_interest_rate - {self.bank_name}: LTV {ltv}%에 대한 적절한 금리 키를 찾을 수 없음")
                         return {
                             "interest_rate": None,
                             "interest_rate_range": None,
@@ -4882,7 +4891,7 @@ class BaseCalculator:
         print(f"DEBUG: get_interest_rate - grade_rates for LTV {ltv_key}: {grade_rates}")  # 추가
         
         # MG캐피탈: 급지별 가산금리 및 아파트/주상복합이 아닌 경우 +1% 적용
-        is_mg_capital = self.bank_name == "MG캐피탈" or "MG캐피탈" in self.bank_name or "엠지케피탈" in self.bank_name
+        is_mg_capital = self.is_mg_capital
         grade_additional_rate = 0.0
         non_apartment_additional_rate = 0.0
         bank_appraisal_additional_rate = 0.0
@@ -5006,6 +5015,16 @@ class BaseCalculator:
             "credit_grade": credit_grade
         }
     
+    def _get_ok_business_fixed_rate_comment(self, is_business_product: bool) -> Optional[str]:
+        """OK저축은행 사업자금 한도 결과 하단 고정금리 안내. JSON business_fixed_rate_comment 사용."""
+        if not is_business_product:
+            return None
+        comment = self.config.get("business_fixed_rate_comment", "고정금리 선택시 -0.3%")
+        if not isinstance(comment, str):
+            return None
+        comment = comment.strip()
+        return comment or None
+
     def _get_ok_interest_rate(
         self,
         credit_score: Optional[int],
@@ -5121,16 +5140,11 @@ class BaseCalculator:
                 final_rate = spread_rate + additional_rate + household_adjustment
                 print(f"DEBUG: _get_ok_interest_rate - credit_score: {credit_score}, score_range: {score_range}, table_rate: {spread_rate}, cofix(additional none): {cofix_rate}, additional: {additional_rate}, household_adjustment: {household_adjustment}, final: {final_rate}")
                 
-                # 사업자 상품 고정금리 코멘트
-                fixed_rate_comment = None
-                if is_business_product:
-                    fixed_rate_comment = "고정금리 선택시 -0.3%"
-                
                 return {
                     "interest_rate": round(final_rate, 2),
                     "interest_rate_range": None,
                     "credit_grade": score_range,
-                    "fixed_rate_comment": fixed_rate_comment
+                    "fixed_rate_comment": self._get_ok_business_fixed_rate_comment(is_business_product)
                 }
         
         # 신용점수가 없으면 최저~최고 금리 범위 반환
@@ -5140,16 +5154,11 @@ class BaseCalculator:
             max_rate = max(all_rates)
             print(f"DEBUG: _get_ok_interest_rate - no credit_score, returning range: {min_rate:.2f}~{max_rate:.2f}")
             
-            # 사업자 상품 고정금리 코멘트
-            fixed_rate_comment = None
-            if is_business_product:
-                fixed_rate_comment = "고정금리 선택시 -0.3%"
-            
             return {
                 "interest_rate": None,
                 "interest_rate_range": (round(min_rate, 2), round(max_rate, 2)),
                 "credit_grade": None,
-                "fixed_rate_comment": fixed_rate_comment
+                "fixed_rate_comment": self._get_ok_business_fixed_rate_comment(is_business_product)
             }
         
         return {
@@ -5268,19 +5277,19 @@ class BaseCalculator:
         for calculator in calculators:
             try:
                 # OK저축은행인 경우 가계자금과 사업자금을 각각 계산
-                is_ok_bank = calculator.bank_name == "OK저축은행" or "OK저축은행" in calculator.bank_name or "오케이저축은행" in calculator.bank_name
+                is_ok_bank = calculator.is_ok_bank
                 
                 if is_ok_bank:
                     # 가계자금 계산
                     household_result = calculator.calculate(property_data, product_type="household")
                     if household_result is not None and not cls._should_exclude_property_type_mismatch(household_result):
-                        household_result["bank_name"] = "OK저축은행 가계자금"
+                        household_result["bank_name"] = f"{calculator.bank_name} 가계자금"
                         results.append(household_result)
                     
                     # 사업자금 계산
                     business_result = calculator.calculate(property_data, product_type="business")
                     if business_result is not None and not cls._should_exclude_property_type_mismatch(business_result):
-                        business_result["bank_name"] = "OK저축은행 사업자금"
+                        business_result["bank_name"] = f"{calculator.bank_name} 사업자금"
                         results.append(business_result)
                 else:
                     # 일반 금융사: config의 product_type이 있으면 전달 (사업자 상품은 business로 계산)

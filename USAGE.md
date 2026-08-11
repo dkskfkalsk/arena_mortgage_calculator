@@ -109,7 +109,8 @@ PDF는 Vercel 웹훅(`api/webhook.py`)에서 처리합니다. 로컬 PDF 봇은 
 
 | 키 | 설명 |
 |----|------|
-| `bank_name` | 표시명 |
+| `bank_name` | 표시명. 언제든 자유롭게 수정 가능 |
+| `bank_id` | (일부 금융사만) 고정 식별자. `base_calculator.py`에 금융사별 특례 로직(MG캐피탈/OK저축은행/BNK캐피탈/애큐온/스마트저축/JB/키움-리테일)이 있는 경우에만 존재. `bank_name`을 바꿔도 이 값이 있으면 특례 로직은 그대로 유지됨. 값은 변경하지 말 것 |
 | `enabled` | 산출 on/off |
 | `target_regions` | 대상 광역 지역 |
 | `region_grades` | 구·시·군별 급지 |
@@ -118,6 +119,7 @@ PDF는 Vercel 웹훅(`api/webhook.py`)에서 처리합니다. 로컬 PDF 봇은 
 | `interest_rates_by_ltv` | LTV·등급별 금리 |
 | `credit_score_to_grade` | 신용점수 → 등급 |
 | `conditions` | 결과 하단 특이 조건 문구 |
+| `business_fixed_rate_comment` | (OK저축은행) 사업자금 한도 맨 아래 고정금리 안내 문구. 빈 문자열이면 미표시 |
 | `calculation_mode` | 계산 방식 (일부 금융사) |
 | `refinance_self_aliases` | 자기 금융사 대환 제외용 별칭 |
 

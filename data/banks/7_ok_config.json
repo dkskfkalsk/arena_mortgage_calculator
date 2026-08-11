@@ -1,5 +1,7 @@
 {
   "bank_name": "OK저축은행",
+  "bank_id": "ok_savingbank",
+  "_comment_bank_id": "고정 식별자(변경 금지). base_calculator.py의 금융사별 특례 로직이 이 값으로 식별됨. bank_name(표시명)은 자유롭게 변경 가능.",
   "refinance_self_aliases": [
     "OK저축은행",
     "오케이저축은행",
@@ -441,6 +443,8 @@
     "3": 0.5,
     "4": 1.0
   },
+  "business_fixed_rate_comment": "고정금리 선택시 -0.3%",
+  "_comment_business_fixed_rate_comment": "사업자금 한도 결과 맨 아래에 표시. 빈 문자열이면 미표시. 가계자금에는 적용되지 않음.",
   "household_adjustment_rates": {
     "installment_repayment": 0.2,
     "6month_variable_rate": 0.2,
