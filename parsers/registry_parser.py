@@ -311,14 +311,21 @@ class RegistryParser:
         
         return ""
     
+    @staticmethod
+    def _normalize_split_decimals(text: str) -> str:
+        """PDF에서 '84\\n.8799㎡'처럼 정수부와 소수부가 줄바꿈으로 끊긴 숫자를 이어 붙임"""
+        return re.sub(r'(\d+)\s*[\r\n]+\s*(\.\d+)', r'\1\2', text)
+
     def _extract_area(self) -> str:
         """면적 추출 (전용면적) - 표제부 '전유부분의 건물의 표시'에 기재된 면적 사용"""
+        # 줄바꿈으로 쪼개진 소수(예: 84\\n.8799㎡)를 먼저 복원
+        text = self._normalize_split_decimals(self.text)
 
         # 1순위: ( 전유부분의 건물의 표시 ) 블록에서 추출 (층별 면적 240㎡ 등과 구분)
         building_section = ""
         m_building_full = re.search(
             r'\(\s*전유부분의\s*건물의\s*표시\s*\)\s*([\s\S]*?)(?=\(\s*[^)]*\)|【|$)',
-            self.text
+            text
         )
         if m_building_full:
             building_section = m_building_full.group(1)
@@ -355,8 +362,8 @@ class RegistryParser:
                 return f"{non_floor_areas[0][1]}㎡"
 
         # 2순위: "제N층 제N호" 직후 150자 이내 첫 XX㎡ (층별 면적 "N층 XX㎡" 제외)
-        for m in re.finditer(r'제\s*\d+층\s*제\s*\d+호', self.text):
-            snippet = self.text[m.end():m.end() + 150]
+        for m in re.finditer(r'제\s*\d+층\s*제\s*\d+호', text):
+            snippet = text[m.end():m.end() + 150]
             area_m = re.search(r'(\d+\.?\d*)\s*㎡', snippet)
             if area_m:
                 start = max(0, area_m.start() - 15)
@@ -378,7 +385,7 @@ class RegistryParser:
             r'(\d+\.?\d*)\s*/\s*(\d+\.?\d*)\s*(?:㎡|m²)',
         ]
         for pattern in slash_patterns:
-            match = re.search(pattern, self.text, re.IGNORECASE)
+            match = re.search(pattern, text, re.IGNORECASE)
             if match:
                 area_second = match.group(2)
                 try:
@@ -395,7 +402,7 @@ class RegistryParser:
             r'(\d+\.?\d*)\s+(\d+\.?\d*)\s*[㎡m²]',
         ]
         for pattern in space_pair_patterns:
-            match = re.search(pattern, self.text)
+            match = re.search(pattern, text)
             if match:
                 first_num = float(match.group(1))
                 second_num = float(match.group(2))
@@ -412,7 +419,7 @@ class RegistryParser:
             r'\(?\s*전용\s*\)?\s*(\d+\.?\d*)\s*[㎡m²]',
         ]
         for pattern in dedicated_patterns:
-            match = re.search(pattern, self.text, re.IGNORECASE)
+            match = re.search(pattern, text, re.IGNORECASE)
             if match:
                 try:
                     area_float = float(match.group(1))
@@ -425,11 +432,11 @@ class RegistryParser:
         table_section_for_building = ""
         m_table = re.search(
             r'【\s*표\s*제\s*부\s*】[\s\S]*?(?=【\s*갑\s*구\s*】|【|$)',
-            self.text, re.IGNORECASE
+            text, re.IGNORECASE
         )
         if m_table:
             table_section_for_building = m_table.group(0)
-        search_for_building = table_section_for_building if table_section_for_building else self.text
+        search_for_building = table_section_for_building if table_section_for_building else text
 
         building_section = ""
         m_building = re.search(
@@ -441,7 +448,7 @@ class RegistryParser:
         if not building_section:
             m_building_full = re.search(
                 r'\(\s*전유부분의\s*건물의\s*표시\s*\)\s*([\s\S]*?)(?=\(\s*[^)]*\)|【|$)',
-                self.text
+                text
             )
             if m_building_full:
                 building_section = m_building_full.group(1)
@@ -491,7 +498,7 @@ class RegistryParser:
                 return f"{non_floor_areas[0][1]}㎡"
 
         # 1. (전 1) 63.81㎡ 형태: 전유 1호기 전용면적 명시 (동문아파트 등)
-        match = re.search(r'\(전\s*\d+\)\s*(\d+\.?\d*)\s*㎡', self.text)
+        match = re.search(r'\(전\s*\d+\)\s*(\d+\.?\d*)\s*㎡', text)
         if match:
             area = match.group(1)
             area_float = float(area)
@@ -505,7 +512,7 @@ class RegistryParser:
             r'전용면적[:\s]*(\d+\.?\d*)\s*㎡',
         ]
         for pattern in patterns:
-            match = re.search(pattern, self.text, re.DOTALL)
+            match = re.search(pattern, text, re.DOTALL)
             if match:
                 area = match.group(1)
                 area_float = float(area)
@@ -517,11 +524,11 @@ class RegistryParser:
         table_section = ""
         m = re.search(
             r'【\s*표\s*제\s*부\s*】[\s\S]*?(?=【\s*갑\s*구\s*】|【|$)',
-            self.text, re.IGNORECASE
+            text, re.IGNORECASE
         )
         if m:
             table_section = m.group(0)
-        search_text = table_section if table_section else self.text
+        search_text = table_section if table_section else text
 
         # ㎡ 외 m², m2 등도 매칭
         area_matches = list(re.finditer(r'(\d+\.?\d*)\s*(?:㎡|m²|m2)', search_text, re.IGNORECASE))

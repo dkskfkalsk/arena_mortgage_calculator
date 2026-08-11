@@ -80,6 +80,27 @@ builtins.print = _wrapped_print
 # 대환 가능 금융기관 공통 목록 (저축은행+캐피탈) 캐시. 금융사별 config에 business_product_names 없을 때 사용.
 _REFINANCE_MASTER_NAMES_CACHE: Optional[List[str]] = None
 
+# 금융사 설정 JSON 캐시: {경로: (mtime, 파싱된 dict)}.
+# calculate_all_banks/calculate_all_loans가 메시지 1건마다 동일한 설정 파일을 다시 읽는 것을 방지.
+# 파일이 수정되면(mtime 변경) 자동으로 다시 로드하므로 배포 중 config 갱신에도 안전.
+_CONFIG_FILE_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+
+
+def _load_json_config_cached(path: str) -> Dict[str, Any]:
+    """
+    JSON 설정 파일을 mtime 기준으로 캐싱하여 로드.
+    self.config는 어디서도 변경(mutate)하지 않으므로 여러 계산기 인스턴스가 같은 dict를
+    공유해도 안전함 (읽기 전용 사용).
+    """
+    mtime = os.path.getmtime(path)
+    cached = _CONFIG_FILE_CACHE.get(path)
+    if cached is not None and cached[0] == mtime:
+        return cached[1]
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    _CONFIG_FILE_CACHE[path] = (mtime, data)
+    return data
+
 
 def _load_refinanceable_master_names() -> List[str]:
     """
@@ -489,6 +510,31 @@ class BaseCalculator:
         if unit_int <= 0:
             unit_int = 100
         return (int(amount) // unit_int) * unit_int
+
+    def _error_result(
+        self,
+        errors: Union[str, List[str]],
+        conditions: Optional[List[str]] = None,
+        min_amount: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """
+        검증 실패 등으로 한도 산출이 불가할 때 반환하는 표준 결과 딕셔너리.
+        calculate() 전반에서 반복되던 조기 반환(results=[]) 형태를 통일한 헬퍼.
+
+        Args:
+            errors: 에러 메시지 (문자열 1개 또는 리스트)
+            conditions: 조건 리스트 (기본값: self.config의 conditions)
+            min_amount: 최소진행금액 (기본값: self.config의 min_amount, 없으면 3000)
+        """
+        if isinstance(errors, str):
+            errors = [errors]
+        return {
+            "bank_name": self.bank_name,
+            "results": [],
+            "conditions": self.config.get("conditions", []) if conditions is None else conditions,
+            "errors": errors,
+            "min_amount": self.config.get("min_amount", 3000) if min_amount is None else min_amount,
+        }
     
     def _fractional_share_ltv_cap_applies(self, property_data: Dict[str, Any]) -> bool:
         """
@@ -551,10 +597,8 @@ class BaseCalculator:
         # kb_price_raw가 있으면 원본 문자열 사용, 없으면 kb_price를 원본으로 사용 (하위호환)
         kb_price_raw = property_data.get("kb_price_raw") or property_data.get("kb_price")
         log_print(f"DEBUG: BaseCalculator.calculate - kb_price_raw: {kb_price_raw}, type: {type(kb_price_raw)}")
-        logger.debug(f"BaseCalculator.calculate - kb_price_raw: {kb_price_raw}, type: {type(kb_price_raw)}")
         kb_price = self.validate_kb_price(property_data.get("kb_price") if property_data.get("kb_price_raw") else kb_price_raw)
         log_print(f"DEBUG: BaseCalculator.calculate - kb_price after validation: {kb_price}")
-        logger.debug(f"BaseCalculator.calculate - kb_price after validation: {kb_price}")
         
         # 탁감가 여부 확인 (kb_price가 설정되어 있어도 체크)
         price_sources = self.config.get("price_sources", {})
@@ -577,15 +621,8 @@ class BaseCalculator:
         # 탁감가가 입력되어 있고, 해당 금융사가 탁감가를 사용하지 않으면 즉시 반환
         if is_tackgamga and price_sources.get("bank_appraisal_price", 0) == 0:
             log_print(f"DEBUG: BaseCalculator.calculate - 탁감가 입력됨 but 금융사가 탁감가 미사용: {self.bank_name}")
-            logger.warning(f"BaseCalculator.calculate - 탁감가 입력됨 but 금융사가 탁감가 미사용: {self.bank_name}")
             validation_errors.append("감정가·탁감가 적용 불가")
-            return {
-                "bank_name": self.bank_name,
-                "results": [],
-                "conditions": self.config.get("conditions", []),
-                "errors": validation_errors,
-                "min_amount": self.config.get("min_amount", 3000)
-            }
+            return self._error_result(validation_errors)
         
         # KB AI시세만 있고 해당 금융사가 취급하지 않을 경우
         # (앞선 금융사 calculate가 kb_ai를 kb_price에 반영하면 property_data.kb_price가 채워져 오판됨 → 스냅샷 우선)
@@ -602,15 +639,8 @@ class BaseCalculator:
         )
         if is_kb_ai_only and price_sources.get("kb_ai_price", 0) == 0:
             log_print(f"DEBUG: BaseCalculator.calculate - KB AI시세 입력됨 but 금융사가 KB AI시세 미사용: {self.bank_name}")
-            logger.warning(f"BaseCalculator.calculate - KB AI시세 입력됨 but 금융사가 KB AI시세 미사용: {self.bank_name}")
             validation_errors.append("KB AI시세 적용 불가")
-            return {
-                "bank_name": self.bank_name,
-                "results": [],
-                "conditions": self.config.get("conditions", []),
-                "errors": validation_errors,
-                "min_amount": self.config.get("min_amount", 3000)
-            }
+            return self._error_result(validation_errors)
         
         # 하우스머치 시세만 있고 해당 금융사가 취급하지 않을 경우
         is_housematch_only = (
@@ -618,15 +648,8 @@ class BaseCalculator:
         )
         if is_housematch_only and price_sources.get("housematch_price", 0) == 0:
             log_print(f"DEBUG: BaseCalculator.calculate - 하우스머치 시세 입력됨 but 금융사가 하우스머치 시세 미사용: {self.bank_name}")
-            logger.warning(f"BaseCalculator.calculate - 하우스머치 시세 입력됨 but 금융사가 하우스머치 시세 미사용: {self.bank_name}")
             validation_errors.append("하우스머치 시세 적용 불가")
-            return {
-                "bank_name": self.bank_name,
-                "results": [],
-                "conditions": self.config.get("conditions", []),
-                "errors": validation_errors,
-                "min_amount": self.config.get("min_amount", 3000)
-            }
+            return self._error_result(validation_errors)
         
         # price_sources 설정에 따라 시세 추출 시도 (KB시세가 없을 경우)
         if kb_price is None:
@@ -647,7 +670,6 @@ class BaseCalculator:
                 log_print(f"DEBUG: BaseCalculator.calculate - special_notes에서 탁감가 추출 시도 결과: {bank_appraisal_price}")
             except Exception as e:
                 log_print(f"DEBUG: BaseCalculator.calculate - special_notes에서 탁감가 추출 에러: {e}")
-                logger.error(f"BaseCalculator.calculate - 탁감가 추출 에러: {e}")
             
             # kb_price_raw에서도 탁감가 추출 시도 (예: "감정가 60,000만" 형식)
             if bank_appraisal_price is None and original_kb_price_raw:
@@ -657,20 +679,12 @@ class BaseCalculator:
                     log_print(f"DEBUG: BaseCalculator.calculate - kb_price_raw에서 탁감가 추출 결과: {bank_appraisal_price}")
                 except Exception as e:
                     log_print(f"DEBUG: BaseCalculator.calculate - kb_price_raw에서 탁감가 추출 에러: {e}")
-                    logger.error(f"BaseCalculator.calculate - kb_price_raw에서 탁감가 추출 에러: {e}")
             
             # 탁감가가 입력되어 있고, 해당 금융사가 탁감가를 사용하지 않으면 즉시 반환
             if bank_appraisal_price is not None and price_sources.get("bank_appraisal_price", 0) == 0:
                 log_print(f"DEBUG: BaseCalculator.calculate - 탁감가 입력됨 ({bank_appraisal_price}만원) but 금융사가 탁감가 미사용")
-                logger.warning(f"BaseCalculator.calculate - 탁감가 입력됨 but 금융사가 탁감가 미사용: {self.bank_name}")
                 validation_errors.append("감정가·탁감가 적용 불가")
-                return {
-                    "bank_name": self.bank_name,
-                    "results": [],
-                    "conditions": self.config.get("conditions", []),
-                    "errors": validation_errors,
-                    "min_amount": self.config.get("min_amount", 3000)
-                }
+                return self._error_result(validation_errors)
             
             # 우선순위에 따라 시세 추출 시도
             # kb_price는 이미 위에서 확인했으므로 제외
@@ -682,7 +696,6 @@ class BaseCalculator:
                     kb_ai_price = extract_kb_ai_price_from_special_notes(special_notes)
                 if kb_ai_price is not None:
                     log_print(f"DEBUG: BaseCalculator.calculate - KB AI시세 추출: {kb_ai_price}만원")
-                    logger.info(f"BaseCalculator.calculate - KB AI시세 추출: {kb_ai_price}만원")
                     kb_price = kb_ai_price
                     kb_price_raw = f"KB AI시세: {kb_ai_price}만원"
                     property_data["kb_price_raw"] = kb_price_raw  # property_data 업데이트
@@ -691,7 +704,6 @@ class BaseCalculator:
             # 탁감가 사용 가능한 경우 (이미 위에서 추출한 bank_appraisal_price 사용)
             if kb_price is None and price_sources.get("bank_appraisal_price", 0) == 1 and bank_appraisal_price is not None:
                 log_print(f"DEBUG: BaseCalculator.calculate - ✅ 탁감가 사용: {bank_appraisal_price}만원")
-                logger.info(f"BaseCalculator.calculate - 탁감가 사용: {bank_appraisal_price}만원")
                 kb_price = bank_appraisal_price
                 kb_price_raw = f"탁감가: {bank_appraisal_price}만원"
                 property_data["kb_price_raw"] = kb_price_raw  # property_data 업데이트
@@ -702,7 +714,6 @@ class BaseCalculator:
                 realestatetech_price = extract_realestatetech_price_from_special_notes(special_notes)
                 if realestatetech_price is not None:
                     log_print(f"DEBUG: BaseCalculator.calculate - 부동산테크 시세 추출: {realestatetech_price}만원")
-                    logger.info(f"BaseCalculator.calculate - 부동산테크 시세 추출: {realestatetech_price}만원")
                     kb_price = realestatetech_price
                     kb_price_raw = f"부동산테크 시세: {realestatetech_price}만원"
                     property_data["kb_price_raw"] = kb_price_raw  # property_data 업데이트
@@ -712,7 +723,6 @@ class BaseCalculator:
                 korea_realestate_price = extract_korea_realestate_price_from_special_notes(special_notes)
                 if korea_realestate_price is not None:
                     log_print(f"DEBUG: BaseCalculator.calculate - 한국부동산원 시세 추출: {korea_realestate_price}만원")
-                    logger.info(f"BaseCalculator.calculate - 한국부동산원 시세 추출: {korea_realestate_price}만원")
                     kb_price = korea_realestate_price
                     kb_price_raw = f"한국부동산원 시세: {korea_realestate_price}만원"
                     property_data["kb_price_raw"] = kb_price_raw  # property_data 업데이트
@@ -722,7 +732,6 @@ class BaseCalculator:
                 housematch_price = property_data.get("housematch_price") or extract_housematch_price_from_special_notes(special_notes)
                 if housematch_price is not None:
                     log_print(f"DEBUG: BaseCalculator.calculate - 하우스머치 시세 추출: {housematch_price}만원")
-                    logger.info(f"BaseCalculator.calculate - 하우스머치 시세 추출: {housematch_price}만원")
                     kb_price = housematch_price
                     kb_price_raw = f"하우스머치 시세: {housematch_price}만원"
                     property_data["kb_price_raw"] = kb_price_raw  # property_data 업데이트
@@ -730,7 +739,6 @@ class BaseCalculator:
         
         if kb_price is None:
             log_print(f"DEBUG: BaseCalculator.calculate - KB price is None, returning None")
-            logger.warning("BaseCalculator.calculate - KB price is None, returning None")
             
             # property_data에서 탁감가 정보가 있는지 확인 (실제 입력된 시세 정보 확인)
             kb_price_raw = property_data.get("kb_price_raw", "") or ""
@@ -773,13 +781,7 @@ class BaseCalculator:
                     validation_errors.append("KB시세 정보가 없어 취급 불가합니다")
                     log_print(f"DEBUG: KB시세 정보 없음 메시지 추가")
             
-            return {
-                "bank_name": self.bank_name,
-                "results": [],
-                "conditions": self.config.get("conditions", []),
-                "errors": validation_errors,
-                "min_amount": self.config.get("min_amount", 3000)
-            }
+            return self._error_result(validation_errors)
         
         # property_types 설정에 따른 취급 물건 타입 체크
         property_type = property_data.get("property_type", "")
@@ -812,15 +814,8 @@ class BaseCalculator:
             is_allowed = property_types_config.get(ptype_key, 1) == 1
             if not is_allowed:
                 log_print(f"DEBUG: BaseCalculator.calculate - 취급 불가 물건 타입: {property_type} (key: {ptype_key})")
-                logger.warning(f"BaseCalculator.calculate - 취급 불가 물건 타입: {property_type}")
                 validation_errors.append(f"{property_type}은(는) 취급 불가 물건 타입입니다")
-                return {
-                    "bank_name": self.bank_name,
-                    "results": [],
-                    "conditions": self.config.get("conditions", []),
-                    "errors": validation_errors,
-                    "min_amount": self.config.get("min_amount", 3000)
-                }
+                return self._error_result(validation_errors)
         
         # property_type_conditions 체크 (부동산 타입별 조건 — 키는 apartment 등 영문, bank/loan JSON과 동일)
         property_type_conditions = self.config.get("property_type_conditions", {})
@@ -833,12 +828,10 @@ class BaseCalculator:
                     household_count = property_data.get("household_count")
                     if household_count is None or household_count < min_household_count:
                         log_print(f"DEBUG: BaseCalculator.calculate - {ptype_key} 세대수 {household_count} < min_household_count {min_household_count}, 취급 불가")
-                        logger.warning(f"BaseCalculator.calculate - {ptype_key} 세대수 {household_count} < min_household_count {min_household_count}, 취급 불가")
                         validation_errors.append(f"{prop_label}은(는) 최소 {min_household_count}세대 이상이어야 취급 가능합니다 (현재: {household_count or '정보없음'}세대)")
                 min_kb_price_for_type = conditions_for_ptype.get("min_kb_price")
                 if min_kb_price_for_type is not None and kb_price < min_kb_price_for_type:
                     log_print(f"DEBUG: BaseCalculator.calculate - {ptype_key} KB price {kb_price}만원 < min_kb_price {min_kb_price_for_type}만원, 취급 불가")
-                    logger.warning(f"BaseCalculator.calculate - {ptype_key} KB price {kb_price}만원 < min_kb_price {min_kb_price_for_type}만원, 취급 불가")
                     validation_errors.append(f"{prop_label}은(는) KB시세 {kb_price:,.0f}만원이 최소 {min_kb_price_for_type:,.0f}만원 이상이어야 취급 가능합니다 (현재: {kb_price:,.0f}만원, 부족: {min_kb_price_for_type - kb_price:,.0f}만원)")
         
         # 지분/공유지분 (data/banks·data/loan 공통: fractional_share_allowed)
@@ -848,31 +841,18 @@ class BaseCalculator:
             if frac is True and frac_cfg is False:
                 log_print("DEBUG: BaseCalculator.calculate - 지분/공유지분 물건, fractional_share_allowed=false")
                 validation_errors.append("지분·공유지분 물건은 취급 불가입니다")
-                return {
-                    "bank_name": self.bank_name,
-                    "results": [],
-                    "conditions": self.config.get("conditions", []),
-                    "errors": validation_errors,
-                    "min_amount": self.config.get("min_amount", 3000)
-                }
+                return self._error_result(validation_errors)
         
         # 지역 검증을 시세·직업 등 상세 거절보다 먼저 수행
         # (예: 솔브레인 — 부산·울산·경남 외 지역은 KB시세/직업 멘트 대신 지역 불가만 회신)
         region = property_data.get("region", "")
         if not region:
             log_print(f"DEBUG: BaseCalculator.calculate - region is empty")
-            logger.warning("BaseCalculator.calculate - region is empty")
             return None
 
         region_errors, grade = self._collect_region_validation(region)
         if region_errors:
-            return {
-                "bank_name": self.bank_name,
-                "results": [],
-                "conditions": self.config.get("conditions", []),
-                "errors": region_errors,
-                "min_amount": self.config.get("min_amount", 3000)
-            }
+            return self._error_result(region_errors)
 
         # KB시세 최소 금액 확인 (property_type_conditions에 없으면 전역 min_kb_price 사용)
         # ※ 대상 지역(솔브레인: 부산·울산·경남)인 경우에만 이 한도/조건 멘트가 회신됨
@@ -887,7 +867,6 @@ class BaseCalculator:
             
             if not already_checked and kb_price < min_kb_price:
                 log_print(f"DEBUG: BaseCalculator.calculate - KB price {kb_price}만원 < min_kb_price {min_kb_price}만원, 취급 불가")
-                logger.warning(f"BaseCalculator.calculate - KB price {kb_price}만원 < min_kb_price {min_kb_price}만원, 취급 불가")
                 validation_errors.append(f"KB시세 {kb_price:,.0f}만원은 최소 {min_kb_price:,.0f}만원 이상이어야 취급 가능합니다 (현재: {kb_price:,.0f}만원, 부족: {min_kb_price - kb_price:,.0f}만원)")
         
         # 특이사항 및 직업 정보 추출 (한 번만 조회하여 재사용)
@@ -926,7 +905,6 @@ class BaseCalculator:
             if keyword in special_notes:
                 found_keywords.append(keyword)
                 log_print(f"DEBUG: BaseCalculator.calculate - 특이사항에 '{keyword}' 발견, 취급 불가")
-                logger.warning(f"BaseCalculator.calculate - 특이사항에 '{keyword}' 발견, 취급 불가")
         
         if found_keywords:
             validation_errors.append(f"특이사항에 '{', '.join(found_keywords)}'가 포함되어 취급 불가합니다")
@@ -941,7 +919,6 @@ class BaseCalculator:
                     if keyword in occupation:
                         found_occupation_keywords.append(keyword)
                         log_print(f"DEBUG: BaseCalculator.calculate - 직업 '{occupation}'에 제한 키워드 '{keyword}' 발견, 취급 불가")
-                        logger.warning(f"BaseCalculator.calculate - 직업 '{occupation}'에 제한 키워드 '{keyword}' 발견, 취급 불가")
                 
                 if found_occupation_keywords:
                     comment = restricted_occupations_config.get("comment", "제한업종")
@@ -960,7 +937,6 @@ class BaseCalculator:
                     if keyword in occupation:
                         found_corporate_keywords.append(keyword)
                         log_print(f"DEBUG: BaseCalculator.calculate - 직업 '{occupation}'에 '{keyword}' 발견, 취급 불가")
-                        logger.warning(f"BaseCalculator.calculate - 직업 '{occupation}'에 '{keyword}' 발견, 취급 불가")
             
             # 특이사항에서도 확인
             if special_notes:
@@ -968,7 +944,6 @@ class BaseCalculator:
                     if keyword in special_notes:
                         found_corporate_keywords.append(keyword)
                         log_print(f"DEBUG: BaseCalculator.calculate - 특이사항에 '{keyword}' 발견, 취급 불가")
-                        logger.warning(f"BaseCalculator.calculate - 특이사항에 '{keyword}' 발견, 취급 불가")
             
             # 요청사항에서도 확인
             requests_text = (property_data.get("requests") or "").strip()
@@ -977,7 +952,6 @@ class BaseCalculator:
                     if keyword in requests_text:
                         found_corporate_keywords.append(keyword)
                         log_print(f"DEBUG: BaseCalculator.calculate - 요청사항에 '{keyword}' 발견, 취급 불가")
-                        logger.warning(f"BaseCalculator.calculate - 요청사항에 '{keyword}' 발견, 취급 불가")
             
             if found_corporate_keywords:
                 comment = corporate_business_config.get("comment", "법인사업자 취급 불가")
@@ -1011,7 +985,6 @@ class BaseCalculator:
                     age_int = int(age)
                     if age_int > max_age:
                         log_print(f"DEBUG: BaseCalculator.calculate - 나이 {age_int}세 > max_age {max_age}세, 취급 불가")
-                        logger.warning(f"BaseCalculator.calculate - 나이 {age_int}세 > max_age {max_age}세, 취급 불가")
                         age_error = self.config.get("max_age_error_message")
                         if age_error:
                             validation_errors.append(age_error)
@@ -1032,7 +1005,6 @@ class BaseCalculator:
                     credit_score_int = validate_credit_score(credit_score)
                     if credit_score_int is not None and credit_score_int < min_credit_score:
                         log_print(f"DEBUG: BaseCalculator.calculate - 신용평점 {credit_score_int}점 < min_credit_score {min_credit_score}점, 취급 불가")
-                        logger.warning(f"BaseCalculator.calculate - 신용평점 {credit_score_int}점 < min_credit_score {min_credit_score}점, 취급 불가")
                         validation_errors.append(f"신용평점 {credit_score_int}점은 최소 {min_credit_score}점 이상이어야 취급 가능합니다 (부족: {min_credit_score - credit_score_int}점)")
                 except (ValueError, TypeError):
                     pass  # 신용평점이 숫자가 아니면 무시
@@ -1101,13 +1073,7 @@ class BaseCalculator:
         
         # 검증 오류가 있으면 즉시 반환
         if validation_errors:
-            return {
-                "bank_name": self.bank_name,
-                "results": [],
-                "conditions": self.config.get("conditions", []),
-                "errors": validation_errors,
-                "min_amount": self.config.get("min_amount", 3000)
-            }
+            return self._error_result(validation_errors)
         
         # 하한가 적용 조건 확인
         lower_bound_config = self.config.get("lower_bound_price", {})
@@ -1163,12 +1129,10 @@ class BaseCalculator:
                 lower_bound_price = extract_lower_bound_price(kb_price_raw)
                 if lower_bound_price is not None:
                     log_print(f"DEBUG: BaseCalculator.calculate - 하한가 적용: 일반가 {kb_price}만원 -> 하한가 {lower_bound_price}만원 ({property_type} {floor}층, 총 {total_floors}층)")
-                    logger.info(f"BaseCalculator.calculate - 하한가 적용: 일반가 {kb_price}만원 -> 하한가 {lower_bound_price}만원 ({property_type} {floor}층, 총 {total_floors}층)")
                     kb_price = lower_bound_price
                     lower_bound_applied = True
                 else:
                     log_print(f"DEBUG: BaseCalculator.calculate - 하한가 적용 조건 충족하지만 하한가 추출 실패")
-                    logger.warning("BaseCalculator.calculate - 하한가 적용 조건 충족하지만 하한가 추출 실패")
         
         # 지역·급지는 상단(_collect_region_validation)에서 이미 검증·할당됨
         
@@ -1197,13 +1161,9 @@ class BaseCalculator:
                         max_area_formatted = f"{max_area:.3f}".rstrip('0').rstrip('.') if max_area % 1 != 0 else f"{int(max_area)}"
                         excess_area = area - max_area
                         excess_area_formatted = f"{excess_area:.3f}".rstrip('0').rstrip('.') if excess_area % 1 != 0 else f"{int(excess_area)}"
-                        return {
-                            "bank_name": self.bank_name,
-                            "results": [],
-                            "conditions": self.config.get("conditions", []),
-                            "errors": [f"면적 {area_formatted}㎡는 서울지역 이외에서는 최대 {max_area_formatted}㎡까지 취급 가능합니다 (초과: {excess_area_formatted}㎡)"],
-                            "min_amount": self.config.get("min_amount", 3000)
-                        }
+                        return self._error_result(
+                            [f"면적 {area_formatted}㎡는 서울지역 이외에서는 최대 {max_area_formatted}㎡까지 취급 가능합니다 (초과: {excess_area_formatted}㎡)"]
+                        )
         
         # 기준 LTV 이하 지역 확인
         below_standard_ltv = self.get_below_standard_ltv(region)
@@ -1477,17 +1437,11 @@ class BaseCalculator:
                 refinanceable_list = self._get_business_product_names()
                 refinanceable_str = ", ".join(refinanceable_list[:5]) + ("..." if len(refinanceable_list) > 5 else "")
                 
-                return {
-                    "bank_name": self.bank_name,
-                    "results": [],
-                    "conditions": self.config.get("conditions", []),
-                    "errors": [
-                        f"대환 요청된 기관({institutions_str})이 대환 가능 기관 목록에 없습니다",
-                        f"대환 가능 기관: {refinanceable_str}",
-                        f"참고: 기관명에 '사업자금'이 포함된 경우에도 대환 가능합니다"
-                    ],
-                    "min_amount": self.config.get("min_amount", 3000)
-                }
+                return self._error_result([
+                    f"대환 요청된 기관({institutions_str})이 대환 가능 기관 목록에 없습니다",
+                    f"대환 가능 기관: {refinanceable_str}",
+                    f"참고: 기관명에 '사업자금'이 포함된 경우에도 대환 가능합니다"
+                ])
         
         # 대환 여부 판단
         is_refinance = refinance_principal > 0
@@ -1577,16 +1531,10 @@ class BaseCalculator:
                             requested_institutions.append(mortgage.get("institution", ""))
                     
                     institutions_str = ", ".join(requested_institutions) if requested_institutions else "요청된 기관"
-                    return {
-                        "bank_name": self.bank_name,
-                        "results": [],
-                        "conditions": self.config.get("conditions", []),
-                        "errors": [
-                            f"사업자 상품은 사업자금 기관만 대환 가능합니다",
-                            f"대환 요청된 기관({institutions_str})이 사업자 상품 대환 가능 기관 목록에 없습니다"
-                        ],
-                        "min_amount": self.config.get("min_amount", 3000)
-                    }
+                    return self._error_result([
+                        f"사업자 상품은 사업자금 기관만 대환 가능합니다",
+                        f"대환 요청된 기관({institutions_str})이 사업자 상품 대환 가능 기관 목록에 없습니다"
+                    ])
         
         # 사업자/가계 상품 정보를 인스턴스 변수로 저장 (get_interest_rate에서 사용)
         self._is_business_product = is_business_product
@@ -1600,13 +1548,7 @@ class BaseCalculator:
             occ_ex_msg = self._excluded_business_occupation_message(property_data)
             if occ_ex_msg:
                 print(f"DEBUG: BaseCalculator.calculate - 사업자금 직업 제외: {occ_ex_msg}")
-                return {
-                    "bank_name": self.bank_name,
-                    "results": [],
-                    "conditions": self.config.get("conditions", []),
-                    "errors": [occ_ex_msg],
-                    "min_amount": self.config.get("min_amount", 3000),
-                }
+                return self._error_result([occ_ex_msg])
         
         # 후순위/선순위에 따른 최대 LTV 재조정 (키움저축-리테일 등)
         # 애큐온저축은행: max_ltv_by_priority_grade_region을 사용한 경우 재조정 불필요
@@ -1650,13 +1592,7 @@ class BaseCalculator:
                 # 선순위만 산출 (기존 근저당권이 없어야 함)
                 if len(other_mortgages) > 0:
                     print(f"DEBUG: BaseCalculator.calculate - OK 저축은행 가계 상품, 빌라인 경우 선순위만 산출 가능")
-                    return {
-                        "bank_name": self.bank_name,
-                        "results": [],
-                        "conditions": self.config.get("conditions", []),
-                        "errors": ["빌라인 경우 선순위만 산출 가능"],
-                        "min_amount": self.config.get("min_amount", 3000)
-                    }
+                    return self._error_result(["빌라인 경우 선순위만 산출 가능"])
         
         # OK저축은행: 오피스텔인 경우 선순위만 산출 (세입자 1순위 있어도 2순위 불가)
         is_ok_bank = self.bank_name == "OK저축은행" or "OK저축은행" in self.bank_name or "오케이저축은행" in self.bank_name
@@ -1664,13 +1600,7 @@ class BaseCalculator:
             property_type = property_data.get("property_type", "")
             if property_type and "오피스텔" in property_type:
                 print(f"DEBUG: BaseCalculator.calculate - OK 저축은행, 오피스텔인 경우 선순위만 산출 가능 (후순위 불가)")
-                return {
-                    "bank_name": self.bank_name,
-                    "results": [],
-                    "conditions": self.config.get("conditions", []),
-                    "errors": ["오피스텔인 경우 선순위만 산출 가능 (세입자 1순위 시 2순위 불가)"],
-                    "min_amount": self.config.get("min_amount", 3000)
-                }
+                return self._error_result(["오피스텔인 경우 선순위만 산출 가능 (세입자 1순위 시 2순위 불가)"])
         
         # 세입자 후순위 토글/급지 제한
         # - tenant_subordinate_allowed=false: 세입자 있는 후순위는 전면 취급 불가
@@ -1679,26 +1609,14 @@ class BaseCalculator:
         tenant_subordinate_allowed = self.config.get("tenant_subordinate_allowed")
         if tenant_subordinate_allowed is False and has_tenant and self._is_subordinate:
             print("DEBUG: BaseCalculator.calculate - 세입자 후순위 취급 불가 (tenant_subordinate_allowed=false)")
-            return {
-                "bank_name": self.bank_name,
-                "results": [],
-                "conditions": self.config.get("conditions", []),
-                "errors": ["세입자 있는 후순위 취급 불가"],
-                "min_amount": self.config.get("min_amount", 3000)
-            }
+            return self._error_result(["세입자 있는 후순위 취급 불가"])
 
         # max_subordinate_grade=0: 세입자 후순위 취급 불가 (JB하이론 등)
         max_subordinate_grade = self.config.get("max_subordinate_grade")
         if max_subordinate_grade is not None and has_tenant and self._is_subordinate:
             if max_subordinate_grade == 0:
                 print(f"DEBUG: BaseCalculator.calculate - 세입자 후순위 취급 불가 (max_subordinate_grade=0)")
-                return {
-                    "bank_name": self.bank_name,
-                    "results": [],
-                    "conditions": self.config.get("conditions", []),
-                    "errors": ["세입자 후순위 취급 불가"],
-                    "min_amount": self.config.get("min_amount", 3000)
-                }
+                return self._error_result(["세입자 후순위 취급 불가"])
             if grade is not None:
                 try:
                     grade_int = int(grade)
@@ -1706,13 +1624,9 @@ class BaseCalculator:
                     grade_int = None
                 if grade_int is not None and grade_int > max_subordinate_grade:
                     print(f"DEBUG: BaseCalculator.calculate - 세입자 후순위 대출, 급지 {grade_int} > max_subordinate_grade {max_subordinate_grade}, 취급 불가")
-                    return {
-                        "bank_name": self.bank_name,
-                        "results": [],
-                        "conditions": self.config.get("conditions", []),
-                        "errors": [f"세입자 후순위는 1~{max_subordinate_grade}급지까지 가능합니다 (현재: {grade_int}급지)"],
-                        "min_amount": self.config.get("min_amount", 3000)
-                    }
+                    return self._error_result(
+                        [f"세입자 후순위는 1~{max_subordinate_grade}급지까지 가능합니다 (현재: {grade_int}급지)"]
+                    )
         
         # 신용점수/등급 확인
         credit_score = property_data.get("credit_score")
@@ -1732,13 +1646,9 @@ class BaseCalculator:
             try:
                 if int(credit_grade) > int(max_credit_grade_cfg):
                     print(f"DEBUG: BaseCalculator.calculate - 신용등급 {credit_grade} > max_credit_grade {max_credit_grade_cfg}")
-                    return {
-                        "bank_name": self.bank_name,
-                        "results": [],
-                        "conditions": self.config.get("conditions", []),
-                        "errors": [f"신용등급 {credit_grade}등급은 취급 불가입니다 (최대 {max_credit_grade_cfg}등급까지)"],
-                        "min_amount": self.config.get("min_amount", 3000)
-                    }
+                    return self._error_result(
+                        [f"신용등급 {credit_grade}등급은 취급 불가입니다 (최대 {max_credit_grade_cfg}등급까지)"]
+                    )
             except (TypeError, ValueError):
                 pass
         
@@ -2704,48 +2614,40 @@ class BaseCalculator:
                         f"DEBUG: BaseCalculator.calculate - {self.bank_name}: "
                         f"세대수 LTV 차감({hh_meta.get('before_ltv')}%→{hh_meta.get('after_ltv')}%)으로 한도 불가"
                     )
-                    return {
-                        "bank_name": self.bank_name,
-                        "results": [],
-                        "conditions": hh_conditions,
-                        "errors": [f"{refinance_denied_prefix}{no_limit_msg}"],
-                        "min_amount": min_amount,
-                    }
+                    return self._error_result(
+                        [f"{refinance_denied_prefix}{no_limit_msg}"],
+                        conditions=hh_conditions,
+                        min_amount=min_amount,
+                    )
 
             # 선순위 채권최고(대환 제외 분 = other_mortgages)가 담보한도를 넘는지. 대환 대상 원금은 여기서 제외(2단계에서 차감).
             if total_mortgage > max_ltv_amount:
                 shortage = total_mortgage - max_ltv_amount
                 existing_pct = (total_mortgage / kb_price * 100) if kb_price else 0.0
                 print(f"DEBUG: BaseCalculator.calculate - 선순위 채권최고가 최대 LTV 한도 초과: {shortage:.0f}만원 초과")
-                return {
-                    "bank_name": self.bank_name,
-                    "results": [],
-                    "conditions": self.config.get("conditions", []),
-                    "errors": [
+                return self._error_result(
+                    [
                         f"{refinance_denied_prefix}"
                         f"기존 근저당권이 {_ltv_label} 한도 초과{_grade_note} "
                         f"(선순위 채권최고 약 {existing_pct:.2f}%, 담보한도 {max_ltv:g}% 대비 초과 {shortage:,.0f}만원)"
                     ],
-                    "min_amount": min_amount
-                }
+                    min_amount=min_amount,
+                )
             else:
                 # 1차 잔여 한도(담보한도 − 선순위 채권최고). 대환 시 calculate_available_amount에서 대환 원금을 한 번 더 뺌.
                 max_available = max_ltv_amount - total_mortgage
                 max_available_rounded = self.round_down_to_hundred_thousand(max_available)
                 if max_available_rounded > 0 and max_available_rounded < min_amount:
                     print(f"DEBUG: BaseCalculator.calculate - 최대 가용한도 {max_available_rounded}만원이 최소진행금액 {min_amount}만원보다 작음")
-                    return {
-                        "bank_name": self.bank_name,
-                        "results": [],
-                        "conditions": self.config.get("conditions", []),
-                        "errors": [
+                    return self._error_result(
+                        [
                             f"{refinance_denied_prefix}"
                             f"최소진행금액 부족{_grade_note} "
                             f"({_ltv_label} 적용 시 가용한도: {max_available_rounded:,.0f}만원, "
                             f"최소진행금액: {min_amount:,.0f}만원)"
                         ],
-                        "min_amount": min_amount
-                    }
+                        min_amount=min_amount,
+                    )
 
             # 위 분기에서 사유를 못 담은 경우(가용 0·반올림, 대환 후 마이너스 등): 한도 없음 이유를 errors로 반환
             tm_check = total_mortgage
@@ -2775,13 +2677,7 @@ class BaseCalculator:
                     f"한도 미산출 ({loan_phase}, {_ltv_label}{_grade_note} 기준 가용 약 {max_avail_rnd:,.0f}만원)"
                 )
             print(f"DEBUG: BaseCalculator.calculate - no results for {self.bank_name}, fallback message: {fallback_err}")
-            return {
-                "bank_name": self.bank_name,
-                "results": [],
-                "conditions": self.config.get("conditions", []),
-                "errors": [fallback_err],
-                "min_amount": min_amount,
-            }
+            return self._error_result([fallback_err], min_amount=min_amount)
         
         print(f"DEBUG: BaseCalculator.calculate - {self.bank_name} found {len(results)} results")  # 추가
         
@@ -3138,7 +3034,6 @@ class BaseCalculator:
                         f"직업이 '{', '.join(required_keywords)}'인 경우만 취급 가능합니다 (현재 직업: '{{occupation}}')")
                     error_msg = error_msg_template.format(occupation=occupation if occupation else "정보없음")
                     log_print(f"DEBUG: BaseCalculator._validate_validation_rules - 필수 키워드 없음: {required_keywords}")
-                    logger.warning(f"BaseCalculator._validate_validation_rules - 필수 키워드 없음: {required_keywords}")
                     validation_errors.append(error_msg)
                     return  # 필수 조건 불만족 시 다른 체크 스킵
             
@@ -3149,17 +3044,14 @@ class BaseCalculator:
                     if "occupation" in check_fields and occupation and keyword in occupation:
                         found_forbidden.append(keyword)
                         log_print(f"DEBUG: BaseCalculator._validate_validation_rules - 직업 '{occupation}'에 금지 키워드 '{keyword}' 발견")
-                        logger.warning(f"BaseCalculator._validate_validation_rules - 직업 '{occupation}'에 금지 키워드 '{keyword}' 발견")
                     if "special_notes" in check_fields and special_notes and keyword in special_notes:
                         if keyword not in found_forbidden:
                             found_forbidden.append(keyword)
                             log_print(f"DEBUG: BaseCalculator._validate_validation_rules - 특이사항에 금지 키워드 '{keyword}' 발견")
-                            logger.warning(f"BaseCalculator._validate_validation_rules - 특이사항에 금지 키워드 '{keyword}' 발견")
                     if "requests" in check_fields and requests and keyword in requests:
                         if keyword not in found_forbidden:
                             found_forbidden.append(keyword)
                             log_print(f"DEBUG: BaseCalculator._validate_validation_rules - 요청사항에 금지 키워드 '{keyword}' 발견")
-                            logger.warning(f"BaseCalculator._validate_validation_rules - 요청사항에 금지 키워드 '{keyword}' 발견")
                 
                 if found_forbidden:
                     error_msg = occupation_requirements.get("forbidden_error_message",
@@ -3180,12 +3072,10 @@ class BaseCalculator:
                         if keyword not in found_keywords:
                             found_keywords.append(keyword)
                             log_print(f"DEBUG: BaseCalculator._validate_validation_rules - 특이사항에 제한 키워드 '{keyword}' 발견")
-                            logger.warning(f"BaseCalculator._validate_validation_rules - 특이사항에 제한 키워드 '{keyword}' 발견")
                     elif field == "requests" and requests and keyword in requests:
                         if keyword not in found_keywords:
                             found_keywords.append(keyword)
                             log_print(f"DEBUG: BaseCalculator._validate_validation_rules - 요청사항에 제한 키워드 '{keyword}' 발견")
-                            logger.warning(f"BaseCalculator._validate_validation_rules - 요청사항에 제한 키워드 '{keyword}' 발견")
             
             if found_keywords:
                 error_msg_template = restricted_keywords_config.get("error_message",
@@ -3218,7 +3108,6 @@ class BaseCalculator:
                     )
                     validation_errors.append(error_msg)
                     log_print(f"DEBUG: BaseCalculator._validate_validation_rules - 근저당 기관명 제한: {found_inst}")
-                    logger.warning(f"BaseCalculator._validate_validation_rules - 근저당 기관명 제한: {found_inst}")
                     return
 
         # 3-1. 근저당권 설정일 기반 개월수 제한 (날짜가 있는 경우에만 적용)
@@ -3328,7 +3217,6 @@ class BaseCalculator:
             if rule_triggered:
                 error_msg = rule.get("error_message", f"{rule.get('name', '규칙')}인 경우 취급 불가합니다")
                 log_print(f"DEBUG: BaseCalculator._validate_validation_rules - 복합 규칙 '{rule.get('name')}' 충족, 취급 불가")
-                logger.warning(f"BaseCalculator._validate_validation_rules - 복합 규칙 '{rule.get('name')}' 충족, 취급 불가")
                 validation_errors.append(error_msg)
                 return  # 복합 규칙 충족 시 다른 규칙 체크는 하지 않음
 
@@ -5350,13 +5238,12 @@ class BaseCalculator:
             if filename.endswith("_config.json") or filename.endswith(".json"):
                 config_path = os.path.join(banks_dir, filename)
                 try:
-                    with open(config_path, "r", encoding="utf-8") as f:
-                        raw_config = json.load(f)
+                    raw_config = _load_json_config_cached(config_path)
                     # data/banks/*.json 의 enabled (루트). _comment_enabled 참고. false면 한도 산출 제외
                     if raw_config.get("enabled", True) is False:
                         print(f"⏭️ banks/{filename} 한도 산출 비활성화 (enabled: false)")
                         continue
-                    calculator = cls(config_path)
+                    calculator = cls(raw_config)
                     calculators.append(calculator)
                 except Exception as e:
                     print(f"⚠️  계산기 로드 실패 ({filename}): {e}")
@@ -5364,6 +5251,19 @@ class BaseCalculator:
         
         # 모든 계산기 실행
         cls._ensure_price_input_snapshot(property_data)
+        results = cls._run_calculators(calculators, property_data)
+        
+        # DSFNC: 하이론 한도가 디에스론보다 클 때만 둘 다 표시, 아니면 디에스론만
+        results = cls._filter_dsfnc_results(results)
+        
+        return results
+    
+    @classmethod
+    def _run_calculators(cls, calculators: List["BaseCalculator"], property_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        계산기 목록을 순회하며 각각 계산 수행 (calculate_all_banks/calculate_all_loans 공통 로직).
+        OK저축은행인 경우 가계자금·사업자금을 각각 계산하여 별도 결과로 추가.
+        """
         results = []
         for calculator in calculators:
             try:
@@ -5392,12 +5292,8 @@ class BaseCalculator:
             except Exception as e:
                 print(f"계산기 {calculator.bank_name} 에러: {e}")
                 continue
-        
-        # DSFNC: 하이론 한도가 디에스론보다 클 때만 둘 다 표시, 아니면 디에스론만
-        results = cls._filter_dsfnc_results(results)
-        
         return results
-    
+
     @classmethod
     def _should_exclude_property_type_mismatch(cls, result: Dict) -> bool:
         """물건 타입 불일치로 인한 취급 불가 결과는 출력에서 제외 (GM대부 빌라/오피스텔 + 아파트 등)"""
@@ -5471,8 +5367,7 @@ class BaseCalculator:
                 if filename.endswith("_config.json") or filename.endswith(".json"):
                     config_path = os.path.join(loan_dir, filename)
                     try:
-                        with open(config_path, "r", encoding="utf-8") as f:
-                            raw_config = json.load(f)
+                        raw_config = _load_json_config_cached(config_path)
                         # data/loan/*/*.json 의 enabled (루트). _comment_enabled 참고. false면 한도 산출 제외
                         if raw_config.get("enabled", True) is False:
                             print(f"⏭️ {subfolder}/{filename} 한도 산출 비활성화 (enabled: false)")
@@ -5493,7 +5388,7 @@ class BaseCalculator:
                                 calculators.append(calculator)
                                 print(f"✅ {subfolder}/{filename} ({merged['bank_name']}) 계산기 로드 완료")
                         else:
-                            calculator = cls(config_path)
+                            calculator = cls(raw_config)
                             calculators.append(calculator)
                             print(f"✅ {subfolder}/{filename} 계산기 로드 완료")
                     except Exception as e:
@@ -5502,33 +5397,7 @@ class BaseCalculator:
         
         # 모든 계산기 실행
         cls._ensure_price_input_snapshot(property_data)
-        results = []
-        for calculator in calculators:
-            try:
-                # OK저축은행인 경우 가계자금과 사업자금을 각각 계산
-                is_ok_bank = calculator.bank_name == "OK저축은행" or "OK저축은행" in calculator.bank_name or "오케이저축은행" in calculator.bank_name
-                
-                if is_ok_bank:
-                    # 가계자금 계산
-                    household_result = calculator.calculate(property_data, product_type="household")
-                    if household_result is not None and not cls._should_exclude_property_type_mismatch(household_result):
-                        household_result["bank_name"] = "OK저축은행 가계자금"
-                        results.append(household_result)
-                    
-                    # 사업자금 계산
-                    business_result = calculator.calculate(property_data, product_type="business")
-                    if business_result is not None and not cls._should_exclude_property_type_mismatch(business_result):
-                        business_result["bank_name"] = "OK저축은행 사업자금"
-                        results.append(business_result)
-                else:
-                    # 일반 금융사는 기존대로 계산
-                    result = calculator.calculate(property_data)
-                    if result is not None and not cls._should_exclude_property_type_mismatch(result):
-                        # 취급 불가지역인 경우도 포함 (errors에 "취급 불가지역"이 있으면)
-                        results.append(result)
-            except Exception as e:
-                print(f"계산기 {calculator.bank_name} 에러: {e}")
-                continue
+        results = cls._run_calculators(calculators, property_data)
         
         # DSFNC: 하이론 한도가 디에스론보다 클 때만 둘 다 표시, 아니면 디에스론만
         results = cls._filter_dsfnc_results(results)
