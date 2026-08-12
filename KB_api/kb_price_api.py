@@ -182,6 +182,20 @@ _KB_AUTO_KYWR_COLLECTION = (
 )
 
 
+# 등기부 건물내역에 "오피스텔"이라는 단어가 없어도 업무시설/숙박시설(주로 오피스텔)이면
+# KB 유형=2(오피스텔) 목록도 함께 조회하기 위한 키워드
+_OFFICETEL_BUILDING_USE_KEYWORDS = ("업무시설", "숙박시설")
+
+
+def _text_indicates_officetel(text: Optional[str]) -> bool:
+    """주소·등기부 원문에 '오피스텔' 또는 업무시설/숙박시설 용도가 있으면 True."""
+    if not text:
+        return False
+    if "오피스텔" in text:
+        return True
+    return any(kw in text for kw in _OFFICETEL_BUILDING_USE_KEYWORDS)
+
+
 def _is_invalid_complex_name(name: str) -> bool:
     """
     단지명 후보가 행정구역명으로 오탐된 경우 제외.
@@ -1657,7 +1671,8 @@ class KBPriceAPI:
         return best_match
     
     def get_kb_price(self, address: str, area: float, 
-                     complex_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+                     complex_name: Optional[str] = None,
+                     force_officetel: bool = False) -> Optional[Dict[str, Any]]:
         """
         주소와 면적을 기반으로 KB 시세 조회 (메인 함수)
         
@@ -1665,6 +1680,8 @@ class KBPriceAPI:
             address: 부동산 주소
             area: 전용면적 (m²)
             complex_name: 단지명 (선택사항, 있으면 더 정확한 매칭)
+            force_officetel: True면 주소에 "오피스텔" 문구가 없어도 KB 유형=2(오피스텔)
+                목록을 함께 조회 (등기부 건물내역이 업무시설/숙박시설인 경우 등)
         
         Returns:
             {
@@ -1710,9 +1727,13 @@ class KBPriceAPI:
 
         logger.info(f"✅ 법정동코드: {dongcode}")
         
-        # 2. 단지 목록 조회 (오피스텔 주소면 유형 2도 조회하여 병합)
+        # 2. 단지 목록 조회 (오피스텔 주소·업무시설/숙박시설 등기부면 유형 2도 조회하여 병합)
         logger.debug("2단계: 단지 목록 조회")
-        property_type_hint = address if "오피스텔" in (address or "") else None
+        is_officetel_hint = force_officetel or _text_indicates_officetel(address)
+        property_type_hint = "오피스텔" if is_officetel_hint else None
+        if force_officetel and "오피스텔" not in (address or ""):
+            logger.info("   등기부 건물내역(업무시설/숙박시설 등)으로 오피스텔 유형 조회 강제 적용")
+            print("[KB] 등기부 건물내역(업무시설/숙박시설)으로 오피스텔 유형(2) 조회 추가")
         complexes = self.get_complex_list(dongcode, property_type_hint=property_type_hint)
         if not complexes:
             logger.error("❌ 단지 목록을 찾을 수 없음")
@@ -2267,13 +2288,15 @@ class KBPriceAPI:
         return result
 
 
-def get_kb_price_from_registry(address: str, area: str) -> Optional[Dict[str, Any]]:
+def get_kb_price_from_registry(address: str, area: str, registry_text: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """
     등기부 정보로 KB 시세 조회 (편의 함수)
     
     Args:
         address: 등기부에서 추출한 주소
         area: 등기부에서 추출한 면적 (문자열, 예: "84.93㎡" 또는 "84.93")
+        registry_text: 등기부 원문 전체(선택). 주소에 "오피스텔"이 없어도
+            표제부 건물내역에 업무시설/숙박시설이 있으면 KB 오피스텔 유형으로도 조회
     
     Returns:
         KB 시세 정보 딕셔너리 또는 None
@@ -2281,6 +2304,10 @@ def get_kb_price_from_registry(address: str, area: str) -> Optional[Dict[str, An
     logger.info(f"📄 등기부 정보로 KB 시세 조회 시작")
     logger.info(f"   등기부 주소: {address}")
     logger.info(f"   등기부 면적: {area}")
+
+    force_officetel = _text_indicates_officetel(registry_text)
+    if force_officetel and not _text_indicates_officetel(address):
+        logger.info("   등기부 원문에 업무시설/숙박시설 문구 발견 → 오피스텔 유형 조회 강제")
     
     # 면적 파싱: "51㎡/37.85㎡" 또는 "51/37.85" → 전용면적(두 번째) 사용, KB 시세는 전용면적 기준
     area_str = str(area).strip()
@@ -2393,4 +2420,4 @@ def get_kb_price_from_registry(address: str, area: str) -> Optional[Dict[str, An
     
     # KB 시세 조회
     api = KBPriceAPI()
-    return api.get_kb_price(address, area_float, complex_name=complex_name)
+    return api.get_kb_price(address, area_float, complex_name=complex_name, force_officetel=force_officetel)

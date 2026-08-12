@@ -1041,7 +1041,7 @@ def get_application(force_new=False):
                     logger.info(f"KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area_for_kb}")
                     
                     from KB_api.kb_price_api import get_kb_price_from_registry
-                    kb_result = get_kb_price_from_registry(address, area_for_kb)
+                    kb_result = get_kb_price_from_registry(address, area_for_kb, registry_text=result.원본텍스트)
                     
                     if kb_result:
                         kb_price_num = kb_result.get('kb_price')
@@ -1618,7 +1618,7 @@ def get_application(force_new=False):
                             logger.info(f"KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area_for_kb}")
                             
                             from KB_api.kb_price_api import get_kb_price_from_registry
-                            kb_result = get_kb_price_from_registry(address, area_for_kb)
+                            kb_result = get_kb_price_from_registry(address, area_for_kb, registry_text=message_text)
                             
                             if kb_result:
                                 kb_price_num = kb_result.get('kb_price')
