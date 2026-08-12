@@ -1,5 +1,5 @@
 {
-  "bank_name": "솔브레인저축은행",
+  "bank_name": "솔브레인저축은행 (선심사승인후 부가세신고가능)",
   "refinance_self_aliases": [
     "솔브레인저축은행",
     "솔브레인저축"
@@ -190,7 +190,9 @@
     "detached_house": 0,
     "multi_family_house": 0
   },
-  "conditions": [],
+  "conditions": [
+    "대환 및 추가대출 공통 가용 최대 1억"
+  ],
   "household_ltv_reduction": {
     "enabled": true,
     "household_count_lt": 100,

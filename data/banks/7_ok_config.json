@@ -1,5 +1,5 @@
 {
-  "bank_name": "OK저축은행",
+  "bank_name": "OK저축은행 사업자금",
   "bank_id": "ok_savingbank",
   "_comment_bank_id": "고정 식별자(변경 금지). base_calculator.py의 금융사별 특례 로직이 이 값으로 식별됨. bank_name(표시명)은 자유롭게 변경 가능.",
   "refinance_self_aliases": [
@@ -570,7 +570,9 @@
     "multi_family_house": 1,
     "_comment_multi_family_house": "공동주택 "
   },
-  "conditions": [],
+  "conditions": [
+    "*매출없는 사업자 부가세신고후 접수"
+  ],
   "lower_bound_price": {
     "enabled": true,
     "apartment": {

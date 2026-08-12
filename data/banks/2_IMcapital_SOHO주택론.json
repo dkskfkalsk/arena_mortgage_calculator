@@ -80,7 +80,9 @@
   "promotions": [],
   "bank_name": "IM캐피탈_SOHO주택론",
   "conditions": [
-    "*만기일시상환(3년)"
+    "*만기일시상환(3년)",
+    "*세입자 미동의 진행 가능",
+    "*매출없는 사업자 부가세신고후 접수"
   ],
   "household_condition_lt": 100,
   "household_condition_message": "*100세대미만, 공시지가 10억 이하 취급 불가",
