@@ -181,6 +181,44 @@ _KB_AUTO_KYWR_COLLECTION = (
     "COL_AT_JUSO:100;COL_AT_SCHOOL:100;COL_AT_SUBWAY:100;COL_AT_HSCM:100;COL_AT_VILLA:100"
 )
 
+# kbland 검색 엔진(intgraSerch/autoKywrSerch) 서킷 브레이커.
+# 이 엔진은 rc=33500 "throw error"로 전면 장애가 나는 경우가 있는데, 폴백 검색은
+# 키워드 조합마다 호출하므로 장애 시 한 건당 十수 회를 헛돌며 응답이 수 초씩 늘어난다.
+# 연속 실패가 임계치를 넘으면 쿨다운 동안 호출을 건너뛴다 (성공 시 즉시 복구).
+_KB_SEARCH_FAIL_THRESHOLD = 2
+_KB_SEARCH_COOLDOWN_SEC = 300
+_KB_SEARCH_TIMEOUT_SEC = 6
+_KB_SEARCH_STATE: Dict[str, float] = {"fails": 0.0, "disabled_until": 0.0}
+
+
+def _kb_search_available() -> bool:
+    """검색 엔진 호출 가능 여부 (쿨다운 중이면 False)."""
+    until = _KB_SEARCH_STATE.get("disabled_until", 0.0)
+    if until and time.time() < until:
+        return False
+    if until:
+        # 쿨다운 종료 → 재시도 허용
+        _KB_SEARCH_STATE["disabled_until"] = 0.0
+        _KB_SEARCH_STATE["fails"] = 0.0
+    return True
+
+
+def _kb_search_note_failure(reason: str) -> None:
+    _KB_SEARCH_STATE["fails"] = _KB_SEARCH_STATE.get("fails", 0.0) + 1
+    if _KB_SEARCH_STATE["fails"] >= _KB_SEARCH_FAIL_THRESHOLD:
+        _KB_SEARCH_STATE["disabled_until"] = time.time() + _KB_SEARCH_COOLDOWN_SEC
+        logger.warning(
+            "KB 검색 엔진 연속 실패(%s) → %d초간 검색 폴백 건너뜀",
+            reason, _KB_SEARCH_COOLDOWN_SEC,
+        )
+        print(f"[!] KB 검색 엔진 장애({reason}) → {_KB_SEARCH_COOLDOWN_SEC}초간 검색 폴백 생략")
+
+
+def _kb_search_note_success() -> None:
+    if _KB_SEARCH_STATE.get("fails"):
+        _KB_SEARCH_STATE["fails"] = 0.0
+    _KB_SEARCH_STATE["disabled_until"] = 0.0
+
 
 # 등기부 건물내역에 "오피스텔"이라는 단어가 없어도 업무시설/숙박시설(주로 오피스텔)이면
 # KB 유형=2(오피스텔) 목록도 함께 조회하기 위한 키워드
@@ -886,7 +924,7 @@ class KBPriceAPI:
     def _kb_intgra_search_hscm(self, keyword: str, count: int = 2) -> List[Dict[str, Any]]:
         """kbland 내부 통합검색(intgraSerch)으로 단지 후보 조회."""
         kw = (keyword or "").strip()
-        if not kw:
+        if not kw or not _kb_search_available():
             return []
         params = {
             "검색대상구분": "SRC_HSCM",
@@ -899,7 +937,7 @@ class KBPriceAPI:
                 f"{self.base_url}/land-complex/serch/intgraSerch",
                 params=params,
                 headers=DEFAULT_HEADERS,
-                timeout=12,
+                timeout=_KB_SEARCH_TIMEOUT_SEC,
             )
             response.raise_for_status()
             body = response.json().get("dataBody", {}) or {}
@@ -909,7 +947,9 @@ class KBPriceAPI:
                     "intgraSerch 오류(keyword=%s): rc=%s msg=%s",
                     kw[:40], rc, body.get("message"),
                 )
+                _kb_search_note_failure(f"intgraSerch rc={rc}")
                 return []
+            _kb_search_note_success()
             outer = body.get("data")
             if not isinstance(outer, dict):
                 return []
@@ -919,18 +959,20 @@ class KBPriceAPI:
                     "intgraSerch 엔진 오류(keyword=%s): %s",
                     kw[:40], inner.get("message"),
                 )
+                _kb_search_note_failure("intgraSerch 엔진 오류")
                 return []
             hscm = (inner or {}).get("HSCM") if isinstance(inner, dict) else {}
             items = (hscm or {}).get("data") or []
             return items if isinstance(items, list) else []
         except Exception as e:
             logger.debug("intgraSerch 실패(keyword=%s): %s", kw[:40], e)
+            _kb_search_note_failure("intgraSerch 예외")
             return []
 
     def _kb_auto_keyword_hscm(self, keyword: str) -> List[Dict[str, Any]]:
         """kbland 자동완성(autoKywrSerch)으로 단지명 후보 확장."""
         kw = (keyword or "").strip()
-        if not kw:
+        if not kw or not _kb_search_available():
             return []
         params = {
             "컬렉션비중설정": _KB_AUTO_KYWR_COLLECTION,
@@ -941,19 +983,22 @@ class KBPriceAPI:
                 f"{self.base_url}/land-complex/serch/autoKywrSerch",
                 params=params,
                 headers=DEFAULT_HEADERS,
-                timeout=12,
+                timeout=_KB_SEARCH_TIMEOUT_SEC,
             )
             response.raise_for_status()
             body = response.json().get("dataBody", {}) or {}
             rc = body.get("resultCode")
             if rc not in (None, 11000):
+                _kb_search_note_failure(f"autoKywrSerch rc={rc}")
                 return []
+            _kb_search_note_success()
             data = body.get("data") or []
             if isinstance(data, list) and data:
                 items = data[0].get("COL_AT_HSCM") or []
                 return items if isinstance(items, list) else []
         except Exception as e:
             logger.debug("autoKywrSerch 실패(keyword=%s): %s", kw[:40], e)
+            _kb_search_note_failure("autoKywrSerch 예외")
         return []
 
     @staticmethod
@@ -996,11 +1041,15 @@ class KBPriceAPI:
                 unique_keywords.append(k)
 
         for kw in unique_keywords:
+            if not _kb_search_available():  # 엔진 장애 → 남은 키워드 조합 생략
+                return candidates[:head_limit]
             _add_from_intgra(self._kb_intgra_search_hscm(kw, count=10))
             if len(candidates) >= head_limit:
                 return candidates[:head_limit]
 
         for kw in unique_keywords[:4]:
+            if not _kb_search_available():
+                return candidates[:head_limit]
             for ac in self._kb_auto_keyword_hscm(kw):
                 for search_kw in (
                     (ac.get("textTemp") or "").strip(),
