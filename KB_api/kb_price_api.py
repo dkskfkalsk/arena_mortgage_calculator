@@ -670,6 +670,39 @@ def _extract_complex_name_from_address(address: str) -> Optional[str]:
     return None
 
 
+def _extract_eup_myeon_from_address(address: str) -> Optional[str]:
+    """주소에서 읍/면 이름 추출 (예: '남양주시 별내면 청학리 419' → '별내면')."""
+    if not address:
+        return None
+    m = re.search(r"(?:시|군|구)\s+([가-힣]+(?:읍|면))(?:\s|$)", address)
+    return m.group(1) if m else None
+
+
+def _strip_admin_prefix_for_complex_name(address: str) -> str:
+    """
+    단지명 추출용: 읍/면/리 주소에서 단지명 앞의 행정구역·지번을 잘라낸다.
+
+    등기부는 '별내면 청학리 419 청학주공아파트'처럼 리(里)와 번지가 단지명 앞에 붙는데,
+    단지명 추출 패턴이 이를 통째로 잡아 '별내면청학리419청학주공아파트'가 되어 매칭에 실패한다.
+    읍/면이 없는 동 단위 주소는 원본을 그대로 반환하므로 기존 동작에 영향이 없다.
+    """
+    addr = re.sub(r"\s+", " ", (address or "").strip())
+    if not addr:
+        return addr
+    patterns = (
+        r"[가-힣]+(?:읍|면)\s+[가-힣]+리\s+\d+(?:-\d+)?(?:\s*외\s*\d+\s*필지)?\s+(?=\S)",  # 면+리+지번
+        r"[가-힣]+(?:읍|면)\s+[가-힣0-9]+(?:로|길)\s+\d+(?:-\d+)?,?\s+(?=\S)",  # 면+도로명+건물번호
+        r"[가-힣]+(?:읍|면)\s+\d+(?:-\d+)?(?:\s*외\s*\d+\s*필지)?\s+(?=\S)",  # 면+지번 (리 생략)
+    )
+    for pattern in patterns:
+        m = re.search(pattern, addr)
+        if m:
+            rest = addr[m.end():].strip()
+            if len(rest) >= 2:
+                return rest
+    return addr
+
+
 def _extract_lot_number_from_address(address: str) -> Optional[str]:
     """
     동+번지 매칭용 번지수 추출.
@@ -1761,6 +1794,16 @@ class KBPriceAPI:
                 dong_name = parts[-1]
         if not dong_name:
             dong_name = ""
+        # KB 단지 주소는 리(里)를 생략하기도 한다 (등기 '별내면 청학리 419' ↔ KB '남양주시 별내면 419').
+        # 단지 목록 어디에도 리 이름이 없을 때만 읍/면 이름으로 대조 (리를 쓰는 지역은 기존대로).
+        if dong_name.endswith("리") and not any(
+            dong_name in (c.get("주소") or "") for c in complexes
+        ):
+            eup_myeon = _extract_eup_myeon_from_address(address)
+            if eup_myeon and any(eup_myeon in (c.get("주소") or "") for c in complexes):
+                logger.info(f"   KB 단지 주소에 '{dong_name}' 없음 → 읍/면 '{eup_myeon}' 기준으로 대조")
+                print(f"[KB] KB 단지 주소에 '{dong_name}' 없음 → '{eup_myeon}' 기준 매칭")
+                dong_name = eup_myeon
         if dong_name and lot_number:
             logger.debug(f"   동+번지 매칭 키: {dong_name} {lot_number}")
 
@@ -2039,12 +2082,15 @@ class KBPriceAPI:
                     }
                     logger.info("✅ 주소 토큰 KB 내부 검색으로 complex_id 확정: %s", resolved["complex_id"])
                     print(f"[OK] KB 내부 검색으로 complex_id 확정: {resolved['complex_id']}")
+            # 단지를 확정하지 못하면 조회를 포기한다.
+            # 예전에는 목록의 첫 번째 단지를 그냥 썼는데, 단지명 없는 빌라 등기가 같은 읍/면의
+            # 무관한 아파트 시세를 가져오는 오조회가 발생할 수 있어 제거함.
             if not selected_complex:
-                selected_complex = complexes[0]
-                complex_name_from_api = selected_complex.get('단지명', '알 수 없음')
-                logger.warning(f"⚠️ 단지명 매칭 실패, 첫 번째 단지 사용: {complex_name_from_api}")
-                logger.debug(f"   사용 가능한 단지 목록: {[c.get('단지명', 'N/A') for c in complexes[:5]]}")
-                print(f"[!] 단지명 매칭 실패, 첫 번째 단지 사용: {complex_name_from_api}")
+                logger.warning(
+                    f"⚠️ 단지를 확정하지 못함 → KB 시세 생략 (후보: {[c.get('단지명', 'N/A') for c in complexes[:5]]})"
+                )
+                print("[!] 단지를 확정하지 못해 KB 시세를 사용하지 않습니다.")
+                return None
         
         # 4. 단지 데이터에서 매매 시세 정보 추출
         # fastPriceInfo API에 매매 배열이 있으면 사용, 없으면 get_complex_price(단지기본일련번호) 호출
@@ -2075,28 +2121,7 @@ class KBPriceAPI:
             matched_price = prices[0]
             logger.warning(f"⚠️ 면적 미제공(0) → 해당 단지 첫 번째 타입 적용: {matched_price.get('공급면적', 'N/A')}㎡ 등")
             print(f"[!] 면적 미제공 → 해당 단지 첫 번째 시세 타입 적용")
-        # 정확 매칭 없으면 가장 가까운 면적 타입 사용 (예: 37.85㎡ 요청 시 51.46㎡ 등 가장 가까운 타입)
-        if not matched_price and area > 0 and prices:
-            def _area_val(p):
-                v = p.get("전용면적") or p.get("공급면적") or p.get("면적")
-                try:
-                    return float(str(v).replace(",", "").strip()) if v is not None else None
-                except (ValueError, TypeError):
-                    return None
-            nearest = None
-            min_diff = float("inf")
-            for p in prices:
-                v = _area_val(p)
-                if v is not None and 10 <= v <= 300:
-                    d = abs(v - area)
-                    if d < min_diff:
-                        min_diff = d
-                        nearest = p
-            if nearest:
-                matched_price = nearest
-                near_area = _area_val(nearest)
-                logger.warning(f"⚠️ {area}m²와 동일 타입 없음 → 가장 가까운 면적 적용: {near_area}m² (차이: {min_diff:.1f}m²)")
-                print(f"[!] {area}m² 동일 타입 없음 → 가장 가까운 면적 {near_area}m² 적용")
+        # 면적이 정확히 일치하는 타입이 없으면 시세를 쓰지 않는다 (가까운 면적으로 대체 금지)
         if not matched_price:
             logger.error(f"❌ 면적 {area}m²에 맞는 시세를 찾을 수 없음")
             print(f"[X] 면적 {area}m²에 맞는 시세를 찾을 수 없음")
@@ -2340,8 +2365,14 @@ def get_kb_price_from_registry(address: str, area: str, registry_text: Optional[
         return None
     logger.debug(f"   추출된 면적(전용): {area_float}m²")
     
+    # 읍/면/리 주소는 행정구역·지번이 단지명 앞에 붙어 패턴에 통째로 잡히므로 앞부분을 잘라낸다
+    # (동 단위 주소는 원본 그대로 → 기존 동작 불변)
+    name_source = _strip_admin_prefix_for_complex_name(address)
+    if name_source != address:
+        logger.info(f"   읍/면/리 주소 → 단지명 추출 대상: {name_source}")
+
     # 주소에서 단지명 추출 (예: "미리내마을", "천안역우방아이유쉘", "힐스테이트 리버시티 1단지")
-    complex_name = _extract_complex_name_from_address(address)
+    complex_name = _extract_complex_name_from_address(name_source)
     if complex_name:
         logger.info(f"✅ 주소에서 단지명 추출 (띄어쓰기/브랜드): {complex_name}")
 
@@ -2368,7 +2399,7 @@ def get_kb_price_from_registry(address: str, area: str, registry_text: Optional[
     for pattern in complex_patterns:
         if complex_name:
             break
-        match = re.search(pattern, address)
+        match = re.search(pattern, name_source)
         if match:
             candidate = _clean_extracted_complex_name(match.group(1).strip())
             if _is_invalid_complex_name(candidate):
