@@ -25,6 +25,11 @@ DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 }
 
+# KB 조회는 한 건에 4~8회 요청이 나가는데, 매번 새 연결을 맺으면 요청당 TLS 핸드셰이크에
+# 250ms 이상을 쓴다. Session으로 커넥션을 재사용하면 은마 기준 3.3초 → 1.0초.
+_SESSION = requests.Session()
+_SESSION.mount("https://", requests.adapters.HTTPAdapter(pool_connections=4, pool_maxsize=8))
+
 # 도로명주소 API (행정안전부 실시간 주소정보조회)
 # https://www.data.go.kr/data/15057017/openapi.do / juso.go.kr 신청 후 confmKey 발급
 JUSO_API_URL = "https://www.juso.go.kr/addrlink/addrLinkApi.do"
@@ -938,7 +943,7 @@ class KBPriceAPI:
             "페이지번호": 1,
         }
         try:
-            response = requests.get(
+            response = _SESSION.get(
                 f"{self.base_url}/land-complex/serch/intgraSerch",
                 params=params,
                 headers=DEFAULT_HEADERS,
@@ -984,7 +989,7 @@ class KBPriceAPI:
             "검색키워드": kw,
         }
         try:
-            response = requests.get(
+            response = _SESSION.get(
                 f"{self.base_url}/land-complex/serch/autoKywrSerch",
                 params=params,
                 headers=DEFAULT_HEADERS,
@@ -1071,7 +1076,7 @@ class KBPriceAPI:
     def _fetch_hscm_list(self, dongcode: str) -> List[Dict[str, Any]]:
         """법정동코드 기준 단지 목록(hscmList) — fastPriceInfo 보조."""
         try:
-            response = requests.get(
+            response = _SESSION.get(
                 f"{self.base_url}/land-complex/complexComm/hscmList",
                 params={"법정동코드": dongcode},
                 headers=DEFAULT_HEADERS,
@@ -1108,7 +1113,7 @@ class KBPriceAPI:
     def _fetch_kbland_page_info(self, complex_id: str) -> Optional[Dict[str, str]]:
         for path in (f"https://kbland.kr/se/c/{complex_id}", f"https://kbland.kr/c/{complex_id}"):
             try:
-                r = requests.get(path, headers=DEFAULT_HEADERS, timeout=12)
+                r = _SESSION.get(path, headers=DEFAULT_HEADERS, timeout=12)
                 if r.status_code >= 400:
                     continue
                 text = html.unescape(r.text or "")
@@ -1616,7 +1621,7 @@ class KBPriceAPI:
             max_retries = 3
             for attempt in range(max_retries):
                 try:
-                    response = requests.get(url, params=params, headers=DEFAULT_HEADERS, timeout=15)
+                    response = _SESSION.get(url, params=params, headers=DEFAULT_HEADERS, timeout=15)
                     response.raise_for_status()
                     data = response.json()
                     complexes = data.get("dataBody", {}).get("data", [])
@@ -1640,10 +1645,8 @@ class KBPriceAPI:
                 except Exception as e:
                     print(f"[X] 단지 목록 조회 오류: {e}")
                     break
-        hscm_added = self._merge_hscm_into_complex_list(merged, seen_ids, dongcode)
-        if hscm_added:
-            print(f"[OK] hscmList 병합: +{hscm_added}개 → 총 {len(merged)}개")
-            logger.info("hscmList 병합: +%d개 (총 %d개)", hscm_added, len(merged))
+        # hscmList는 여기서 붙이지 않는다. fastPriceInfo로 단지를 확정하면 생략하고,
+        # 매칭 실패 시에만 get_kb_price에서 _merge_hscm_into_complex_list를 호출한다.
         return merged
     
     def get_complex_price(self, complex_id: str) -> List[Dict[str, Any]]:
@@ -1661,7 +1664,7 @@ class KBPriceAPI:
             "단지기본일련번호": complex_id
         }
         try:
-            response = requests.get(url, params=params, headers=DEFAULT_HEADERS, timeout=15)
+            response = _SESSION.get(url, params=params, headers=DEFAULT_HEADERS, timeout=15)
             response.raise_for_status()
             
             data = response.json()
@@ -1677,27 +1680,6 @@ class KBPriceAPI:
             print(f"[X] 단지 시세 조회 오류: {e}")
             return []
     
-    def get_complex_info(self, complex_id: str) -> Optional[Dict[str, Any]]:
-        """
-        단지 기본정보 조회 (재건축여부 등)
-        
-        Args:
-            complex_id: 단지기본일련번호
-        
-        Returns:
-            dataBody.data (단지명, 재건축여부, 법정동코드 등) 또는 None
-        """
-        url = f"{self.base_url}/land-complex/complex/info"
-        params = {"단지기본일련번호": complex_id}
-        try:
-            response = requests.get(url, params=params, headers=DEFAULT_HEADERS, timeout=15)
-            response.raise_for_status()
-            data = response.json()
-            return data.get("dataBody", {}).get("data")
-        except Exception as e:
-            logger.debug("get_complex_info 실패: %s", e)
-            return None
-
     # kbland 재건축 절차 9단계 ↔ rcnsInfo 날짜 필드
     _RCNS_STAGE_FIELDS = (
         (1, "기본계획수립", "기본계획수립일"),
@@ -1716,7 +1698,7 @@ class KBPriceAPI:
         if not complex_id:
             return None
         try:
-            response = requests.get(
+            response = _SESSION.get(
                 f"{self.base_url}/land-complex/complex/complexMain",
                 params={"단지기본일련번호": complex_id},
                 headers=DEFAULT_HEADERS,
@@ -1788,7 +1770,7 @@ class KBPriceAPI:
         if not complex_id:
             return None
         try:
-            response = requests.get(
+            response = _SESSION.get(
                 f"{self.base_url}/land-complex/complex/rcnsInfo",
                 params={"단지기본일련번호": complex_id},
                 headers=DEFAULT_HEADERS,
@@ -1889,7 +1871,7 @@ class KBPriceAPI:
 
         areas: List[str] = []
         try:
-            response = requests.get(
+            response = _SESSION.get(
                 f"{self.base_url}/land-price/price/BasePrcInfoNew",
                 params={"단지기본일련번호": complex_id, "면적일련번호": area_seq},
                 headers=DEFAULT_HEADERS,
@@ -1964,88 +1946,24 @@ class KBPriceAPI:
         )
         print(f"[OK] KB 동일시세 전용면적 매칭: 등기 {target}㎡ → 공급 {price_info.get('공급면적')}㎡ 타입")
         return price_info
-    
-    def get_kb_price(self, address: str, area: float, 
-                     complex_name: Optional[str] = None,
-                     force_officetel: bool = False) -> Optional[Dict[str, Any]]:
-        """
-        주소와 면적을 기반으로 KB 시세 조회 (메인 함수)
-        
-        Args:
-            address: 부동산 주소
-            area: 전용면적 (m²)
-            complex_name: 단지명 (선택사항, 있으면 더 정확한 매칭)
-            force_officetel: True면 주소에 "오피스텔" 문구가 없어도 KB 유형=2(오피스텔)
-                목록을 함께 조회 (등기부 건물내역이 업무시설/숙박시설인 경우 등)
-        
-        Returns:
-            {
-                "kb_price": 125000,  # 일반 매매가 (만원 단위)
-                "kb_price_min": 120000,  # 하한 매매가 (만원 단위, 없으면 None)
-                "kb_price_raw": "125,000만원",
-                "kb_price_min_raw": "120,000만원",  # 하한 매매가 문자열 (없으면 None)
-                "complex_name": "대치아이파크",
-                "area": 84.93,
-                "pyeong": 25.7,
-                "type": "84A형",
-                "dongcode": "1168010100",
-                "complex_id": "12345",   # 단지기본일련번호 → kbland.kr/c/{id} 참고 링크용
-                "redevelop_stages": [],   # 재건축 단계 (재건축여부=1이고 스크래퍼 성공 시)
-                "households": None,       # 세대수 (재건축 단지 스크래핑 시)
-                "buildings": None,        # 동수 (재건축 단지 스크래핑 시)
-                "redevelop_yn": False,    # 재건축 단지 여부
-                "redevelop_error": None,  # 스크래퍼 오류 시 메시지 (선택)
-            } 또는 None
-        """
-        logger.info(f"\n🔍 KB 시세 조회 시작")
-        logger.info(f"   주소: {address}")
-        logger.info(f"   면적: {area}m²")
-        print(f"\n[KB] KB 시세 조회 시작")
-        print(f"   주소: {address}")
-        print(f"   면적: {area}m²")
-        
-        # 1. 법정동코드 찾기 (1차: 원본 주소, 없으면 2차: 주소 붙여서 재시도, 예: 안양시 동안구 → 안양시동안구)
-        logger.debug("1단계: 법정동코드 찾기 (1차: 원본 주소)")
-        dongcode = self.find_dongcode(address)
-        if not dongcode:
-            address_attached = _make_attached_address(address)
-            if address_attached != address:
-                logger.info("   1차 실패 → 주소 붙여서 2차 시도: %s", address_attached[:60])
-                print("[KB] 1차 실패 → 주소 붙여서 2차 시도 (예: 안양시 동안구 → 안양시동안구)")
-                dongcode = self.find_dongcode(address_attached)
-                if dongcode:
-                    logger.info("✅ 법정동코드 찾음(붙인 주소 2차 시도): %s", dongcode)
-        if not dongcode:
-            logger.error("❌ 법정동코드를 찾을 수 없어 시세 조회 불가")
-            print("[X] 법정동코드를 찾을 수 없어 시세 조회 불가")
+
+    def _select_complex_from_list(
+        self,
+        complexes: List[Dict[str, Any]],
+        address: str,
+        complex_name: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        """fastPriceInfo/hscm 목록에서 등기 주소·단지명으로 단지를 고른다. 못 찾으면 None."""
+        if not complexes:
             return None
 
-        logger.info(f"✅ 법정동코드: {dongcode}")
-        
-        # 2. 단지 목록 조회 (오피스텔 주소·업무시설/숙박시설 등기부면 유형 2도 조회하여 병합)
-        logger.debug("2단계: 단지 목록 조회")
-        is_officetel_hint = force_officetel or _text_indicates_officetel(address)
-        property_type_hint = "오피스텔" if is_officetel_hint else None
-        if force_officetel and "오피스텔" not in (address or ""):
-            logger.info("   등기부 건물내역(업무시설/숙박시설 등)으로 오피스텔 유형 조회 강제 적용")
-            print("[KB] 등기부 건물내역(업무시설/숙박시설)으로 오피스텔 유형(2) 조회 추가")
-        complexes = self.get_complex_list(dongcode, property_type_hint=property_type_hint)
-        if not complexes:
-            logger.error("❌ 단지 목록을 찾을 수 없음")
-            print("[X] 단지 목록을 찾을 수 없음")
-            return None
-        
-        logger.info(f"✅ 단지 목록 조회 성공: {len(complexes)}개 단지")
-        
-        # 3. 단지 선택 (단지명 우선, 없으면 동+번지로 매칭 예: 관양동 1588)
-        logger.debug("3단계: 단지 선택")
         selected_complex = None
-        
+
         # 주소에서 번지수 추출 (블록/롯트 번호 오매칭 제외)
         lot_number = _extract_lot_number_from_address(address)
         if lot_number:
             logger.debug(f"   주소에서 번지수 추출: {lot_number}")
-        
+
         # 주소에서 동명 추출 (동+번지 매칭용, 예: 관양동 1588)
         parsed_addr = self.parse_address(address)
         dong_name = (parsed_addr.get("dong") or "").strip()
@@ -2079,12 +1997,12 @@ class KBPriceAPI:
             exact_matches: List[Dict[str, Any]] = []
             best_match = None
             best_score = 0.0
-            
+
             for i, complex in enumerate(complexes):
                 complex_name_from_api = complex.get("단지명") or complex.get("name", "")
                 complex_address_from_api = complex.get("주소", "")
                 logger.debug(f"   [{i+1}] {complex_name_from_api} (주소: {complex_address_from_api})")
-                
+
                 # 정확/코어 매칭 (대림아파트 ↔ 대림(1차) 포함)
                 name_equiv = _complex_names_equivalent(complex_name, complex_name_from_api)
                 # 제N동 변형 매칭 (개포현대아파트 + 제200동 ↔ 개포현대(200동))
@@ -2099,7 +2017,7 @@ class KBPriceAPI:
                     exact_matches.append(complex)
                     logger.debug(f"      동등/코어 후보: {complex_name_from_api}")
                     continue
-                
+
                 # 부분/유사 매칭 점수 (영문·혼합 단지명 포함)
                 score = _score_complex_name_similarity(complex_name, complex_name_from_api)
                 name_related = score >= 0.5
@@ -2131,12 +2049,12 @@ class KBPriceAPI:
                     if token_score > 0:
                         score += token_score * 0.3
                         logger.debug(f"      주소 토큰 보너스: {token_score:.2f}")
-                
+
                 if score > best_score:
                     best_score = score
                     best_match = complex
                     logger.debug(f"      매칭 발견: {complex_name_from_api} (점수: {score:.2f})")
-            
+
             if exact_matches:
                 if len(exact_matches) == 1:
                     only = exact_matches[0]
@@ -2217,7 +2135,7 @@ class KBPriceAPI:
                     selected_complex = core_hits[0] if len(core_hits) == 1 else (
                         core_hits[0] if core_hits else exact_matches[0]
                     )
-                
+
                 if selected_complex:
                     complex_name_from_api = selected_complex.get("단지명", "알 수 없음")
                     # 동+번지 확정 로그는 위에서 이미 출력
@@ -2229,7 +2147,7 @@ class KBPriceAPI:
                     elif not (dong_name and lot_number):
                         logger.info(f"✅ 단지명 코어 매칭: {complex_name_from_api}")
                         print(f"[OK] 단지명 코어 매칭: {complex_name_from_api}")
-            
+
             # 부분 매칭 결과 사용 (영문·알파벳음차 변환 가능 시 임계값 완화)
             has_latinish = bool(re.search(r"[A-Za-z]", complex_name or "")) or (
                 _hangul_letter_prefix_to_latin_name(complex_name or "") is not None
@@ -2240,7 +2158,7 @@ class KBPriceAPI:
                 complex_name_from_api = selected_complex.get('단지명', '알 수 없음')
                 logger.info(f"✅ 단지명 부분 매칭: {complex_name_from_api} (점수: {best_score:.2f})")
                 print(f"[OK] 단지명 부분 매칭: {complex_name_from_api}")
-        
+
         # 단지명 코어는 맞지만 위 단계에서 미확정 → 동+번지로 코어 후보만 재확정
         if not selected_complex and complex_name and dong_name and lot_number:
             core_lot_hits = []
@@ -2302,7 +2220,7 @@ class KBPriceAPI:
                         best_token_score,
                     )
                     print(f"[OK] 주소 토큰 매칭: {selected_complex.get('단지명', '')}")
-        
+
         # 단지명이 없을 때만: 동+번지로 단지 선택 (예: 관양동 1588 직접 검색)
         # 단지명이 있는데도 동+번지를 허용하면 도로명 숫자(예: 지세포1길)로 오매칭될 수 있음
         if not selected_complex and (not complex_name) and dong_name and lot_number:
@@ -2313,7 +2231,95 @@ class KBPriceAPI:
                     logger.info(f"✅ 동+번지 매칭: {dong_name} {lot_number} → {complex.get('단지명', '')} (주소: {complex_address_from_api})")
                     print(f"[OK] 동+번지 매칭: {dong_name} {lot_number} → {complex.get('단지명', '')}")
                     break
+
+        return selected_complex
+
+    def get_kb_price(self, address: str, area: float, 
+                     complex_name: Optional[str] = None,
+                     force_officetel: bool = False) -> Optional[Dict[str, Any]]:
+        """
+        주소와 면적을 기반으로 KB 시세 조회 (메인 함수)
         
+        Args:
+            address: 부동산 주소
+            area: 전용면적 (m²)
+            complex_name: 단지명 (선택사항, 있으면 더 정확한 매칭)
+            force_officetel: True면 주소에 "오피스텔" 문구가 없어도 KB 유형=2(오피스텔)
+                목록을 함께 조회 (등기부 건물내역이 업무시설/숙박시설인 경우 등)
+        
+        Returns:
+            {
+                "kb_price": 125000,  # 일반 매매가 (만원 단위)
+                "kb_price_min": 120000,  # 하한 매매가 (만원 단위, 없으면 None)
+                "kb_price_raw": "125,000만원",
+                "kb_price_min_raw": "120,000만원",  # 하한 매매가 문자열 (없으면 None)
+                "complex_name": "대치아이파크",
+                "area": 84.93,
+                "pyeong": 25.7,
+                "type": "84A형",
+                "dongcode": "1168010100",
+                "complex_id": "12345",   # 단지기본일련번호 → kbland.kr/c/{id} 참고 링크용
+                "redevelop_stages": [],   # 재건축 단계 (재건축여부=1이고 스크래퍼 성공 시)
+                "households": None,       # 세대수 (재건축 단지 스크래핑 시)
+                "buildings": None,        # 동수 (재건축 단지 스크래핑 시)
+                "redevelop_yn": False,    # 재건축 단지 여부
+                "redevelop_error": None,  # 스크래퍼 오류 시 메시지 (선택)
+            } 또는 None
+        """
+        logger.info(f"\n🔍 KB 시세 조회 시작")
+        logger.info(f"   주소: {address}")
+        logger.info(f"   면적: {area}m²")
+        print(f"\n[KB] KB 시세 조회 시작")
+        print(f"   주소: {address}")
+        print(f"   면적: {area}m²")
+        
+        # 1. 법정동코드 찾기 (1차: 원본 주소, 없으면 2차: 주소 붙여서 재시도, 예: 안양시 동안구 → 안양시동안구)
+        logger.debug("1단계: 법정동코드 찾기 (1차: 원본 주소)")
+        dongcode = self.find_dongcode(address)
+        if not dongcode:
+            address_attached = _make_attached_address(address)
+            if address_attached != address:
+                logger.info("   1차 실패 → 주소 붙여서 2차 시도: %s", address_attached[:60])
+                print("[KB] 1차 실패 → 주소 붙여서 2차 시도 (예: 안양시 동안구 → 안양시동안구)")
+                dongcode = self.find_dongcode(address_attached)
+                if dongcode:
+                    logger.info("✅ 법정동코드 찾음(붙인 주소 2차 시도): %s", dongcode)
+        if not dongcode:
+            logger.error("❌ 법정동코드를 찾을 수 없어 시세 조회 불가")
+            print("[X] 법정동코드를 찾을 수 없어 시세 조회 불가")
+            return None
+
+        logger.info(f"✅ 법정동코드: {dongcode}")
+        
+        # 2. 단지 목록 조회 (오피스텔 주소·업무시설/숙박시설 등기부면 유형 2도 조회하여 병합)
+        logger.debug("2단계: 단지 목록 조회")
+        is_officetel_hint = force_officetel or _text_indicates_officetel(address)
+        property_type_hint = "오피스텔" if is_officetel_hint else None
+        if force_officetel and "오피스텔" not in (address or ""):
+            logger.info("   등기부 건물내역(업무시설/숙박시설 등)으로 오피스텔 유형 조회 강제 적용")
+            print("[KB] 등기부 건물내역(업무시설/숙박시설)으로 오피스텔 유형(2) 조회 추가")
+        complexes = self.get_complex_list(dongcode, property_type_hint=property_type_hint)
+        logger.info(f"✅ 단지 목록 조회 성공: {len(complexes)}개 단지")
+
+        # 3. 단지 선택. hscmList는 fastPriceInfo로 못 찾을 때만 붙인다.
+        logger.debug("3단계: 단지 선택")
+        selected_complex = self._select_complex_from_list(complexes, address, complex_name)
+        if not selected_complex:
+            seen_ids = {
+                c.get("단지기본일련번호")
+                for c in complexes
+                if c.get("단지기본일련번호") is not None
+            }
+            hscm_added = self._merge_hscm_into_complex_list(complexes, seen_ids, dongcode)
+            if hscm_added:
+                print(f"[OK] hscmList 병합(매칭 실패 후): +{hscm_added}개 → 총 {len(complexes)}개")
+                logger.info("hscmList 병합(매칭 실패 후): +%d개 (총 %d개)", hscm_added, len(complexes))
+                selected_complex = self._select_complex_from_list(complexes, address, complex_name)
+            elif not complexes:
+                logger.error("❌ 단지 목록을 찾을 수 없음")
+                print("[X] 단지 목록을 찾을 수 없음")
+                return None
+
         # 단지명/동+번지/주소토큰 매칭 실패 시: 검색-검증 폴백
         if not selected_complex:
             if complex_name:
@@ -2472,7 +2478,7 @@ class KBPriceAPI:
             "same_price_area_matched": same_price_area_used,
         }
         
-        # 7. 재건축·세대수·사용승인일: 단지 목록 → get_complex_info → /c/ 스크래퍼 순으로 채우기
+        # 7. 재건축·세대수·사용승인일: 단지 목록 → complexMain/rcnsInfo → /c/ 스크래퍼 순으로 채우기
         result["redevelop_stages"] = []
         result["households"] = None
         result["buildings"] = None
@@ -2498,31 +2504,9 @@ class KBPriceAPI:
                 except (ValueError, TypeError):
                     pass
         if complex_id is not None:
-            info = self.get_complex_info(str(complex_id))
-            redevelop_flag = (info or {}).get("재건축여부")
-            if str(redevelop_flag) == "1":
-                result["redevelop_yn"] = True
-            # API 응답에서 세대수/동수 필드 시도 (KB API 필드명이 있을 수 있음)
-            if info:
-                for key in ("세대수", "총세대수", "총호수", "호수"):
-                    val = info.get(key)
-                    if val is not None and str(val).strip() != "":
-                        try:
-                            result["households"] = int(float(str(val).replace(",", "")))
-                            logger.info(f"✅ API에서 세대수 추출: {result['households']} (필드: {key})")
-                            break
-                        except (ValueError, TypeError):
-                            pass
-                for key in ("동수", "총동수", "개동"):
-                    val = info.get(key)
-                    if val is not None and str(val).strip() != "":
-                        try:
-                            result["buildings"] = int(float(str(val).replace(",", "")))
-                            logger.info(f"✅ API에서 동수 추출: {result['buildings']} (필드: {key})")
-                            break
-                        except (ValueError, TypeError):
-                            pass
             # 단지 부가정보(세대수·동수·사용승인일·유형·재건축단계)는 KB API 우선.
+            # complexMain 하나에 재건축여부·총세대수·총동수·준공일·유형이 모두 있어
+            # complex/info는 따로 부르지 않는다(응답 필드가 전부 중복이라 호출만 늘어남).
             # /c/ 스크래퍼(Playwright)는 Chromium을 띄워 메모리·시간을 크게 쓰므로
             # API로 채우지 못한 항목이 있을 때만 보조로 호출한다.
             extra = self.get_complex_extra_via_api(str(complex_id))
