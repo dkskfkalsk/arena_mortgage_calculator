@@ -1,73 +1,61 @@
 # kbland.kr 스크래핑 한계
 
-KB 부동산(kbland.kr)에서 **브라우저 없이** 가져올 수 없는 정보와, 환경별 대안을 정리합니다.
+KB 부동산(kbland.kr)에서 **브라우저 없이** 가져올 수 있는 정보와, 과거에 브라우저가 필요했던 이유를 정리합니다.
 
 ---
 
 ## kbland 기술 구조
 
 - **Vue.js SPA** (Next.js 아님)
-- 초기 HTML: `<div id="app"></div>` + JS 번들
-- 사용승인일·재건축·일부 단지 정보는 **JS 실행 후 API/렌더**로 로드
+- 초기 HTML: `<div id="app"></div>` + JS 번들 (약 7KB, 단지 데이터 없음)
+- `/c/{단지기본일련번호}` 페이지 내용은 **JS 실행 후 내부 API 호출**로 채워짐
+
+즉 **페이지 HTML을 파싱하는 방식**은 브라우저 없이는 불가능하다. 다만 페이지가 호출하는
+내부 API를 직접 부르면 같은 값을 훨씬 싸게 얻을 수 있다.
 
 ---
 
-## 불가능한 방식
+## 세대수·사용승인일·재건축은 API로 가능 (2026.08 확인)
 
-| 방식 | 이유 |
-|------|------|
-| `_next/data` JSON | Next.js가 아님 |
-| 단순 HTTP + HTML 파싱 | 초기 HTML에 데이터 없음 |
-| `api.kbland.kr` 단지 info만 | 사용승인일 필드 없음 |
+과거에는 `complex/info`(필드 10개: 단지명, 재건축여부, 좌표 등)만 알고 있어 세대수·사용승인일을
+얻을 수 없어 Playwright로 `/c/` 페이지를 띄웠다. 실제로는 아래 엔드포인트에 전부 들어 있다.
 
----
+| 항목 | 엔드포인트 | 필드 |
+|------|-----------|------|
+| 세대수(임대 포함) | `/land-complex/complex/complexMain` | `총세대수`, `임대세대수` |
+| 동수 | 같음 | `총동수` |
+| 사용승인일·년차 | 같음 | `준공년월일`, `준공년수` |
+| 단지유형(아파트/주상복합/오피스텔) | 같음 | `매물종별구분명` |
+| 재건축 단계·인가일 | `/land-complex/complex/rcnsInfo` | `조합설립인가일` 등 9단계 |
 
-## 환경별 현황
+단지 6곳(은마·청학주공·대치르엘·주상복합·오피스텔·양지마을5단지)에서 Playwright 결과와
+전 항목 일치 확인. 속도는 0.3~0.7초 대 11~19초.
 
-| 환경 | 방식 | 세대수 | 사용승인일·재건축 |
-|------|------|--------|-------------------|
-| **로컬** | Python Playwright | ✅ | ✅ |
-| **Vercel** | Node Puppeteer (`api/kb-households.js`) | ⚠️ 환경 의존 | ❌ |
-| **Render** | 분리 Playwright (`PLAYWRIGHT_SCRAPER_URL`) | ✅ | ✅ |
-
-Vercel Node Puppeteer는 Chromium 네이티브 라이브러리(`libnss3.so` 등) 이슈로 **실패할 수 있음**.  
-이 경우 세대수는 `null`, 시세·산출 본문은 정상일 수 있습니다.
+**주의**: `mpriByType`의 타입별 `세대수` 합산은 분양 세대만 잡혀 실제 총세대수와 다를 수 있다
+(예: 783세대 단지 → 618). 총세대수는 `complexMain.총세대수`를 쓴다.
 
 ---
 
-## 대안
+## 현재 동작
 
-1. **Render Playwright 분리 서비스** — [`render-playwright/`](../render-playwright/)
-2. **Render Playwright 서비스** — [render-playwright/README.md](../render-playwright/README.md)
-3. **공공데이터** — 건축물대장 등 사용승인일 API (별도 연동)
-4. **외부 브라우저 서비스** — Browserless, ScrapingBee 등
+`KB_api/kb_price_api.py`의 `get_complex_extra_via_api()`가 위 API로 먼저 채우고,
+세대수·사용승인일을 못 얻은 경우에만 `kb_complex_scraper`(Playwright)를 보조로 호출한다.
+정상 상황에서는 브라우저가 실행되지 않는다.
 
----
-
-## HTTP API만으로 가능한 것
-
-`kb-price-node/`, `KB_api/kb_price_api.py` HTTP 경로:
-
-- 법정동코드 → 단지 목록 → **KB 일반가·하한가**
-- `complex_id` (fastPriceInfo 등에서)
-
-**보장되지 않는 것**: 정확한 세대수(예: 1,268세대), 사용승인일, 재건축 여부
+| 환경 | 1차(API) | 폴백(브라우저) |
+|------|----------|----------------|
+| **로컬** | ✅ | Python Playwright |
+| **Vercel** | ✅ | Node Puppeteer (`api/kb-households.js`, Chromium 네이티브 라이브러리 이슈로 실패 가능) |
+| **Render** | ✅ | 분리 Playwright 서비스 (`PLAYWRIGHT_SCRAPER_URL`) |
 
 ---
 
-## Vercel 세대수 API 점검
+## 여전히 API로 안 되는 것
 
-```bash
-curl "https://<배포URL>/api/kb-households?complex_id=15385"
-```
+- 빌라·다세대 시세 (아파트/주상복합/오피스텔 목록만 반환)
+- 페이지에만 노출되는 일부 UI 텍스트
 
-기대: `{ "households": ..., "buildings": ..., "error": null }`
-
-Vercel Logs에서:
-
-- `Node kb-households API 호출`
-- `Node API 응답`
-- `Node kb-households API HTTP 에러`
+필요 시 공공데이터(건축물대장 등) 별도 연동을 검토한다.
 
 ---
 

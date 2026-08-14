@@ -184,22 +184,7 @@ class KBComplexScraper:
                 page.wait_for_timeout(2000)
                 body_text = page.inner_text("body") or ""
                 
-                # 디버그: body_text 샘플 및 재건축 텍스트 확인
-                logger.info(f"[LOCAL] body_text 길이: {len(body_text)}, 샘플: {body_text[:200] if body_text else '(empty)'}")
-                if "4단계" in body_text:
-                    idx = body_text.find("4단계")
-                    sample = body_text[max(0, idx-30):idx+100]
-                    logger.info(f"[LOCAL] '4단계' 발견! 주변: ...{sample}...")
-                    # 디버그: 재건축 부분을 파일로 저장
-                    try:
-                        with open("debug_redevelop_text.txt", "w", encoding="utf-8") as f:
-                            f.write(f"전체 길이: {len(body_text)}\n")
-                            f.write(f"4단계 위치: {idx}\n")
-                            f.write(f"샘플 (repr): {repr(sample)}\n\n")
-                            f.write(f"전체 텍스트:\n{body_text}")
-                        logger.info(f"[LOCAL] 디버그 텍스트 저장: debug_redevelop_text.txt")
-                    except Exception as e:
-                        logger.warning(f"[LOCAL] 디버그 파일 저장 실패: {e}")
+                logger.debug("[LOCAL] body_text 길이: %d", len(body_text))
 
                 # 1) 재건축 단계
                 stages = _parse_redevelop_stages_from_text(body_text)

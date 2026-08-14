@@ -1697,6 +1697,121 @@ class KBPriceAPI:
         except Exception as e:
             logger.debug("get_complex_info 실패: %s", e)
             return None
+
+    # kbland 재건축 절차 9단계 ↔ rcnsInfo 날짜 필드
+    _RCNS_STAGE_FIELDS = (
+        (1, "기본계획수립", "기본계획수립일"),
+        (2, "재건축진단", "안전진단일"),
+        (3, "정비구역지정", "정비구역지정일"),
+        (4, "추진위원회승인", "추진위원회승인일"),
+        (5, "조합설립인가", "조합설립인가일"),
+        (6, "사업시행인가", "사업시행인가일"),
+        (7, "관리처분인가", "관리처분인가일"),
+        (8, "이주 및 철거", "철거신고일"),
+        (9, "일반분양", "분양일"),
+    )
+
+    def get_complex_main(self, complex_id: str) -> Optional[Dict[str, Any]]:
+        """단지 상세 기본정보 (complexMain). 총세대수·총동수·준공년월일·매물종별구분명 등."""
+        if not complex_id:
+            return None
+        try:
+            response = requests.get(
+                f"{self.base_url}/land-complex/complex/complexMain",
+                params={"단지기본일련번호": complex_id},
+                headers=DEFAULT_HEADERS,
+                timeout=10,
+            )
+            response.raise_for_status()
+            return (response.json().get("dataBody") or {}).get("data")
+        except Exception as e:
+            logger.debug("get_complex_main 실패: %s", e)
+            return None
+
+    def get_complex_extra_via_api(self, complex_id: str) -> Dict[str, Any]:
+        """
+        세대수·동수·사용승인일·단지유형·재건축단계를 KB API로 조회 (Playwright 대체).
+
+        /c/ 페이지 스크래핑은 Chromium을 띄워 메모리·시간을 크게 쓰는데,
+        같은 값이 complexMain(+재건축은 rcnsInfo)에 그대로 있어 API를 먼저 쓴다.
+        반환 형태는 kb_complex_scraper.get_complex_extra_info와 동일하다.
+        """
+        out: Dict[str, Any] = {
+            "redevelop_stages": [],
+            "households": None,
+            "buildings": None,
+            "approval_date": None,
+            "years_since_completion": None,
+            "redevelop_yn": False,
+            "complex_name": None,
+            "complex_type": None,
+            "source_url": f"https://kbland.kr/c/{complex_id}" if complex_id else None,
+            "error": None,
+        }
+
+        def to_int(value, max_val):
+            try:
+                num = int(float(str(value).replace(",", "").strip()))
+            except (ValueError, TypeError, AttributeError):
+                return None
+            return num if 1 <= num <= max_val else None
+
+        main = self.get_complex_main(str(complex_id))
+        if not main:
+            out["error"] = "complexMain 조회 실패"
+            return out
+
+        out["complex_name"] = main.get("단지명")
+        out["households"] = to_int(main.get("총세대수"), 100000)
+        out["buildings"] = to_int(main.get("총동수"), 10000)
+        out["complex_type"] = main.get("매물종별구분명") or None
+
+        # 준공년월일 19790830 → 사용승인일 1979.08.30 (KB 페이지의 '사용승인일'과 같은 값)
+        ymd = re.sub(r"\D", "", str(main.get("준공년월일") or ""))
+        if len(ymd) == 8:
+            out["approval_date"] = f"{ymd[:4]}.{ymd[4:6]}.{ymd[6:]}"
+        out["years_since_completion"] = to_int(main.get("준공년수"), 200)
+
+        if str(main.get("재건축여부")) == "1":
+            out["redevelop_yn"] = True
+            out["redevelop_stages"] = self.stages_from_rcns(self.get_rcns_info(str(complex_id)))
+
+        logger.info(
+            "✅ KB API 단지정보: 세대수=%s 동수=%s 사용승인=%s(%s년차) 유형=%s 재건축단계=%d개",
+            out["households"], out["buildings"], out["approval_date"],
+            out["years_since_completion"], out["complex_type"], len(out["redevelop_stages"]),
+        )
+        return out
+
+    def get_rcns_info(self, complex_id: str) -> Optional[Dict[str, Any]]:
+        """단지 재건축/정비사업 정보 (kbland complex/rcnsInfo). Playwright 없이 단계·인가일 확보."""
+        if not complex_id:
+            return None
+        try:
+            response = requests.get(
+                f"{self.base_url}/land-complex/complex/rcnsInfo",
+                params={"단지기본일련번호": complex_id},
+                headers=DEFAULT_HEADERS,
+                timeout=10,
+            )
+            response.raise_for_status()
+            return (response.json().get("dataBody") or {}).get("data")
+        except Exception as e:
+            logger.debug("get_rcns_info 실패: %s", e)
+            return None
+
+    def stages_from_rcns(self, rcns: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """rcnsInfo 응답을 스크래퍼와 같은 {step, name, date} 목록으로 변환. 날짜 있는 단계만."""
+        if not rcns or not isinstance(rcns, dict):
+            return []
+        stages: List[Dict[str, Any]] = []
+        for step, name, field in self._RCNS_STAGE_FIELDS:
+            date_val = str(rcns.get(field) or "").strip()
+            if re.match(r"^\d{4}\.\d{2}\.\d{2}$", date_val):
+                stages.append({"step": step, "name": name, "date": date_val})
+        # 날짜 필드는 비었지만 현재 단계명만 있는 경우(드묾)는 날짜 없이 넣지 않는다.
+        # 웹훅 출력은 날짜가 있는 단계만 사용한다.
+        return stages
     
     def find_matching_price(self, prices: List[Dict[str, Any]], area: float, 
                            tolerance: float = 0.0) -> Optional[Dict[str, Any]]:
@@ -2407,57 +2522,68 @@ class KBPriceAPI:
                             break
                         except (ValueError, TypeError):
                             pass
-            # 세대수는 스크래핑에서 우선 가져오기 (API는 fallback)
-            # /c/ 스크래퍼: 재건축이면 단계+세대수·동수, 일반 단지면 세대수·동수·사용승인일
-            extra = get_complex_extra_info(complex_id)
+            # 단지 부가정보(세대수·동수·사용승인일·유형·재건축단계)는 KB API 우선.
+            # /c/ 스크래퍼(Playwright)는 Chromium을 띄워 메모리·시간을 크게 쓰므로
+            # API로 채우지 못한 항목이 있을 때만 보조로 호출한다.
+            extra = self.get_complex_extra_via_api(str(complex_id))
+            if extra.get("households") is None or extra.get("approval_date") is None:
+                logger.info("   KB API로 단지정보 부족(세대수/사용승인일) → /c/ 스크래퍼 보조 호출")
+                scraped = get_complex_extra_info(complex_id)
+                for key in (
+                    "households", "buildings", "approval_date", "years_since_completion",
+                    "complex_type", "complex_name",
+                ):
+                    if extra.get(key) is None and scraped.get(key) is not None:
+                        extra[key] = scraped[key]
+                if not extra.get("redevelop_stages") and scraped.get("redevelop_stages"):
+                    extra["redevelop_stages"] = scraped["redevelop_stages"]
+                if scraped.get("redevelop_yn"):
+                    extra["redevelop_yn"] = True
+                if scraped.get("error"):
+                    extra["error"] = scraped["error"]
+            else:
+                logger.debug("   KB API로 단지정보 확보 → Playwright 스크래핑 생략")
             if extra.get("approval_date") is not None:
                 result["approval_date"] = extra["approval_date"]
-                logger.info(f"✅ 스크래퍼(기본정보)에서 사용승인일 추출: {result['approval_date']}")
+                logger.info(f"✅ 사용승인일: {result['approval_date']}")
             if extra.get("years_since_completion") is not None:
                 result["years_since_completion"] = extra["years_since_completion"]
-                logger.info(f"✅ 스크래퍼(기본정보)에서 년차 추출: {result['years_since_completion']}년차")
+                logger.info(f"✅ 년차: {result['years_since_completion']}년차")
             # 단지유형 (주상복합, 아파트, 오피스텔 등)
             if extra.get("complex_type") is not None:
                 result["complex_type"] = extra["complex_type"]
-                logger.info(f"✅ 스크래퍼에서 단지유형 추출: {result['complex_type']}")
-            # 스크래퍼에서 재건축 단계를 찾으면 재건축으로 간주 (API 재건축여부 없어도)
-            if extra.get("redevelop_yn") or (extra.get("redevelop_stages") and len(extra["redevelop_stages"]) > 0):
-                result["redevelop_yn"] = True
-            # 세대수/동수는 스크래핑 우선 (API는 fallback)
+                logger.info(f"✅ 단지유형: {result['complex_type']}")
+
+            # 세대수·동수: 단지 총세대수(임대 포함)를 시세 타입별 세대수 합산보다 우선
             if extra.get("households") is not None:
                 result["households"] = extra["households"]
-                logger.info(f"✅ 스크래퍼에서 세대수 추출: {result['households']}세대")
-            elif result["households"] is None and complex_id is not None:
-                # 스크래핑 실패 시 API fallback
+                logger.info(f"✅ 세대수: {result['households']}세대")
+            elif result["households"] is None:
                 mpri_prices = prices if prices_from_mpri else self.get_complex_price(str(complex_id))
                 if mpri_prices:
                     h_sum = sum(int(p.get("세대수") or 0) for p in mpri_prices)
                     if h_sum > 0:
                         result["households"] = h_sum
-                        logger.info(f"✅ mpriByType API 세대수 합산 (fallback): {result['households']}")
-            
+                        logger.info(f"✅ mpriByType 세대수 합산(fallback): {result['households']}")
             if extra.get("buildings") is not None:
                 result["buildings"] = extra["buildings"]
-                logger.info(f"✅ 스크래퍼에서 동수 추출: {result['buildings']}개동")
-            
+                logger.info(f"✅ 동수: {result['buildings']}개동")
+
+            # 재건축: 단계 목록이 있으면 재건축으로 간주 (complex/info의 재건축여부도 함께 반영)
+            if extra.get("redevelop_yn") or extra.get("redevelop_stages"):
+                result["redevelop_yn"] = True
             if result["redevelop_yn"]:
                 result["redevelop_stages"] = extra.get("redevelop_stages") or []
+                if not result["redevelop_stages"]:
+                    # info만 재건축=1인 경우(단계 미확보) rcnsInfo로 한 번 더 시도
+                    result["redevelop_stages"] = self.stages_from_rcns(self.get_rcns_info(str(complex_id)))
+                if result["redevelop_stages"]:
+                    print("[OK] 재건축 단계: %s" % ", ".join(
+                        f"{s['step']}단계{s['name']}'{s['date']}" for s in result["redevelop_stages"]
+                    ))
                 logger.info(f"✅ 재건축 단계: {len(result['redevelop_stages'])}개")
                 if extra.get("error"):
                     result["redevelop_error"] = extra["error"]
-            else:
-                # 일반 단지: 기본정보(스크래퍼) 세대수·동수를 API보다 우선 사용
-                # API는 분양/매매 세대만(618) 반환하는 경우가 있어, 기본정보 "783세대(임대165)" 총 세대수를 사용
-                if extra.get("households") is not None:
-                    result["households"] = extra["households"]
-                    logger.info(f"✅ 스크래퍼(기본정보)에서 세대수 추출: {result['households']}")
-                elif result["households"] is None:
-                    pass  # API에서만 채우기 (이미 위에서 시도함)
-                if extra.get("buildings") is not None:
-                    result["buildings"] = extra["buildings"]
-                    logger.info(f"✅ 스크래퍼에서 동수 추출: {result['buildings']}")
-                elif result["buildings"] is None:
-                    pass
         
         if result["kb_price"] is not None:
             price_info = f"{result['kb_price']:,.0f}만원"

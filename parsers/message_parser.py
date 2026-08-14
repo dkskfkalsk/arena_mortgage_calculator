@@ -839,10 +839,20 @@ class MessageParser:
                 print(f"DEBUG: Parsed total_floors from address - {total_floors_match.group(1)}층")
         
         elif "면적" in key_clean:
-            # 면적에서 숫자 추출 (예: "25.95㎡")
-            match = re.search(r"([\d.]+)", value)
-            if match:
-                data["area"] = float(match.group(1))
+            # "51㎡/37.85㎡"처럼 공급/전용이 같이 오면 전용(두 번째)을 쓴다.
+            # 한도 판정(85㎡·110㎡ 등)은 등기부 전용면적이 기준이므로 공급면적을 잡으면 안 된다.
+            pair = re.match(
+                r"\s*(\d+\.?\d*)\s*(?:㎡|m²)?\s*/\s*(\d+\.?\d*)\s*(?:㎡|m²)?",
+                value, re.IGNORECASE,
+            )
+            if pair and 10 <= float(pair.group(2)) <= 300:
+                data["area"] = float(pair.group(2))
+                print(f"DEBUG: Area from 공급/전용 pair - 전용 {data['area']}㎡ (입력: '{value}')")
+            else:
+                # 면적에서 숫자 추출 (예: "25.95㎡")
+                match = re.search(r"([\d.]+)", value)
+                if match:
+                    data["area"] = float(match.group(1))
         
         elif "세대수" in key_clean:
             # 세대수에서 숫자 추출 (예: "16세대 (1개동)")
