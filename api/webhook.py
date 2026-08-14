@@ -986,8 +986,11 @@ def get_application(force_new=False):
             area_from_caption = caption_info.get('area')
             area_from_pdf = result.면적 or ''
             area = area_from_caption or area_from_pdf or ''
-            area_source = " (캡션 입력)" if (area and area_from_caption) else (" (등기부 추출)" if area else "")
+            area_source_note = "캡션 입력" if (area and area_from_caption) else ("등기부 추출" if area else "")
+            area_source = f" ({area_source_note})" if area_source_note else ""
             lines.append(f"면   적 : {area}{area_source}")
+            # KB '동일시세 전용면적'으로 매칭된 경우 아래에서 이 줄에 표기를 덧붙인다
+            area_line_index = len(lines) - 1
             
             # 세대수, 구분, KB시세 (캡션에서 추출한 정보 사용, KB API 결과로 업데이트 가능)
             households = caption_info.get('households') or ''
@@ -1047,6 +1050,19 @@ def get_application(force_new=False):
                         kb_price_num = kb_result.get('kb_price')
                         kb_price_min_num = kb_result.get('kb_price_min')
                         kb_complex_id = kb_result.get('complex_id')
+
+                        # 구축은 등기부 전유면적에 발코니가 포함돼 KB 전용면적과 다르다(은마 94.76 ↔ 76.79).
+                        # KB '동일시세 전용면적' 목록으로 타입을 확정한 경우 면적 줄에 근거를 남긴다.
+                        if kb_result.get('same_price_area_matched'):
+                            notes = [n for n in (area_source_note, "동일시세면적 적용") if n]
+                            lines[area_line_index] = f"면   적 : {area} ({' / '.join(notes)})"
+                            print(
+                                f"[WEBHOOK] ✅ 동일시세면적 적용: 등기 {area} → KB 전용 {kb_result.get('area')}㎡",
+                                file=sys.stderr, flush=True,
+                            )
+                            logger.info(
+                                "동일시세면적 적용: 등기 %s → KB 전용 %s㎡", area, kb_result.get('area')
+                            )
                         
                         if kb_price_num:
                             kb_price = f"{int(kb_price_num):,}"

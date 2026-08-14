@@ -190,6 +190,11 @@ _KB_SEARCH_COOLDOWN_SEC = 300
 _KB_SEARCH_TIMEOUT_SEC = 6
 _KB_SEARCH_STATE: Dict[str, float] = {"fails": 0.0, "disabled_until": 0.0}
 
+# KB '동일시세 전용면적'(BasePrcInfoNew의 기타전용면적) 캐시. 타입별로 1회씩 호출하므로
+# 타입이 많은 단지에서 호출이 불어나는 것을 막는다.
+_SAME_PRICE_AREA_CACHE: Dict[Tuple[str, str], List[str]] = {}
+_SAME_PRICE_AREA_MAX_LOOKUP = 8
+
 
 def _kb_search_available() -> bool:
     """검색 엔진 호출 가능 여부 (쿨다운 중이면 False)."""
@@ -1751,6 +1756,99 @@ class KBPriceAPI:
             logger.debug(f"   사용 가능한 면적: {[p.get('전용면적') or p.get('공급면적') or 'N/A' for p in prices[:10]]}")
         
         return best_match
+
+    def get_same_price_areas(self, complex_id: str, area_seq: Any) -> List[str]:
+        """
+        KB '동일시세 전용면적' 목록 조회 (kbland 단지 상세의 동일 버튼과 같은 데이터).
+
+        BasePrcInfoNew 응답의 '기타전용면적' 필드로, 한 시세 타입에 묶인 전용면적들이
+        쉼표로 나열된다. 1980년 전후 구축은 등기부 전유면적에 발코니가 포함돼 KB 전용면적과
+        다르므로(은마 등기 94.76 ↔ KB 전용 76.79), 이 목록이 등기부 면적 → 시세 타입을
+        잇는 KB 공식 대응표 역할을 한다.
+        """
+        if area_seq is None:
+            return []
+        cache_key = (str(complex_id), str(area_seq))
+        if cache_key in _SAME_PRICE_AREA_CACHE:
+            return _SAME_PRICE_AREA_CACHE[cache_key]
+
+        areas: List[str] = []
+        try:
+            response = requests.get(
+                f"{self.base_url}/land-price/price/BasePrcInfoNew",
+                params={"단지기본일련번호": complex_id, "면적일련번호": area_seq},
+                headers=DEFAULT_HEADERS,
+                timeout=10,
+            )
+            response.raise_for_status()
+            rows = (response.json().get("dataBody", {}) or {}).get("data", {}) or {}
+            for row in rows.get("시세") or []:
+                for token in str(row.get("기타전용면적") or "").split(","):
+                    token = token.strip()
+                    if token:
+                        areas.append(token)
+        except Exception as e:
+            logger.debug("동일시세 전용면적 조회 실패(단지 %s, 면적일련번호 %s): %s", complex_id, area_seq, e)
+
+        _SAME_PRICE_AREA_CACHE[cache_key] = areas
+        return areas
+
+    def find_price_by_same_price_area(self, complex_id: str, prices: List[Dict[str, Any]],
+                                      area: float) -> Optional[Dict[str, Any]]:
+        """
+        전용/공급면적 정확 매칭이 실패했을 때, KB '동일시세 전용면적' 목록으로 타입을 찾는다.
+
+        구축 아파트는 등기부 전유면적이 발코니를 포함해 KB 전용면적과 다르지만,
+        KB가 해당 면적을 동일 시세 타입으로 묶어 두었기 때문에 목록에 정확히 있으면 확정할 수 있다.
+        후보가 2개 이상이면 어느 타입인지 단정할 수 없으므로 포기한다(가까운 면적 대체 금지).
+        """
+        if not prices or area <= 0 or complex_id is None:
+            return None
+
+        target = f"{area:.2f}"
+
+        def to_float(value):
+            try:
+                return float(str(value).strip())
+            except (ValueError, TypeError, AttributeError):
+                return None
+
+        # 등기면적이 전용~공급면적 구간(±10%) 안에 드는 타입만 조회해 API 호출 수를 억제
+        candidates = []
+        for price_info in prices:
+            dedicated = to_float(price_info.get("전용면적"))
+            supply = to_float(price_info.get("공급면적") or price_info.get("면적"))
+            low = (dedicated or supply or 0) * 0.9
+            high = (supply or dedicated or 0) * 1.1
+            if low <= area <= high:
+                candidates.append(price_info)
+        if not candidates:
+            candidates = list(prices)
+        candidates = candidates[:_SAME_PRICE_AREA_MAX_LOOKUP]
+
+        matched = []
+        for price_info in candidates:
+            same_areas = self.get_same_price_areas(complex_id, price_info.get("면적일련번호"))
+            if not same_areas:
+                continue
+            if any(f"{v:.2f}" == target for v in (to_float(a) for a in same_areas) if v is not None):
+                matched.append((price_info, same_areas))
+
+        if len(matched) != 1:
+            if matched:
+                logger.warning(
+                    "⚠️ 동일시세 전용면적에 %s㎡가 여러 타입(%d개)에 있어 타입 확정 불가 → KB 시세 생략",
+                    target, len(matched),
+                )
+            return None
+
+        price_info, same_areas = matched[0]
+        logger.info(
+            "✅ KB 동일시세 전용면적에서 %s㎡ 확인 → 전용 %s㎡ / 공급 %s㎡ 타입 적용 (목록: %s)",
+            target, price_info.get("전용면적"), price_info.get("공급면적"), ", ".join(same_areas),
+        )
+        print(f"[OK] KB 동일시세 전용면적 매칭: 등기 {target}㎡ → 공급 {price_info.get('공급면적')}㎡ 타입")
+        return price_info
     
     def get_kb_price(self, address: str, area: float, 
                      complex_name: Optional[str] = None,
@@ -2170,6 +2268,24 @@ class KBPriceAPI:
             matched_price = prices[0]
             logger.warning(f"⚠️ 면적 미제공(0) → 해당 단지 첫 번째 타입 적용: {matched_price.get('공급면적', 'N/A')}㎡ 등")
             print(f"[!] 면적 미제공 → 해당 단지 첫 번째 시세 타입 적용")
+
+        # 전용/공급면적이 안 맞으면 KB '동일시세 전용면적' 목록으로 재시도.
+        # 1980년 전후 구축은 등기부 전유면적에 발코니가 포함돼 KB 전용면적과 다르다
+        # (은마 등기 94.76㎡ ↔ KB 전용 76.79㎡). KB가 두 면적을 같은 시세로 묶어두므로
+        # 목록에 정확히 있을 때만 확정한다.
+        same_price_area_used = False
+        if not matched_price and area > 0 and complex_id is not None:
+            if not prices_from_mpri:
+                # fastPriceInfo의 매매 배열에는 면적일련번호가 없어 mpriByType으로 다시 받는다
+                logger.info("   면적 불일치 → 동일시세 전용면적 확인용 mpriByType 조회")
+                mpri_prices = self.get_complex_price(str(complex_id))
+            else:
+                mpri_prices = prices
+            fallback = self.find_price_by_same_price_area(str(complex_id), mpri_prices, area)
+            if fallback:
+                matched_price = fallback
+                same_price_area_used = True
+
         # 면적이 정확히 일치하는 타입이 없으면 시세를 쓰지 않는다 (가까운 면적으로 대체 금지)
         if not matched_price:
             logger.error(f"❌ 면적 {area}m²에 맞는 시세를 찾을 수 없음")
@@ -2237,6 +2353,8 @@ class KBPriceAPI:
             "type": matched_price.get("주택형타입내용") or matched_price.get("타입", ""),
             "dongcode": dongcode,
             "complex_id": str(complex_id) if complex_id is not None else None,  # 단지기본일련번호 → kbland.kr/c/{id}
+            # 등기부 면적이 KB 전용면적과 달라 '동일시세 전용면적' 목록으로 매칭했는지 (구축)
+            "same_price_area_matched": same_price_area_used,
         }
         
         # 7. 재건축·세대수·사용승인일: 단지 목록 → get_complex_info → /c/ 스크래퍼 순으로 채우기
@@ -2348,10 +2466,15 @@ class KBPriceAPI:
         else:
             price_info = "시세없음"
         
-        # 면적 차이 경고
+        # 면적 차이 경고 (동일시세 전용면적 매칭은 KB가 같은 시세로 묶은 면적이므로 경고 아님)
         if area_diff and area_diff > 5.0:
-            logger.warning(f"[!] 면적 차이: {area_diff:.2f}m² (요청: {area}m², 매칭: {matched_area_val}m²)")
-            print(f"[!] 면적 차이: {area_diff:.2f}m² (요청: {area}m², 매칭: {matched_area_val}m²)")
+            if same_price_area_used:
+                logger.info(
+                    f"   구축 등기면적 {area}m² → KB 동일시세 전용면적 {matched_area_val}m² 타입 적용"
+                )
+            else:
+                logger.warning(f"[!] 면적 차이: {area_diff:.2f}m² (요청: {area}m², 매칭: {matched_area_val}m²)")
+                print(f"[!] 면적 차이: {area_diff:.2f}m² (요청: {area}m², 매칭: {matched_area_val}m²)")
         
         logger.info(f"✅ KB 시세 조회 완료: {price_info} ({result['complex_name']})")
         logger.debug(f"   최종 결과: {result}")
