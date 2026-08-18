@@ -419,16 +419,8 @@
   "reconstruction_max_stage": 5,
   "_comment_reconstruction_max_stage": "재건축 5단계 조합설립인가까지 취급 가능",
   "conditions": [
-    {
-      "type": "환매특약",
-      "action": "allow_with_warning",
-      "message": "환매특약사항 선확인 필요"
-    },
-    {
-      "type": "별도등기",
-      "action": "allow_with_warning",
-      "message": "별도등기 건 진행여부 확인필요"
-    }
+    "환매특약사항 선확인 필요",
+    "별도등기 건 진행여부 확인필요"
   ],
   "additional_restricted_keywords": [
     "가등기",

@@ -38,15 +38,15 @@
         "multi_family_house": 0
       },
       "region_grade_prefix_rules": [
-        { "starts_with": "서울특별시", "grade": "S" },
-        { "starts_with": "경기도", "grade": "M" },
-        { "starts_with": "인천광역시", "grade": "M" },
-        { "starts_with": "", "grade": "P" }
+        { "starts_with": "서울특별시", "grade": "1" },
+        { "starts_with": "경기도", "grade": "2" },
+        { "starts_with": "인천광역시", "grade": "2" },
+        { "starts_with": "", "grade": "3" }
       ],
       "max_ltv_by_grade": {
-        "S": 80,
-        "M": 75,
-        "P": 70
+        "1": 80,
+        "2": 75,
+        "3": 70
       },
       "ltv_kb_price_override": [
         {
@@ -60,7 +60,7 @@
         {
           "match": {
             "property_type_keys": ["apartment"],
-            "region_grades": ["S"],
+            "region_grades": ["1"],
             "kb_price_gte": 20000
           },
           "range": [12, 18]
@@ -68,13 +68,13 @@
         {
           "match": {
             "property_type_keys": ["apartment"],
-            "region_grades": ["S"],
+            "region_grades": ["1"],
             "kb_price_lt": 20000
           },
           "range": [15.6, 18]
         },
         {
-          "match": { "property_type_keys": ["apartment"], "region_grades": ["M", "P"] },
+          "match": { "property_type_keys": ["apartment"], "region_grades": ["2", "3"] },
           "range": [15.6, 18]
         }
       ],
