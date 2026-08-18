@@ -240,10 +240,11 @@ def _format_result_with_label(
     else:
         lower_bound_suffix = " (하한가 적용)" if lower_bound_applied else ""
     
-    # 모든 결과가 최소진행금액 부족인지 확인 (한도 미산출 결과는 제외)
+    # 모든 결과가 최소진행 미만이면 한 줄로 안내. 부족자금이면 실제 가용(마이너스 포함)을 보여줌.
     non_limit_results = [r for r in results if not r.get("limit_not_calculated", False)]
     all_below_minimum = (
-        len(non_limit_results) > 0
+        "부족자금" not in (requests or "")
+        and len(non_limit_results) > 0
         and all(
             (r.get("total_amount") if r.get("is_refinance", False) else r.get("amount", 0)) < min_amount
             for r in non_limit_results

@@ -534,6 +534,64 @@ class BaseCalculator:
             unit_int = 100
         return (int(amount) // unit_int) * unit_int
 
+    def _is_min_amount_blocking(
+        self,
+        min_amount: Optional[float],
+        amount_for_min: float,
+        available_amount: float,
+        allow_negative_available: bool,
+    ) -> bool:
+        """최소진행 미만이면 True. 부족자금이고 가용≤0이면 마이너스 가용을 보여야 하므로 False."""
+        try:
+            if min_amount is None or float(amount_for_min) >= float(min_amount):
+                return False
+            if allow_negative_available and float(available_amount) <= 0:
+                return False
+        except (TypeError, ValueError):
+            return False
+        return True
+
+    def _limit_not_calculated(
+        self,
+        amount_info: Dict[str, float],
+        is_refinance: bool,
+        min_amount: Optional[float],
+        allow_negative_available: bool,
+    ) -> bool:
+        available = amount_info["available_amount"]
+        min_basis = amount_info["total_amount"] if is_refinance else amount_info.get("available_limit", available)
+        min_basis = self.round_down_to_hundred_thousand(min_basis)
+        if available <= 0 and not allow_negative_available:
+            return True
+        return self._is_min_amount_blocking(min_amount, min_basis, available, allow_negative_available)
+
+    def _apply_refinance_total_cap(
+        self,
+        total_amount: float,
+        refinance_principal: float,
+        cap: float,
+        allow_negative_available: bool,
+    ) -> Tuple[float, float]:
+        """대환 총실행을 cap으로 자르고 (총실행, 가용) 반환."""
+        total_amount = self.round_down_to_hundred_thousand(min(total_amount, cap))
+        remaining = total_amount - refinance_principal
+        if not allow_negative_available:
+            remaining = max(0, remaining)
+        return total_amount, self.round_down_to_hundred_thousand(remaining)
+
+    def _error_refinance_over_total_cap(
+        self,
+        refinance_principal: float,
+        cap: float,
+        min_amount: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        refi = self.round_down_to_hundred_thousand(refinance_principal)
+        cap_rnd = self.round_down_to_hundred_thousand(float(cap))
+        return self._error_result(
+            [f"대환 원금 {refi:,.0f}만원이 최대 총실행 {cap_rnd:,.0f}만원 초과"],
+            min_amount=min_amount,
+        )
+
     def _error_result(
         self,
         errors: Union[str, List[str]],
@@ -1785,29 +1843,29 @@ class BaseCalculator:
             else:
                 effective_min_amount = max(effective_min_amount, fm)
             print(f"DEBUG: BaseCalculator.calculate - 지분조건 요청 → 최소진행금액 하한 {fm}만원 (큰 값 적용): {effective_min_amount}만원")
-        
-        # JB하이론 / DSFNC 하이론: 대환 원금이 한도 초과 시 한도 미산출 (결과 전체 없음)
+
+        allow_negative_available = has_bucuk_jageum_request(property_data)
+
+        # JB하이론 / 총실행 상한 상품: 대환 원금이 한도 초과 시 한도 미산출
         is_jb = self.is_jb
         max_amount_limit_applies_to_total = self.config.get("max_amount_limit_applies_to_total", False)
         max_total_amount_limit = self.config.get("max_total_amount_limit")
-        if is_refinance and max_amount_limit is not None and refinance_principal > max_amount_limit:
-            if is_jb:
-                print(f"DEBUG: BaseCalculator.calculate - JB하이론: 대환 원금 {refinance_principal}만원 > {max_amount_limit}만원, 한도 미산출")
-            elif max_amount_limit_applies_to_total:
-                print(f"DEBUG: BaseCalculator.calculate - 한도 총액 적용 상품: 대환 원금 {refinance_principal}만원 > {max_amount_limit}만원, 한도 미산출")
-            if is_jb or max_amount_limit_applies_to_total:
-                return None
-        # 총실행 상한(max_total_amount_limit): 대환원금이 총상한 초과 시 한도 미산출
-        if (
-            is_refinance
-            and max_total_amount_limit is not None
-            and refinance_principal > float(max_total_amount_limit)
-        ):
-            print(
-                f"DEBUG: BaseCalculator.calculate - 총실행 상한: 대환 원금 {refinance_principal}만원 > "
-                f"{max_total_amount_limit}만원, 한도 미산출"
-            )
-            return None
+        if is_refinance:
+            over_cap = None
+            if max_amount_limit is not None and refinance_principal > max_amount_limit and (
+                is_jb or max_amount_limit_applies_to_total
+            ):
+                over_cap = float(max_amount_limit)
+            elif max_total_amount_limit is not None and refinance_principal > float(max_total_amount_limit):
+                over_cap = float(max_total_amount_limit)
+            if over_cap is not None:
+                print(
+                    f"DEBUG: BaseCalculator.calculate - {self.bank_name}: "
+                    f"대환 원금 {refinance_principal}만원 > 총실행 한도 {over_cap}만원"
+                )
+                return self._error_refinance_over_total_cap(
+                    refinance_principal, over_cap, effective_min_amount
+                )
         
         # 필요자금이 있으면 LTV별 계산을 건너뛰고 필요자금 기준으로 역산 계산
         required_amount = property_data.get("required_amount")
@@ -2081,7 +2139,6 @@ class BaseCalculator:
                 is_subordinate = getattr(self, '_is_subordinate', False)
                 priority_key = "subordinate" if is_subordinate else "primary"
                 bands = self.config.get("ltv_bands_subordinate" if is_subordinate else "ltv_bands_primary", [])
-                allow_negative_available = has_bucuk_jageum_request(property_data)
                 min_amount_config = effective_min_amount
                 for ltv in ltv_steps:
                     if max_ltv is not None and ltv > max_ltv:
@@ -2105,20 +2162,17 @@ class BaseCalculator:
                     amount_info = self.calculate_available_amount(
                         kb_price, ltv, total_mortgage, is_refinance, refinance_principal
                     )
-                    amount_for_min_rounded = self.round_down_to_hundred_thousand(
-                        amount_info["total_amount"] if is_refinance else amount_info.get("available_limit", amount_info.get("available_amount", 0))
-                    )
-                    limit_not_calculated = (
-                        (amount_info["available_amount"] <= 0 and not allow_negative_available)
-                        or (min_amount_config is not None and amount_for_min_rounded < min_amount_config)
+                    limit_not_calculated = self._limit_not_calculated(
+                        amount_info, is_refinance, min_amount_config, allow_negative_available
                     )
                     final_amount = self.round_down_to_hundred_thousand(amount_info["available_amount"]) if not limit_not_calculated else 0
                     final_total_amount = self.round_down_to_hundred_thousand(amount_info["total_amount"]) if not limit_not_calculated else 0
                     # 신용점수 없음(금리범위) 분기에서도 최대 한도 제한 동일 적용
                     if max_amount_limit is not None and not limit_not_calculated:
                         if max_amount_limit_applies_to_total and is_refinance:
-                            final_total_amount = self.round_down_to_hundred_thousand(min(final_total_amount, max_amount_limit))
-                            final_amount = self.round_down_to_hundred_thousand(max(0, final_total_amount - refinance_principal))
+                            final_total_amount, final_amount = self._apply_refinance_total_cap(
+                                final_total_amount, refinance_principal, max_amount_limit, allow_negative_available
+                            )
                             if final_amount <= 0 and not allow_negative_available:
                                 continue
                         elif max_amount_limit_applies_to_total and not is_refinance:
@@ -2174,7 +2228,6 @@ class BaseCalculator:
                 is_jb_per_grade = True
                 max_ltv_map = max_ltv_by_region_credit_grade.get(region_grade_str, {})
                 primary_rates = self.config.get("primary_interest_rates_by_ltv", {})
-                allow_negative_available = has_bucuk_jageum_request(property_data)
                 min_amount_config = effective_min_amount
                 for ltv in ltv_steps:
                     if max_ltv is not None and ltv > max_ltv:
@@ -2182,19 +2235,17 @@ class BaseCalculator:
                     amount_info = self.calculate_available_amount(
                         kb_price, ltv, total_mortgage, is_refinance, refinance_principal
                     )
-                    amount_for_min_check = amount_info["total_amount"] if is_refinance else amount_info.get("available_limit", amount_info.get("available_amount", 0))
-                    amount_for_min_rounded = self.round_down_to_hundred_thousand(amount_for_min_check)
-                    limit_not_calculated = (
-                        (amount_info["available_amount"] <= 0 and not allow_negative_available)
-                        or (min_amount_config is not None and amount_for_min_rounded < min_amount_config)
+                    limit_not_calculated = self._limit_not_calculated(
+                        amount_info, is_refinance, min_amount_config, allow_negative_available
                     )
                     final_amount = self.round_down_to_hundred_thousand(amount_info["available_amount"]) if not limit_not_calculated else 0
                     final_total_amount = self.round_down_to_hundred_thousand(amount_info["total_amount"]) if not limit_not_calculated else 0
                     # JB 최대 한도 제한 (max_amount_limit, 대환/후순위 총액 1억, 신용등급 무관)
                     if max_amount_limit is not None:
                         if is_refinance:
-                            final_total_amount = self.round_down_to_hundred_thousand(min(final_total_amount, max_amount_limit))
-                            final_amount = self.round_down_to_hundred_thousand(max(0, final_total_amount - refinance_principal))
+                            final_total_amount, final_amount = self._apply_refinance_total_cap(
+                                final_total_amount, refinance_principal, max_amount_limit, allow_negative_available
+                            )
                             if final_amount <= 0 and not allow_negative_available:
                                 continue
                             print(f"DEBUG: BaseCalculator.calculate - JB하이론 최대 한도 제한 적용: total {amount_info['total_amount']} -> {final_total_amount}만원, 가용 {final_amount}만원")
@@ -2270,9 +2321,6 @@ class BaseCalculator:
                     calculated_max_ltv = None
                     calculated_ltvs = set()  # 이미 산출된 LTV 추적 (중복 방지)
                     
-                    # 요청사항 또는 특이사항에 '부족자금'이 있는지 확인
-                    allow_negative_available = has_bucuk_jageum_request(property_data)
-                    
                     # 1단계: max_ltv부터 0.1%씩 감소시키며 한도가 나오는 최대 LTV 찾기
                     test_ltv = float(max_ltv)
                     while test_ltv >= min_ltv_limit:
@@ -2316,11 +2364,10 @@ class BaseCalculator:
                             final_total_amount = self.round_down_to_hundred_thousand(amount_info["total_amount"])
                         
                         # 최소진행금액 체크: 대환 시 총 실행금액(대환+추가), 후순위 시 가한도 기준
-                        min_amount = effective_min_amount
-                        amount_for_min_check = final_total_amount if is_refinance else amount_info.get("available_limit", amount_info.get("available_amount", 0))
-                        amount_for_min_rounded = self.round_down_to_hundred_thousand(amount_for_min_check)
-                        if min_amount is not None and amount_for_min_rounded < min_amount:
-                            print(f"DEBUG: BaseCalculator.calculate - MG캐피탈 대환: 총실행금액 {amount_for_min_rounded}만원이 min_amount {min_amount}만원보다 작아서 제외")
+                        if self._is_min_amount_blocking(
+                            effective_min_amount, final_total_amount, final_amount, allow_negative_available
+                        ):
+                            print(f"DEBUG: BaseCalculator.calculate - MG캐피탈 대환: 총실행금액 {final_total_amount}만원이 min_amount {effective_min_amount}만원보다 작아서 제외")
                         else:
                             result = {
                                 "ltv": calculated_max_ltv,
@@ -2382,11 +2429,10 @@ class BaseCalculator:
                                 final_total_amount = self.round_down_to_hundred_thousand(amount_info["total_amount"])
                             
                             # 최소진행금액 체크: 대환 시 총 실행금액(대환+추가), 후순위 시 가한도 기준
-                            min_amount = effective_min_amount
-                            amount_for_min_check = final_total_amount if is_refinance else amount_info.get("available_limit", amount_info.get("available_amount", 0))
-                            amount_for_min_rounded = self.round_down_to_hundred_thousand(amount_for_min_check)
-                            if min_amount is not None and amount_for_min_rounded < min_amount:
-                                print(f"DEBUG: BaseCalculator.calculate - MG캐피탈 대환: LTV {ltv}% - 총실행금액 {amount_for_min_rounded}만원이 min_amount {min_amount}만원보다 작아서 제외")
+                            if self._is_min_amount_blocking(
+                                effective_min_amount, final_total_amount, final_amount, allow_negative_available
+                            ):
+                                print(f"DEBUG: BaseCalculator.calculate - MG캐피탈 대환: LTV {ltv}% - 총실행금액 {final_total_amount}만원이 min_amount {effective_min_amount}만원보다 작아서 제외")
                                 continue
                             
                             result = {
@@ -2456,9 +2502,6 @@ class BaseCalculator:
                             )
                         
                         print(f"DEBUG: LTV {ltv} - amount_info: {amount_info}")  # 추가
-                        
-                        # 요청사항 또는 특이사항에 '부족자금'이 있는지 확인
-                        allow_negative_available = has_bucuk_jageum_request(property_data)
                         
                         # 가용 한도가 마이너스일 경우 처리
                         # - '부족자금'이 있는 경우만: 마이너스여도 산출
@@ -2531,15 +2574,11 @@ class BaseCalculator:
                         final_amount = self.round_down_to_hundred_thousand(final_amount)
                         final_total_amount = self.round_down_to_hundred_thousand(final_total_amount)
                         
-                        # 최소진행금액 체크: 대환 시 총 실행금액(대환+추가), 후순위 시 가한도 기준
-                        min_amount = effective_min_amount
-                        if max_amount_limit_applies_to_total or max_total_amount_limit is not None:
-                            amount_for_min_check = final_total_amount if is_refinance else final_amount
-                        else:
-                            amount_for_min_check = amount_info["total_amount"] if is_refinance else amount_info.get("available_limit", amount_info.get("available_amount", 0))
-                        amount_for_min_rounded = self.round_down_to_hundred_thousand(amount_for_min_check)
-                        if min_amount is not None and amount_for_min_rounded < min_amount:
-                            print(f"DEBUG: LTV {ltv} - 총실행금액 {amount_for_min_rounded}만원이 min_amount {min_amount}만원보다 작아서 제외 (가용금액: {final_amount}만원)")
+                        min_basis = final_total_amount if is_refinance else final_amount
+                        if self._is_min_amount_blocking(
+                            effective_min_amount, min_basis, final_amount, allow_negative_available
+                        ):
+                            print(f"DEBUG: LTV {ltv} - 총실행금액 {min_basis}만원이 min_amount {effective_min_amount}만원보다 작아서 제외 (가용금액: {final_amount}만원)")
                             continue
                         
                         result = {
@@ -2644,48 +2683,45 @@ class BaseCalculator:
                     ],
                     min_amount=min_amount,
                 )
-            else:
-                # 1차 잔여 한도(담보한도 − 선순위 채권최고). 대환 시 calculate_available_amount에서 대환 원금을 한 번 더 뺌.
-                max_available = max_ltv_amount - total_mortgage
-                max_available_rounded = self.round_down_to_hundred_thousand(max_available)
-                if max_available_rounded > 0 and max_available_rounded < min_amount:
-                    print(f"DEBUG: BaseCalculator.calculate - 최대 가용한도 {max_available_rounded}만원이 최소진행금액 {min_amount}만원보다 작음")
-                    return self._error_result(
-                        [
-                            f"{refinance_denied_prefix}"
-                            f"최소진행금액 부족{_grade_note} "
-                            f"({_ltv_label} 적용 시 가용한도: {max_available_rounded:,.0f}만원, "
-                            f"최소진행금액: {min_amount:,.0f}만원)"
-                        ],
-                        min_amount=min_amount,
-                    )
 
-            # 위 분기에서 사유를 못 담은 경우(가용 0·반올림, 대환 후 마이너스 등): 한도 없음 이유를 errors로 반환
-            tm_check = total_mortgage
-            max_avail_raw = max_ltv_amount - tm_check
-            max_avail_rnd = self.round_down_to_hundred_thousand(max_avail_raw)
-            existing_pct = (tm_check / kb_price * 100) if kb_price else 0.0
+            cap_info = self.calculate_available_amount(
+                kb_price, max_ltv, total_mortgage, is_refinance,
+                refinance_principal if is_refinance else 0,
+            )
+            stage1_rnd = self.round_down_to_hundred_thousand(cap_info["available_limit"])
+            avail_rnd = self.round_down_to_hundred_thousand(cap_info["available_amount"])
+            if avail_rnd > 0 and avail_rnd < min_amount:
+                print(f"DEBUG: BaseCalculator.calculate - 최대 가용한도 {avail_rnd}만원이 최소진행금액 {min_amount}만원보다 작음")
+                return self._error_result(
+                    [
+                        f"{refinance_denied_prefix}"
+                        f"최소진행금액 부족{_grade_note} "
+                        f"({_ltv_label} 적용 시 가용한도: {avail_rnd:,.0f}만원, "
+                        f"최소진행금액: {min_amount:,.0f}만원)"
+                    ],
+                    min_amount=min_amount,
+                )
+
+            # 위 분기에서 사유를 못 담은 경우(가용 0·반올림, 대환 후 마이너스 등)
+            existing_pct = (total_mortgage / kb_price * 100) if kb_price else 0.0
             loan_phase = "대환" if is_refinance else "후순위"
-            if max_avail_rnd <= 0:
+            if stage1_rnd <= 0:
                 fallback_err = (
                     f"{refinance_denied_prefix}"
                     f"{loan_phase} 가용 한도 없음 (선순위 채권최고 약 {existing_pct:.2f}%{_grade_note} / "
                     f"{_ltv_label} 기준 담보 여력 없음)"
                 )
             elif is_refinance and refinance_principal > 0:
-                # 1차 여력은 있으나 대환 원금 차감 후 가용 부족(마이너스 포함)
-                after_refi_raw = max_avail_raw - refinance_principal
-                after_refi_rnd = self.round_down_to_hundred_thousand(after_refi_raw)
                 fallback_err = (
                     f"{refinance_denied_prefix}"
                     f"한도 미산출 ({loan_phase}, {_ltv_label}{_grade_note} · "
-                    f"선순위 차감 후 여력 약 {max_avail_rnd:,.0f}만원이나 "
-                    f"대환 원금 차감 시 가용 약 {after_refi_rnd:,.0f}만원)"
+                    f"선순위 차감 후 여력 약 {stage1_rnd:,.0f}만원이나 "
+                    f"대환 원금 차감 시 가용 약 {avail_rnd:,.0f}만원)"
                 )
             else:
                 fallback_err = (
                     f"{refinance_denied_prefix}"
-                    f"한도 미산출 ({loan_phase}, {_ltv_label}{_grade_note} 기준 가용 약 {max_avail_rnd:,.0f}만원)"
+                    f"한도 미산출 ({loan_phase}, {_ltv_label}{_grade_note} 기준 가용 약 {avail_rnd:,.0f}만원)"
                 )
             print(f"DEBUG: BaseCalculator.calculate - no results for {self.bank_name}, fallback message: {fallback_err}")
             return self._error_result([fallback_err], min_amount=min_amount)
