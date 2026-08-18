@@ -418,9 +418,28 @@
   "_comment_appraisal_max_price": "감정건 최대 취급 시세 20억. 초과 시 취급 제한",
   "reconstruction_max_stage": 5,
   "_comment_reconstruction_max_stage": "재건축 5단계 조합설립인가까지 취급 가능",
-  "conditions": [
-    "환매특약사항 선확인 필요",
-    "별도등기 건 진행여부 확인필요"
+  "conditions": [],
+  "caption_rules": [
+    {
+      "keywords": [
+        "환매특약"
+      ],
+      "check_fields": [
+        "special_notes",
+        "requests"
+      ],
+      "message": "환매특약사항 선확인 필요"
+    },
+    {
+      "keywords": [
+        "별도등기"
+      ],
+      "check_fields": [
+        "special_notes",
+        "requests"
+      ],
+      "message": "별도등기 건 진행여부 확인필요"
+    }
   ],
   "additional_restricted_keywords": [
     "가등기",
