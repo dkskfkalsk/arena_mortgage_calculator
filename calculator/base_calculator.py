@@ -2898,6 +2898,9 @@ class BaseCalculator:
         funding_rate = self.config.get("funding_rate")
         if funding_rate:
             out["funding_rate"] = funding_rate
+        interest_rate_display = self.config.get("interest_rate_display")
+        if interest_rate_display:
+            out["interest_rate_display"] = interest_rate_display
         # 투맨금융대부 등: 세입자 있을 때 한도 밑 캡션 (전,월세 동의·미동의 진행 가능)
         tenant_caption = self.config.get("tenant_consent_caption")
         if tenant_caption and property_data and has_tenant_in_property(property_data):

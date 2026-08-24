@@ -326,38 +326,26 @@
     65,
     60
   ],
-  "subordinate_interest_rates_by_ltv": {
-    "_comment": "후순위 금리 (면적 무관 고정 11.5%)",
-    "75": {
-      "1": 11.5
-    },
-    "70": {
-      "1": 11.5
-    },
-    "65": {
-      "1": 11.5
-    },
-    "60": {
-      "1": 11.5
-    }
-  },
   "interest_rates_by_ltv": {
-    "_comment": "선순위 기준 기본 금리. 후순위는 subordinate_interest_rates 참조",
+    "_comment": "선후순위 동일. 회신 문구는 interest_rate_display",
     "75": {
-      "1": 9.9
+      "1": 8.9
     },
     "70": {
-      "1": 9.9
+      "1": 8.9
     },
     "65": {
-      "1": 9.9
+      "1": 8.9
     },
     "60": {
-      "1": 9.9
+      "1": 8.9
     }
   },
   "ignore_credit_score": true,
+  "hide_credit_grade": true,
   "show_interest_rate_range": false,
+  "interest_rate_display": "8.9%, 10.9%~",
+  "_comment_interest_rate_display": "선후순위 통합 고정 금리 문구. 한도 줄에 이 문자열만 표시",
   "price_sources": {
     "_comment": "시세 소스 사용 여부 설정. KB시세 기준, 감정건 취급 가능",
     "kb_price": 1,
