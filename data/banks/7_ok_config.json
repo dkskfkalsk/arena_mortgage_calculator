@@ -443,7 +443,7 @@
     "3": 0.5,
     "4": 1.0
   },
-  "business_fixed_rate_comment": "고정금리 선택시 -0.3%",
+  "business_fixed_rate_comment": "고정금리 선택시 +0.3%",
   "_comment_business_fixed_rate_comment": "사업자금 한도 결과 맨 아래에 표시. 빈 문자열이면 미표시. 가계자금에는 적용되지 않음.",
   "household_adjustment_rates": {
     "installment_repayment": 0.2,
