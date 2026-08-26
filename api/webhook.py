@@ -1190,6 +1190,8 @@ def get_application(force_new=False):
                 property_type, getattr(result, '대지권미등기', False)
             )
             lines.append(f"구   분 : {property_type}")
+            if kb_result and kb_result.get("complex_name"):
+                lines.append(f"단지명 : {kb_result.get('complex_name')}")
             # 사용승인일 (KB 기본정보에서 추출한 경우)
             if kb_result and (kb_result.get('approval_date') or kb_result.get('years_since_completion') is not None):
                 approval_str = kb_result.get('approval_date') or ''

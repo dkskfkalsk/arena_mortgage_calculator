@@ -536,29 +536,66 @@ def _normalize_kb_complex_name_for_match(name: str) -> str:
     return _complex_name_core(name)
 
 
+# 포함 관계 remainder가 이 패턴이면 같은 단지 장식(1차, 200동)으로 본다.
+_SAFE_NAME_REMAINDER_RE = re.compile(r"^(?:제)?\d+(?:차|단지|동)?$")
+
+
+def _is_safe_name_containment(shorter: str, longer: str) -> bool:
+    """
+    shorter ⊂ longer를 같은 단지로 볼 수 있는지.
+    remainder가 1차/200동 같은 장식일 때만 True.
+    '꿈마을' ⊂ '꿈마을동아'처럼 시공사명이 붙으면 False.
+    """
+    if not shorter or not longer:
+        return False
+    if shorter == longer:
+        return True
+    if shorter not in longer:
+        return False
+    remainder = re.sub(r"[\s,·_\-]+", "", longer.replace(shorter, "", 1))
+    if not remainder:
+        return True
+    return bool(_SAFE_NAME_REMAINDER_RE.fullmatch(remainder))
+
+
 def _complex_names_equivalent(a: str, b: str) -> bool:
-    """단지명 동일 여부 (띄어쓰기·영문·알파벳 음차·아파트/(N차) 장식 무시)"""
+    """단지명 동일 여부 (띄어쓰기·영문·알파벳 음차·아파트/(N차) 장식 무시). 시공사명 형제는 False."""
     na = _normalize_kb_complex_name_for_match(a)
     nb = _normalize_kb_complex_name_for_match(b)
     if not na or not nb:
         return False
-    if na == nb or na in nb or nb in na:
+    if na == nb:
+        return True
+    if _is_safe_name_containment(na, nb) or _is_safe_name_containment(nb, na):
         return True
     # 숫자+단지 변형: 리버시티1단지 vs 리버시티 (장식 제거 후에도 남을 경우)
     base_a = re.sub(r"\d+단지$", "", na)
     base_b = re.sub(r"\d+단지$", "", nb)
-    if base_a and base_b and (base_a == base_b or base_a in base_b or base_b in base_a):
-        return True
+    if base_a and base_b:
+        if base_a == base_b or _is_safe_name_containment(base_a, base_b) or _is_safe_name_containment(base_b, base_a):
+            return True
     # 공통 한글 꼬리 (충분히 길 때만) — 양쪽 모두 영문/음차 접두가 있을 때
     tail_a = _complex_name_hangul_tail(a)
     tail_b = _complex_name_hangul_tail(b)
     if tail_a and tail_b and len(tail_a) >= 4 and len(tail_b) >= 4:
-        if tail_a == tail_b or tail_a in tail_b or tail_b in tail_a:
+        if tail_a == tail_b or _is_safe_name_containment(tail_a, tail_b) or _is_safe_name_containment(tail_b, tail_a):
             la, _ = _parse_hangul_letter_prefix(a)
             lb, _ = _parse_hangul_letter_prefix(b)
             if (la and len(la) >= 2) and (lb and len(lb) >= 2):
                 return True
     return False
+
+
+def _complex_names_related(a: str, b: str) -> bool:
+    """시공사만 다른 형제 단지 후보 (꿈마을 vs 꿈마을(동아)). 확정은 번지/면적으로."""
+    if _complex_names_equivalent(a, b):
+        return True
+    na = _normalize_kb_complex_name_for_match(a)
+    nb = _normalize_kb_complex_name_for_match(b)
+    if not na or not nb or min(len(na), len(nb)) < 3:
+        return False
+    shorter, longer = (na, nb) if len(na) <= len(nb) else (nb, na)
+    return shorter in longer
 
 
 def _complex_names_core_equal(a: str, b: str) -> bool:
@@ -577,9 +614,16 @@ def _score_complex_name_similarity(target: str, api_name: str) -> float:
     if not nt or not na:
         return 0.0
     if nt in na:
-        return min(0.95, len(nt) / len(na))
+        ratio = len(nt) / max(len(na), 1)
+        # 시공사 형제(꿈마을 ⊂ 꿈마을동아)는 부분매칭 임계(0.8) 아래로 묶어 단독 확정하지 않음
+        if _is_safe_name_containment(nt, na):
+            return min(0.95, ratio)
+        return min(0.72, ratio)
     if na in nt:
-        return min(0.95, len(na) / len(nt))
+        ratio = len(na) / max(len(nt), 1)
+        if _is_safe_name_containment(na, nt):
+            return min(0.95, ratio)
+        return min(0.72, ratio)
 
     # 공통 한글 꼬리 점수 (래미안클라시스 등)
     tail_t = _complex_name_hangul_tail(target)
@@ -840,6 +884,78 @@ def _select_complex_by_dong_and_lot(
     return None
 
 
+def _parse_area_number(value: Any) -> Optional[float]:
+    if value is None or value == "":
+        return None
+    try:
+        return float(str(value).strip().replace(",", "").replace("㎡", "").replace("m²", ""))
+    except (ValueError, TypeError):
+        return None
+
+
+def _complex_has_exact_area(
+    complex_item: Dict[str, Any],
+    area: float,
+    tolerance: float = 0.01,
+) -> Optional[bool]:
+    """
+    fastPriceInfo 매매 배열에 등기 면적이 정확히 있는지.
+    시세 배열이 없으면 None(모름), 있으면 True/False.
+    """
+    if area is None or area <= 0:
+        return None
+    prices = complex_item.get("매매") or complex_item.get("매매가") or []
+    if not isinstance(prices, list) or not prices:
+        return None
+    for price_info in prices:
+        dedicated = _parse_area_number(price_info.get("전용면적"))
+        supply = _parse_area_number(price_info.get("공급면적") or price_info.get("면적"))
+        if dedicated is not None and abs(dedicated - area) <= tolerance:
+            return True
+        if dedicated is None and supply is not None and abs(supply - area) <= tolerance:
+            return True
+    return False
+
+
+def _disambiguate_complex_candidates(
+    pool: List[Dict[str, Any]],
+    dong_name: str,
+    lot_number: Optional[str],
+    area: Optional[float],
+    complex_name: Optional[str],
+) -> Optional[Dict[str, Any]]:
+    """이름 동률 후보를 동+번지 → 정확 면적 → 코어 완전일치 순으로 1건 확정. 못 가리면 None."""
+    if not pool:
+        return None
+    remaining = list(pool)
+    if dong_name and lot_number:
+        lot_hits = [
+            c for c in remaining
+            if dong_name in (c.get("주소") or "")
+            and _lot_matches_complex_address(lot_number, c.get("주소") or "")
+        ]
+        if len(lot_hits) == 1:
+            return lot_hits[0]
+        if lot_hits:
+            remaining = lot_hits
+    if area is not None and area > 0:
+        area_hits = [c for c in remaining if _complex_has_exact_area(c, area) is True]
+        if len(area_hits) == 1:
+            return area_hits[0]
+        if area_hits:
+            remaining = area_hits
+    if len(remaining) == 1:
+        return remaining[0]
+    if complex_name:
+        core_hits = [
+            c for c in remaining
+            if _complex_names_core_equal(complex_name, c.get("단지명") or c.get("name") or "")
+        ]
+        if len(core_hits) == 1:
+            return core_hits[0]
+    return None
+
+
 class KBPriceAPI:
     """KB 부동산 시세 API 클라이언트"""
     
@@ -922,9 +1038,8 @@ class KBPriceAPI:
         return v
 
     def _build_cache_keys(self, address: str, complex_name: Optional[str]) -> List[str]:
+        # 이름만으로 캐시하면 '꿈마을'이 건영서안/동아를 서로 덮어쓴다. 주소 단위만 저장.
         keys = []
-        if complex_name:
-            keys.append(f"name::{self._normalize_text(complex_name)}")
         if address:
             keys.append(f"addr::{self._normalize_text(address)}")
         if address and complex_name:
@@ -1169,22 +1284,37 @@ class KBPriceAPI:
             if token and token in cand:
                 score += 1.0
 
+        cand_addr = f"{page_info.get('road_address', '')} {page_info.get('jibun_address', '')}"
         target_nums = set(_KBLAND_NUM_RE.findall(target_address or ""))
-        cand_nums = set(_KBLAND_NUM_RE.findall(f"{page_info.get('road_address','')} {page_info.get('jibun_address','')}"))
+        cand_nums = set(_KBLAND_NUM_RE.findall(cand_addr))
         if target_nums and cand_nums and target_nums.intersection(cand_nums):
             score += 1.0
+
+        target_lot = _extract_lot_number_from_address(target_address)
+        if target_lot:
+            if _lot_matches_complex_address(target_lot, cand_addr):
+                score += 2.0
+            else:
+                cand_lot = _extract_lot_number_from_address(
+                    page_info.get("jibun_address") or page_info.get("road_address") or ""
+                )
+                if cand_lot and cand_lot != target_lot:
+                    score -= 2.5
 
         if target_complex_name:
             name_norm = self._normalize_text(target_complex_name)
             name_match = _normalize_kb_complex_name_for_match(target_complex_name)
             title_match = _normalize_kb_complex_name_for_match(page_info.get("title", ""))
             title_raw = page_info.get("title", "") or ""
-            if name_norm and name_norm in title:
+            if _complex_names_equivalent(target_complex_name, title_raw):
                 score += 2.0
-            elif name_match and title_match and (name_match in title_match or title_match in name_match):
+            elif name_match and title_match and (
+                _is_safe_name_containment(name_match, title_match)
+                or _is_safe_name_containment(title_match, name_match)
+            ):
                 score += 2.0
-            elif _complex_names_equivalent(target_complex_name, title_raw):
-                score += 2.0
+            elif _complex_names_related(target_complex_name, title_raw):
+                score += 0.8
             else:
                 tail_t = _complex_name_hangul_tail(target_complex_name)
                 tail_title = _complex_name_hangul_tail(title_raw) or title_match
@@ -1952,6 +2082,7 @@ class KBPriceAPI:
         complexes: List[Dict[str, Any]],
         address: str,
         complex_name: Optional[str],
+        area: Optional[float] = None,
     ) -> Optional[Dict[str, Any]]:
         """fastPriceInfo/hscm 목록에서 등기 주소·단지명으로 단지를 고른다. 못 찾으면 None."""
         if not complexes:
@@ -1991,10 +2122,27 @@ class KBPriceAPI:
         if building_dong:
             logger.debug(f"   등기 건물동 번호: {building_dong}")
 
-        if complex_name:
+        # 동+번지가 단지 1건으로 확정되면 이름보다 우선 (중동 1103 → 꿈마을(동아))
+        if dong_name and lot_number:
+            lot_unique = _select_complex_by_dong_and_lot(complexes, dong_name, lot_number)
+            if lot_unique:
+                selected_complex = lot_unique
+                logger.info(
+                    "✅ 동+번지 우선 확정: %s (%s %s)",
+                    selected_complex.get("단지명"),
+                    dong_name,
+                    lot_number,
+                )
+                print(
+                    f"[OK] 동+번지 우선 확정: "
+                    f"{selected_complex.get('단지명')} ({dong_name} {lot_number})"
+                )
+
+        if not selected_complex and complex_name:
             logger.debug(f"   단지명으로 매칭 시도: {complex_name}")
-            # 단지명 매칭: 동등 후보 수집 → 동·번지로 차수(1차/2차) 확정
+            # 단지명 매칭: 동등 후보 + 시공사 형제 후보 → 동·번지·면적으로 확정
             exact_matches: List[Dict[str, Any]] = []
+            related_matches: List[Dict[str, Any]] = []
             best_match = None
             best_score = 0.0
 
@@ -2015,8 +2163,13 @@ class KBPriceAPI:
                             break
                 if name_equiv:
                     exact_matches.append(complex)
+                    related_matches.append(complex)
                     logger.debug(f"      동등/코어 후보: {complex_name_from_api}")
                     continue
+
+                if _complex_names_related(complex_name, complex_name_from_api):
+                    related_matches.append(complex)
+                    logger.debug(f"      형제 단지 후보: {complex_name_from_api}")
 
                 # 부분/유사 매칭 점수 (영문·혼합 단지명 포함)
                 score = _score_complex_name_similarity(complex_name, complex_name_from_api)
@@ -2055,98 +2208,38 @@ class KBPriceAPI:
                     best_match = complex
                     logger.debug(f"      매칭 발견: {complex_name_from_api} (점수: {score:.2f})")
 
-            if exact_matches:
-                if len(exact_matches) == 1:
-                    only = exact_matches[0]
-                    only_addr = (only.get("주소") or "").strip()
-                    # 이름 1건이어도 등기 번지가 있으면 반드시 검증
-                    if dong_name and lot_number:
-                        if (
-                            dong_name in only_addr
-                            and _lot_matches_complex_address(lot_number, only_addr)
-                        ):
-                            selected_complex = only
-                        else:
-                            logger.warning(
-                                "⚠️ 단지명 일치 but 번지 불일치 → 기각: %s (주소: %s, 기대: %s %s)",
-                                only.get("단지명"),
-                                only_addr,
-                                dong_name,
-                                lot_number,
-                            )
-                            print(
-                                f"[!] 단지명 일치 but 번지 불일치 → 기각: "
-                                f"{only.get('단지명')} (기대 {dong_name} {lot_number})"
-                            )
-                    else:
-                        selected_complex = only
-                elif dong_name and lot_number:
-                    lot_hits = [
-                        c for c in exact_matches
-                        if dong_name in (c.get("주소") or "")
-                        and _lot_matches_complex_address(lot_number, c.get("주소") or "")
-                    ]
-                    if len(lot_hits) == 1:
-                        selected_complex = lot_hits[0]
+            name_pool = exact_matches or related_matches
+            if name_pool:
+                picked = _disambiguate_complex_candidates(
+                    name_pool, dong_name, lot_number, area, complex_name
+                )
+                if picked:
+                    selected_complex = picked
+                    picked_name = selected_complex.get("단지명", "알 수 없음")
+                    picked_addr = (selected_complex.get("주소") or "").strip()
+                    if len(exact_matches) == 1 and selected_complex in exact_matches:
+                        logger.info(f"✅ 단지명 정확 매칭: {picked_name}")
+                        print(f"[OK] 단지명 정확 매칭: {picked_name}")
+                    elif dong_name and lot_number and dong_name in picked_addr and _lot_matches_complex_address(lot_number, picked_addr):
                         logger.info(
-                            "✅ 코어명 동률 → 동+번지로 확정: %s (%s %s)",
-                            selected_complex.get("단지명"),
-                            dong_name,
-                            lot_number,
+                            "✅ 이름 동률 → 동+번지 확정: %s (%s %s)",
+                            picked_name, dong_name, lot_number,
                         )
                         print(
-                            f"[OK] 코어명 동률 → 동+번지 확정: "
-                            f"{selected_complex.get('단지명')} ({dong_name} {lot_number})"
+                            f"[OK] 이름 동률 → 동+번지 확정: "
+                            f"{picked_name} ({dong_name} {lot_number})"
                         )
-                    elif lot_hits:
-                        selected_complex = lot_hits[0]
+                    elif area and _complex_has_exact_area(selected_complex, area) is True:
+                        logger.info("✅ 이름 동률 → 정확 면적으로 확정: %s (%.2f㎡)", picked_name, area)
+                        print(f"[OK] 이름 동률 → 정확 면적 확정: {picked_name} ({area}㎡)")
                     else:
-                        # 번지 불일치(또는 주소 없는 임대형 등) → 코어 완전일치만 채택
-                        core_hits = [
-                            c for c in exact_matches
-                            if _complex_names_core_equal(
-                                complex_name,
-                                c.get("단지명") or c.get("name") or "",
-                            )
-                        ]
-                        if len(core_hits) == 1:
-                            selected_complex = core_hits[0]
-                            logger.info(
-                                "✅ 코어명 완전일치로 확정(번지 미일치): %s",
-                                selected_complex.get("단지명"),
-                            )
-                            print(f"[OK] 단지명 코어 매칭: {selected_complex.get('단지명')}")
-                        else:
-                            logger.warning(
-                                "⚠️ 코어명 후보 %d개이나 동+번지(%s %s)로 확정 불가 → 추가 매칭 시도",
-                                len(exact_matches),
-                                dong_name,
-                                lot_number,
-                            )
+                        logger.info(f"✅ 단지명 매칭: {picked_name}")
+                        print(f"[OK] 단지명 매칭: {picked_name}")
                 else:
-                    # 번지 없으면 코어 완전일치 우선, 없으면 첫 후보
-                    core_hits = [
-                        c for c in exact_matches
-                        if _complex_names_core_equal(
-                            complex_name,
-                            c.get("단지명") or c.get("name") or "",
-                        )
-                    ]
-                    selected_complex = core_hits[0] if len(core_hits) == 1 else (
-                        core_hits[0] if core_hits else exact_matches[0]
+                    logger.warning(
+                        "⚠️ 단지명 후보 %d개이나 동+번지/면적으로 확정 불가 → 추가 매칭 시도",
+                        len(name_pool),
                     )
-
-                if selected_complex:
-                    complex_name_from_api = selected_complex.get("단지명", "알 수 없음")
-                    # 동+번지 확정 로그는 위에서 이미 출력
-                    if len(exact_matches) == 1:
-                        logger.info(f"✅ 단지명 정확 매칭: {complex_name_from_api}")
-                        print(f"[OK] 단지명 정확 매칭: {complex_name_from_api}")
-                    elif dong_name and lot_number and dong_name in (selected_complex.get("주소") or "") and _lot_matches_complex_address(lot_number, selected_complex.get("주소") or ""):
-                        pass  # 이미 동+번지 로그 출력
-                    elif not (dong_name and lot_number):
-                        logger.info(f"✅ 단지명 코어 매칭: {complex_name_from_api}")
-                        print(f"[OK] 단지명 코어 매칭: {complex_name_from_api}")
 
             # 부분 매칭 결과 사용 (영문·알파벳음차 변환 가능 시 임계값 완화)
             has_latinish = bool(re.search(r"[A-Za-z]", complex_name or "")) or (
@@ -2303,7 +2396,7 @@ class KBPriceAPI:
 
         # 3. 단지 선택. hscmList는 fastPriceInfo로 못 찾을 때만 붙인다.
         logger.debug("3단계: 단지 선택")
-        selected_complex = self._select_complex_from_list(complexes, address, complex_name)
+        selected_complex = self._select_complex_from_list(complexes, address, complex_name, area=area)
         if not selected_complex:
             seen_ids = {
                 c.get("단지기본일련번호")
@@ -2314,7 +2407,7 @@ class KBPriceAPI:
             if hscm_added:
                 print(f"[OK] hscmList 병합(매칭 실패 후): +{hscm_added}개 → 총 {len(complexes)}개")
                 logger.info("hscmList 병합(매칭 실패 후): +%d개 (총 %d개)", hscm_added, len(complexes))
-                selected_complex = self._select_complex_from_list(complexes, address, complex_name)
+                selected_complex = self._select_complex_from_list(complexes, address, complex_name, area=area)
             elif not complexes:
                 logger.error("❌ 단지 목록을 찾을 수 없음")
                 print("[X] 단지 목록을 찾을 수 없음")
@@ -2406,6 +2499,40 @@ class KBPriceAPI:
             if fallback:
                 matched_price = fallback
                 same_price_area_used = True
+
+        # 고른 단지에 면적이 없고, 번지로 확정되지 않았을 때만
+        # 같은 이름 형제 단지 중 정확 면적 1건으로 재선택 (꿈마을 시공사 형제)
+        if not matched_price and area > 0 and complex_name:
+            target_lot = _extract_lot_number_from_address(address)
+            selected_addr = selected_complex.get("주소") or ""
+            lot_confirmed = bool(
+                target_lot and _lot_matches_complex_address(target_lot, selected_addr)
+            )
+            if not lot_confirmed:
+                selected_id = selected_complex.get("단지기본일련번호")
+                related_hits = []
+                for c in complexes:
+                    if c.get("단지기본일련번호") == selected_id:
+                        continue
+                    api_name = c.get("단지명") or c.get("name") or ""
+                    if not _complex_names_related(complex_name, api_name):
+                        continue
+                    if _complex_has_exact_area(c, area) is True:
+                        related_hits.append(c)
+                if len(related_hits) == 1:
+                    selected_complex = related_hits[0]
+                    complex_id = selected_complex.get("단지기본일련번호")
+                    logger.info(
+                        "✅ 면적 교차검증으로 단지 재선택: %s (id=%s, %.2f㎡)",
+                        selected_complex.get("단지명"), complex_id, area,
+                    )
+                    print(f"[OK] 면적 교차검증 재선택: {selected_complex.get('단지명')} ({area}㎡)")
+                    prices = selected_complex.get("매매") or selected_complex.get("매매가") or []
+                    prices_from_mpri = False
+                    if not prices and complex_id is not None:
+                        prices = self.get_complex_price(str(complex_id))
+                        prices_from_mpri = True
+                    matched_price = self.find_matching_price(prices, area)
 
         # 면적이 정확히 일치하는 타입이 없으면 시세를 쓰지 않는다 (가까운 면적으로 대체 금지)
         if not matched_price:

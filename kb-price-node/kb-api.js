@@ -93,43 +93,105 @@ function extractComplexName(address) {
   return null;
 }
 
-function selectComplex(complexes, complexName, address) {
-  let lotNumber = null;
-  const lm = address.match(/(\d+(?:-\d+)?)/);
-  if (lm) lotNumber = lm[1];
+function extractLotNumber(address) {
+  if (!address) return null;
+  let addr = String(address)
+    .replace(/\s+제\d+동/g, "")
+    .replace(/\s+제\d+층/g, "")
+    .replace(/\s+제\d+호/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  let m = addr.match(/([가-힣]+(?:리|동))\s+(\d{2,}(?:-\d+)?)/);
+  if (m) return m[2];
+  m = addr.match(/(?:리|동|번지)\s+(\d{2,}(?:-\d+)?)/);
+  if (m) return m[1];
+  m = addr.match(/(?:^|[^가-힣0-9])(\d{3,}(?:-\d+)?)(?:\s*(?:번지)?(?:\s|$)|$)/);
+  return m ? m[1] : null;
+}
 
-  let selected = null;
-  let bestScore = 0;
-  let bestMatch = null;
+function extractDongName(address) {
+  if (!address) return "";
+  const m = String(address).match(/(?:구|군|시)\s+([가-힣]+(?:동|읍|면))/);
+  if (!m) return "";
+  const parts = m[1].trim().split(/\s+/);
+  const last = parts[parts.length - 1] || "";
+  return /[동읍면]$/.test(last) ? last : m[1];
+}
 
-  for (const c of complexes) {
-    const apiName = (c["단지명"] || c.name || "").trim();
-    const apiNameNs = apiName.replace(/\s/g, "");
-    const addr = c["주소"] || "";
+function lotMatches(lot, complexAddress) {
+  if (!lot || !complexAddress) return false;
+  const ca = String(complexAddress);
+  const esc = lot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return (
+    new RegExp(`(?:리|동)\\s+${esc}(?:\\s|$|-)`).test(ca) ||
+    new RegExp(`(?:^|\\s)${esc}(?:\\s|$|-)`).test(ca) ||
+    new RegExp(`(?:^|\\s)${esc}(?:번지)`).test(ca)
+  );
+}
 
-    if (complexName && (complexName === apiName || (apiNameNs && complexName === apiNameNs))) {
-      selected = c;
-      break;
-    }
+function selectByDongAndLot(complexes, dongName, lotNumber) {
+  if (!dongName || !lotNumber) return null;
+  const hits = complexes.filter(
+    (c) => String(c["주소"] || "").includes(dongName) && lotMatches(lotNumber, c["주소"] || "")
+  );
+  return hits.length === 1 ? hits[0] : null;
+}
 
-    let score = 0;
-    const base = (apiName || "").replace(/\s/g, "").replace(/[()]/g, "");
-    if (complexName && (apiName.includes(complexName) || (base && base.includes(complexName)))) {
-      score = complexName.length / (base.length || 1);
-      if ((apiName || "").includes("(")) score = Math.max(score, 0.9);
-    } else if (complexName && (complexName.includes(apiName) || (base && complexName.includes(base)))) {
-      score = (base.length || apiName.length) / complexName.length;
-    }
-    if (lotNumber && addr.includes(lotNumber)) score += 0.2;
-    if (score > bestScore) {
-      bestScore = score;
-      bestMatch = c;
+function hasExactArea(complex, area, tol = 0.01) {
+  if (!(area > 0)) return null;
+  const prices = complex["매매"] || complex["매매가"] || [];
+  if (!Array.isArray(prices) || !prices.length) return null;
+  for (const p of prices) {
+    const parse = (v) => {
+      if (v == null || v === "") return null;
+      const n = parseFloat(String(v).replace(/,/g, "").replace(/[㎡m²]/g, "").trim());
+      return isNaN(n) ? null : n;
+    };
+    const ded = parse(p["전용면적"]);
+    const sup = parse(p["공급면적"] || p["면적"]);
+    if (ded != null && Math.abs(ded - area) <= tol) return true;
+    if (ded == null && sup != null && Math.abs(sup - area) <= tol) return true;
+  }
+  return false;
+}
+
+function namesRelated(a, b) {
+  const na = String(a || "").replace(/\s/g, "").replace(/[()]/g, "");
+  const nb = String(b || "").replace(/\s/g, "").replace(/[()]/g, "");
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  const shorter = na.length <= nb.length ? na : nb;
+  const longer = na.length <= nb.length ? nb : na;
+  return shorter.length >= 3 && longer.includes(shorter);
+}
+
+function selectComplex(complexes, complexName, address, area = null) {
+  const lotNumber = extractLotNumber(address);
+  const dongName = extractDongName(address);
+
+  const uniqueLot = selectByDongAndLot(complexes, dongName, lotNumber);
+  if (uniqueLot) return uniqueLot;
+
+  if (complexName) {
+    const related = complexes.filter((c) =>
+      namesRelated(complexName, c["단지명"] || c.name || "")
+    );
+    if (related.length) {
+      const lotHits = related.filter(
+        (c) => dongName && lotNumber && String(c["주소"] || "").includes(dongName) && lotMatches(lotNumber, c["주소"] || "")
+      );
+      if (lotHits.length === 1) return lotHits[0];
+      const pool = lotHits.length ? lotHits : related;
+      if (area > 0) {
+        const areaHits = pool.filter((c) => hasExactArea(c, area) === true);
+        if (areaHits.length === 1) return areaHits[0];
+        if (areaHits.length) return areaHits[0];
+      }
+      if (pool.length === 1) return pool[0];
     }
   }
 
-  if (selected) return selected;
-  if (bestMatch) return bestMatch;
-  return complexes[0] || null;
+  return null;
 }
 
 function findMatchingPrice(prices, area) {
@@ -288,7 +350,7 @@ async function getKbPrice(address, area, complexName = null) {
   if (!complexes.length) return null;
 
   const name = complexName ?? extractComplexName(address);
-  const selected = selectComplex(complexes, name, address);
+  const selected = selectComplex(complexes, name, address, area);
   if (!selected) return null;
 
   const complexId = selected["단지기본일련번호"] != null ? String(selected["단지기본일련번호"]) : null;
