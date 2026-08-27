@@ -1194,7 +1194,7 @@ class MessageParser:
             "전남광주통합특별시북구", "전남광주통합특별시광산구",
             "대전광역시동구", "대전광역시중구", "대전광역시서구", "대전광역시유성구", "대전광역시대덕구",
             "울산광역시중구", "울산광역시남구", "울산광역시동구", "울산광역시북구", "울산광역시울주군",
-            "세종특별자치시세종시",
+            "세종특별자치시",
             "강원특별자치도춘천시", "강원특별자치도원주시", "강원특별자치도강릉시",
             "강원특별자치도동해시", "강원특별자치도태백시", "강원특별자치도속초시", "강원특별자치도삼척시",
             "강원특별자치도홍천군", "강원특별자치도횡성군", "강원특별자치도영월군", "강원특별자치도평창군",
@@ -1255,7 +1255,7 @@ class MessageParser:
             "전라북도": "전북특별자치도",
             "강원도": "강원특별자치도",
             "제주도": "제주특별자치도",
-            "세종시": "세종특별자치시세종시",
+            "세종시": "세종특별자치시",
         }
         for src, dst in admin_aliases.items():
             if src in address_clean:
@@ -1274,10 +1274,12 @@ class MessageParser:
         fallback_regions = ["서울", "경기", "인천", "부산", "대구", "광주", "대전", "울산",
                            "세종", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주"]
         
+        fallback_to_full = {"세종": "세종특별자치시"}
         for region in fallback_regions:
             if region in address_clean:
-                print(f"DEBUG: _extract_region - fallback matched: '{region}'")
-                return region
+                result = fallback_to_full.get(region, region)
+                print(f"DEBUG: _extract_region - fallback matched: '{result}'")
+                return result
         
         print(f"DEBUG: _extract_region - no match found")
         return None
