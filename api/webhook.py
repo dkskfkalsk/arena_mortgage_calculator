@@ -1105,7 +1105,9 @@ def get_application(force_new=False):
                         kb_api_no_result = True
                         print(f"[WEBHOOK] ⚠️ KB 시세 조회 실패 (결과 없음)", file=sys.stderr, flush=True)
                         logger.warning("KB 시세 조회 실패 (결과 없음)")
-                        # KB 시세 없을 때 공공데이터 실거래가 조회
+
+                    # 공식 KB시세가 없으면 공공데이터 실거래가 조회 (단지만 식별된 경우 포함)
+                    if not (kb_result and kb_result.get('kb_price')):
                         try:
                             from KB_api.kb_price_api import KBPriceAPI
                             from utils.real_transaction_api import get_real_transactions, format_real_transactions_display

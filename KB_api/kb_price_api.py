@@ -1520,14 +1520,16 @@ class KBPriceAPI:
         # 패턴 1: "경기도 수원시 권선구 곡반정동" -> "권선구 곡반정동" 추출
         # 패턴 2: "서울특별시 종로구 청운동" -> "청운동" 추출
         # 패턴 2-1: "거제시 일운면 지세포리" -> "일운면 지세포리" (면+리, 법정동코드 데이터 키와 일치)
-        # 양평동3가, 영등포동1가 등 "동+숫자+가"를 먼저 매칭 (법정동코드 데이터 키와 일치)
+        # 양평동3가, 보문동6가 등 "동+숫자+가"를 일반 동명보다 먼저 매칭해야 한다.
+        # 뒤에 두면 "특별시 성북구 보문동6가"가 패턴4에 걸려 dong="성북구 보문동"이 되고
+        # 법정동코드가 성북동(1129010100)으로 떨어져 보문파크뷰자이(29858)를 못 찾는다.
         dong_patterns = [
-            r'(?:시|도)\s+[가-힣]+(?:시|구|군)\s+([가-힣]+(?:구|군|시)\s+[가-힣]+(?:동|읍|면))',  # "원미구 중동", "권선구 곡반정동" 형식
+            r'(?:구|군|시)\s+([가-힣]+(?:동|읍|면)\s*\d+가)',  # 보문동6가, 양평동3가, 양평동 3가
+            r'(?:시|도)\s+[가-힣]+(?:시|구|군)\s+([가-힣]+(?:구|군|시)\s+[가-힣]+(?:동|읍|면))(?!\s*\d+가)',  # "원미구 중동", "권선구 곡반정동" 형식
             r'(?:구|군|시)\s+[가-힣]+(?:읍|면)\s+([가-힣]+리)',  # "김포시 고촌읍 향산리" -> "향산리"
             r'(?:구|군|시)\s+([가-힣]+면\s+[가-힣]+리)',  # "거제시 일운면 지세포리" -> "일운면 지세포리" (면+리 우선)
-            r'(?:구|군|시)\s+([가-힣]+(?:구|군|시)?\s*[가-힣]+(?:동|읍|면))',  # "원미구 중동", "권선구 곡반정동" 같은 경우
-            r'(?:구|군|시)\s+([가-힣]+(?:동|읍|면)\s*\d+가)',  # 양평동3가, 양평동 3가(공백) 등 (일반 동명보다 우선)
-            r'(?:구|군|시)\s+([가-힣]+(?:동|읍|면))',  # 일반 동명 (예: 곡반정동, 청운동, 중동)
+            r'(?:구|군|시)\s+([가-힣]+(?:구|군|시)?\s*[가-힣]+(?:동|읍|면))(?!\s*\d+가)',  # "원미구 중동", "권선구 곡반정동"
+            r'(?:구|군|시)\s+([가-힣]+(?:동|읍|면))(?!\s*\d+가)',  # 일반 동명 (예: 곡반정동, 청운동, 중동)
             r'(?:구|군|시)\s+제?(\d+동)',  # 제가 붙은 동 (예: 제217동)
         ]
         
@@ -2464,41 +2466,47 @@ class KBPriceAPI:
             print("[*] 단지 시세 별도 조회 중...")
             prices = self.get_complex_price(str(complex_id))
             prices_from_mpri = True
+        # 시세 배열이 없어도 단지가 확정됐으면 세대수·구분은 이어서 채운다.
         if not prices:
-            logger.error(f"❌ 해당 단지에 매매 시세 정보가 없음: {selected_complex.get('단지명')}")
-            print("[X] 해당 단지에 매매 시세 정보가 없음")
-            return None
-
-        logger.info(f"✅ 단지에서 시세 정보 추출: {len(prices)}개 타입")
-        logger.debug(f"   시세 타입별 면적: {[p.get('공급면적', 'N/A') for p in prices[:5]]}")
-        print(f"[OK] 단지에서 시세 정보 추출: {len(prices)}개 타입")
+            logger.warning(f"⚠️ 해당 단지에 매매 시세 정보가 없음: {selected_complex.get('단지명')} → 단지 정보만 반환")
+            print("[!] 해당 단지에 매매 시세 정보가 없음 → 단지 정보만 반환")
+        else:
+            logger.info(f"✅ 단지에서 시세 정보 추출: {len(prices)}개 타입")
+            logger.debug(f"   시세 타입별 면적: {[p.get('공급면적', 'N/A') for p in prices[:5]]}")
+            print(f"[OK] 단지에서 시세 정보 추출: {len(prices)}개 타입")
         
         # 5. 면적에 맞는 시세 찾기
         logger.debug(f"5단계: 면적 매칭 (목표 면적: {area}m²)")
         logger.info(f"   사용 가능한 시세 면적: {[p.get('공급면적', 'N/A') for p in prices[:10]]}")
-        matched_price = self.find_matching_price(prices, area)
+        matched_price = self.find_matching_price(prices, area) if prices else None
         # 면적 미제공(0)이면 해당 단지의 첫 번째 시세 타입을 폴백으로 사용
         if not matched_price and area <= 0 and prices:
             matched_price = prices[0]
             logger.warning(f"⚠️ 면적 미제공(0) → 해당 단지 첫 번째 타입 적용: {matched_price.get('공급면적', 'N/A')}㎡ 등")
             print(f"[!] 면적 미제공 → 해당 단지 첫 번째 시세 타입 적용")
 
-        # 전용/공급면적이 안 맞으면 KB '동일시세 전용면적' 목록으로 재시도.
+        # 전용/공급면적이 안 맞으면 mpriByType으로 정확 매칭 후, KB '동일시세 전용면적' 목록으로 재시도.
+        # fastPriceInfo 매매 배열은 시세미제공 타입을 빼는 경우가 있어(장미 123.53㎡),
+        # mpriByType에 같은 면적이 있으면 그 타입을 먼저 쓴다.
         # 1980년 전후 구축은 등기부 전유면적에 발코니가 포함돼 KB 전용면적과 다르다
         # (은마 등기 94.76㎡ ↔ KB 전용 76.79㎡). KB가 두 면적을 같은 시세로 묶어두므로
         # 목록에 정확히 있을 때만 확정한다.
         same_price_area_used = False
         if not matched_price and area > 0 and complex_id is not None:
             if not prices_from_mpri:
-                # fastPriceInfo의 매매 배열에는 면적일련번호가 없어 mpriByType으로 다시 받는다
-                logger.info("   면적 불일치 → 동일시세 전용면적 확인용 mpriByType 조회")
+                logger.info("   면적 불일치 → mpriByType 조회로 재시도")
                 mpri_prices = self.get_complex_price(str(complex_id))
             else:
                 mpri_prices = prices
-            fallback = self.find_price_by_same_price_area(str(complex_id), mpri_prices, area)
-            if fallback:
-                matched_price = fallback
-                same_price_area_used = True
+            if mpri_prices:
+                prices = mpri_prices
+                prices_from_mpri = True
+                matched_price = self.find_matching_price(prices, area)
+            if not matched_price:
+                fallback = self.find_price_by_same_price_area(str(complex_id), mpri_prices, area)
+                if fallback:
+                    matched_price = fallback
+                    same_price_area_used = True
 
         # 고른 단지에 면적이 없고, 번지로 확정되지 않았을 때만
         # 같은 이름 형제 단지 중 정확 면적 1건으로 재선택 (꿈마을 시공사 형제)
@@ -2534,14 +2542,15 @@ class KBPriceAPI:
                         prices_from_mpri = True
                     matched_price = self.find_matching_price(prices, area)
 
-        # 면적이 정확히 일치하는 타입이 없으면 시세를 쓰지 않는다 (가까운 면적으로 대체 금지)
+        # 면적이 정확히 일치하는 타입이 없으면 시세는 쓰지 않는다 (가까운 면적으로 대체 금지).
+        # 다만 단지는 이미 확정됐으므로 세대수·구분·참고링크는 이어서 채운다.
         if not matched_price:
-            logger.error(f"❌ 면적 {area}m²에 맞는 시세를 찾을 수 없음")
-            print(f"[X] 면적 {area}m²에 맞는 시세를 찾을 수 없음")
+            logger.warning(f"⚠️ 면적 {area}m²에 맞는 시세를 찾을 수 없음 → 단지 정보만 반환")
+            print(f"[!] 면적 {area}m²에 맞는 시세를 찾을 수 없음 → 단지 정보만 반환")
             if prices:
                 logger.warning(f"⚠️ 사용 가능한 면적: {[p.get('공급면적', 'N/A') for p in prices[:10]]}")
                 print(f"[!] 사용 가능한 면적: {[p.get('공급면적', 'N/A') for p in prices[:10]]}")
-            return None
+            matched_price = {}
 
         # 6. 결과 구성
         logger.debug("6단계: 결과 구성")

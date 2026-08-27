@@ -319,15 +319,15 @@
   },
   "max_ltv_by_grade": {
     "1": 80,
-    "2": 75
+    "2": 70
   },
-  "_comment_max_ltv_by_grade": "1급지(서울·경기) 80%, 2급지(그 외 취급지역) 75%",
+  "_comment_max_ltv_by_grade": "1급지(서울·경기) 80%, 2급지(그 외 취급지역) 70%",
   "ltv_steps": [
     80,
-    75,
     70,
-    65,
-    60
+    60,
+    50,
+    40
   ],
   "interest_rates_by_ltv": {
     "_comment": "선후순위 동일. 회신 문구는 interest_rate_display",
