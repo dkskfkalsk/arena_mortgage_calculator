@@ -1717,6 +1717,28 @@ class KBPriceAPI:
                             return str(code)
         
         logger.debug(f"   파싱된 주소 정보(추론 후): region={region}, district={district}, dong={dong}")
+
+        # 세종특별자치시처럼 구/군이 없는 시/도: parse는 district=None.
+        # JSON은 districts["세종특별자치시"].dongs["집현동"] 또는
+        # districts["조치원읍"].dongs["원리"] 형태이므로, 동이 들어 있는 district 키를 채운다.
+        if region and dong and not district:
+            preview_districts = ((self.dongcode_data.get(region) or {}).get("districts") or {})
+            if region in preview_districts:
+                dongs_under_region = (preview_districts.get(region) or {}).get("dongs") or {}
+                if dong in dongs_under_region:
+                    district = region
+                else:
+                    for dist_key, dist_val in preview_districts.items():
+                        dongs = (dist_val or {}).get("dongs") or {}
+                        if dong in dongs:
+                            district = dist_key
+                            break
+                    if not district:
+                        district = region
+            elif len(preview_districts) == 1:
+                district = next(iter(preview_districts))
+            if district:
+                logger.debug("   구 없는 시/도 → district=%s (dong=%s)", district, dong)
         
         if not all([region, district, dong]):
             fallback = _try_road_fallback_dongcode(address)

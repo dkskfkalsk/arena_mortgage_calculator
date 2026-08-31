@@ -1,13 +1,13 @@
 {
   "metadata": {
-    "created_at": "2026-07-13",
-    "version": "2.2",
-    "source": "법정동코드 전체자료.txt",
+    "created_at": "2026-08-31",
+    "version": "2.3",
+    "source": "260831_법정동코드 전체자료.txt",
     "description": "전국 법정동코드 기반 지역 데이터 (최신)",
     "generator": "generate_dongcode_json.py",
     "dongcode_based": true,
     "accuracy": "100%",
-    "new_entries_count": 3270
+    "new_entries_count": 0
   },
   "regions": {
     "서울특별시": {

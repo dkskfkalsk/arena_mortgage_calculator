@@ -91,16 +91,24 @@ def extract_existing_codes(json_path: str) -> set:
     return codes
 
 
+def _resolve_txt_path(base: Path) -> Path:
+    """날짜 접두 파일(YYYYMMDD_법정동코드 전체자료.txt)이 있으면 최신 것을, 없으면 기본 파일명."""
+    dated = sorted(base.glob("*_법정동코드 전체자료.txt"), reverse=True)
+    if dated:
+        return dated[0]
+    return base / "법정동코드 전체자료.txt"
+
+
 def main():
     base = Path(__file__).parent
-    txt_path = base / "법정동코드 전체자료.txt"
+    txt_path = _resolve_txt_path(base)
     json_path = base / "전국_dongcode_data.json"
     
     if not txt_path.exists():
         print(f"오류: {txt_path} 파일이 없습니다.")
         return
     
-    print("TXT 파일 파싱 중...")
+    print(f"TXT 파일 파싱 중... ({txt_path.name})")
     regions = parse_txt_to_regions(str(txt_path))
 
     # 기존 JSON과 비교하여 추가된 항목 수 집계 (콘솔 안내용, 별도 파일 미생성)
@@ -117,8 +125,8 @@ def main():
     result = {
         "metadata": {
             "created_at": today,
-            "version": "2.2",
-            "source": "법정동코드 전체자료.txt",
+            "version": "2.3",
+            "source": txt_path.name,
             "description": "전국 법정동코드 기반 지역 데이터 (최신)",
             "generator": "generate_dongcode_json.py",
             "dongcode_based": True,
