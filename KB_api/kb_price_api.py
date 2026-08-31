@@ -15,6 +15,9 @@ from typing import Dict, List, Optional, Tuple, Any
 from pathlib import Path
 from .kb_complex_scraper import get_complex_extra_info
 
+# 빌라·다세대 빠른시세(AI시세)는 api.kbland.kr 가 아니라 data-api 허브에 있다.
+_DATA_API_BASE = "https://data-api.kbland.kr"
+
 # KB API 요청 시 브라우저로 보이도록 (User-Agent 미설정 시 연결 끊김 발생 가능)
 DEFAULT_HEADERS = {
     "Accept": "application/json, text/plain, */*",
@@ -181,6 +184,8 @@ if is_vercel:
 
 _KBLAND_COMPLEX_PATH_RE = re.compile(r"https?://(?:www\.)?kbland\.kr/(?:se/)?c/(\d+)")
 _KBLAND_NUM_RE = re.compile(r"(\d+(?:-\d+)?)")
+_HO_FROM_ADDRESS_RE = re.compile(r"제\s*(\d{1,4})\s*호|(?:^|[^\d])(\d{1,4})\s*호(?:\s|$)")
+_FLOOR_FROM_ADDRESS_RE = re.compile(r"제\s*(\d{1,3})\s*층|(?:^|[^\d])(\d{1,3})\s*층")
 # kbland 검색창 autoKywrSerch 파라미터 (웹 JS 번들과 동일)
 _KB_AUTO_KYWR_COLLECTION = (
     "COL_AT_JUSO:100;COL_AT_SCHOOL:100;COL_AT_SUBWAY:100;COL_AT_HSCM:100;COL_AT_VILLA:100"
@@ -242,6 +247,16 @@ def _text_indicates_officetel(text: Optional[str]) -> bool:
     if "오피스텔" in text:
         return True
     return any(kw in text for kw in _OFFICETEL_BUILDING_USE_KEYWORDS)
+
+
+def _text_indicates_villa_or_multi(text: Optional[str]) -> bool:
+    """등기 건물내역·주소가 다세대·연립·빌라면 True. 아파트 단지는 제외."""
+    if not text:
+        return False
+    compact = re.sub(r"\s+", "", text)
+    if "아파트" in compact and "다세대" not in compact and "연립" not in compact:
+        return False
+    return any(kw in compact for kw in ("다세대", "연립주택", "연립/다세대", "빌라"))
 
 
 def _is_invalid_complex_name(name: str) -> bool:
@@ -837,6 +852,89 @@ def _lot_matches_complex_address(lot: str, complex_address: str) -> bool:
         rf"(?:^|\s){re.escape(lot)}(?:번지)",
     ]
     return any(re.search(p, ca) for p in patterns)
+
+
+def _extract_kbland_complex_id(text: Optional[str]) -> Optional[str]:
+    """캡션·등기 원문의 kbland.kr/c/{id} 단지 ID."""
+    if not text:
+        return None
+    m = _KBLAND_COMPLEX_PATH_RE.search(text)
+    return m.group(1) if m else None
+
+
+def _extract_ho_name_from_address(address: str) -> Optional[str]:
+    """등기 주소에서 호수 (제301호, 301호)."""
+    if not address:
+        return None
+    m = _HO_FROM_ADDRESS_RE.search(address)
+    if not m:
+        return None
+    return (m.group(1) or m.group(2) or "").lstrip("0") or (m.group(1) or m.group(2))
+
+
+def _extract_floor_from_address(address: str) -> Optional[int]:
+    """등기 주소에서 층 (제3층, 3층)."""
+    if not address:
+        return None
+    m = _FLOOR_FROM_ADDRESS_RE.search(address)
+    if not m:
+        return None
+    raw = m.group(1) or m.group(2)
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_ho_name(ho_name: Any) -> str:
+    digits = re.sub(r"\D", "", str(ho_name or ""))
+    if not digits:
+        return ""
+    stripped = digits.lstrip("0")
+    return stripped or digits
+
+
+def _ho_matches_floor(ho_name: Any, floor: Optional[int]) -> bool:
+    """301호 → 3층처럼 호수의 백의 자리가 층과 같은지."""
+    if floor is None:
+        return False
+    digits = re.sub(r"\D", "", str(ho_name or ""))
+    if len(digits) < 3:
+        return False
+    try:
+        return int(digits) // 100 == int(floor)
+    except (TypeError, ValueError):
+        return False
+
+
+def _parse_sale_price_man(value: Any) -> Optional[float]:
+    if value is None or value == "":
+        return None
+    try:
+        if isinstance(value, str):
+            value = value.replace(",", "").replace("만원", "").strip()
+        num = float(value)
+        return num if num > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _kb_data_api_get(path: str, params: Optional[Dict[str, Any]] = None) -> Optional[Any]:
+    """kbland data-api GET. 성공 시 dataBody.data, 실패 시 None."""
+    try:
+        response = _SESSION.get(
+            f"{_DATA_API_BASE}{path}",
+            params=params or {},
+            headers=DEFAULT_HEADERS,
+            timeout=15,
+        )
+        response.raise_for_status()
+        body = response.json() or {}
+        data_body = body.get("dataBody") or {}
+        return data_body.get("data")
+    except Exception as e:
+        logger.debug("data-api GET %s 실패: %s", path, e)
+        return None
 
 
 def _extract_road_name_and_number(address: str) -> Optional[Tuple[str, str]]:
@@ -1897,6 +1995,320 @@ class KBPriceAPI:
         )
         return out
 
+    def get_villa_dong_list(self, dongcode: str) -> List[Dict[str, Any]]:
+        """법정동 빌라·다세대 동(건물) 목록 (지번·단지ID 매칭용)."""
+        payload = _kb_data_api_get(
+            "/common/quick-price-check/villas",
+            {"legalCode": dongcode},
+        )
+        if not payload:
+            return []
+        if isinstance(payload, dict):
+            dongs = payload.get("dongs") or []
+        elif isinstance(payload, list):
+            dongs = payload
+        else:
+            dongs = []
+        return [d for d in dongs if isinstance(d, dict)]
+
+    def get_villa_hos(self, dong_id: str) -> List[Dict[str, Any]]:
+        """빌라 동 호실 목록 (hoId, hoName)."""
+        if not dong_id:
+            return []
+        payload = _kb_data_api_get(f"/common/quick-price-check/villas/{dong_id}/hos")
+        if isinstance(payload, dict):
+            hos = payload.get("hos") or []
+        elif isinstance(payload, list):
+            hos = payload
+        else:
+            hos = []
+        return [h for h in hos if isinstance(h, dict)]
+
+    def get_villa_ho_areas(self, dong_id: str) -> List[Dict[str, Any]]:
+        """호별 전용면적 (호수 미기재 시 면적 매칭용)."""
+        if not dong_id:
+            return []
+        payload = _kb_data_api_get(f"/common/opinion/hoList/{dong_id}")
+        rows = []
+        if isinstance(payload, dict):
+            rows = payload.get("data") or payload.get("hos") or []
+        elif isinstance(payload, list):
+            rows = payload
+        out = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            ho_id = row.get("건물호일련번호") or row.get("hoId")
+            ho_name = row.get("호명") or row.get("hoName")
+            area = row.get("전용면적") or row.get("area")
+            if ho_id is None:
+                continue
+            try:
+                area_f = float(area) if area is not None else None
+            except (TypeError, ValueError):
+                area_f = None
+            out.append({"hoId": ho_id, "hoName": ho_name, "area": area_f})
+        return out
+
+    def get_villa_ho_price(self, dong_id: str, ho_id: Any) -> Optional[Dict[str, Any]]:
+        """호별 KB AI시세 (만원)."""
+        if not dong_id or ho_id is None:
+            return None
+        payload = _kb_data_api_get(
+            f"/common/quick-price-check/villas/{dong_id}/hos/{ho_id}/price"
+        )
+        if not isinstance(payload, dict):
+            return None
+        dongs = payload.get("dongs") or []
+        for dong in dongs:
+            for ho in (dong.get("hoPrices") or []):
+                if str(ho.get("hoId")) == str(ho_id):
+                    return ho
+            prices = dong.get("hoPrices") or []
+            if len(prices) == 1:
+                return prices[0]
+        return None
+
+    def _select_villa_dong(
+        self,
+        dongs: List[Dict[str, Any]],
+        address: str,
+        complex_name: Optional[str] = None,
+        complex_id_hint: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """지번·단지ID·건물명·도로명으로 빌라 동을 확정. 후보가 여러 개면 추측하지 않음."""
+        if not dongs:
+            return None
+
+        pool = dongs
+        if complex_id_hint:
+            hint = str(complex_id_hint).strip()
+            id_hits = [
+                d for d in dongs
+                if d.get("complexId") is not None and str(d.get("complexId")) == hint
+            ]
+            if len(id_hits) == 1:
+                return id_hits[0]
+            if id_hits:
+                pool = id_hits
+
+        lot = _extract_lot_number_from_address(address)
+        lot_hits: List[Dict[str, Any]] = []
+        if lot:
+            for d in pool:
+                land = d.get("landAddress") or ""
+                road = d.get("roadAddress") or ""
+                if _lot_matches_complex_address(lot, land) or _lot_matches_complex_address(lot, road):
+                    lot_hits.append(d)
+        if len(lot_hits) == 1:
+            return lot_hits[0]
+        candidates = lot_hits or pool
+
+        if complex_name:
+            name_hits = [
+                d for d in candidates
+                if _complex_names_related(
+                    complex_name,
+                    d.get("buildingName") or d.get("dongName") or "",
+                )
+            ]
+            if len(name_hits) == 1:
+                return name_hits[0]
+            if len(name_hits) > 1 and lot_hits:
+                # 같은 지번에 이름이 비슷한 동이 여러 개면 단지ID 있는 쪽
+                with_id = [d for d in name_hits if d.get("complexId")]
+                if len(with_id) == 1:
+                    return with_id[0]
+            if len(name_hits) == 1:
+                return name_hits[0]
+            if lot_hits and len(name_hits) > 1:
+                return None
+
+        road_hits = [
+            d for d in candidates
+            if _score_road_address_match(address, d.get("roadAddress") or "") >= 1.0
+        ]
+        if len(road_hits) == 1:
+            return road_hits[0]
+
+        if len(lot_hits) == 1:
+            return lot_hits[0]
+        return None
+
+    def _select_villa_ho(
+        self,
+        hos: List[Dict[str, Any]],
+        address: str,
+        area: float,
+        dong_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """호명 우선, 없으면 전용면적(+층)으로 호실 확정."""
+        if not hos:
+            return None
+        ho_name = _extract_ho_name_from_address(address)
+        if ho_name:
+            target = _normalize_ho_name(ho_name)
+            name_hits = [
+                h for h in hos
+                if _normalize_ho_name(h.get("hoName") or h.get("호명")) == target
+            ]
+            if len(name_hits) == 1:
+                return name_hits[0]
+            if name_hits:
+                return name_hits[0]
+
+        floor = _extract_floor_from_address(address)
+        area_rows = self.get_villa_ho_areas(dong_id) if dong_id and area and area > 0 else []
+        area_by_id = {str(r["hoId"]): r.get("area") for r in area_rows}
+        area_hits: List[Dict[str, Any]] = []
+        if area and area > 0:
+            for h in hos:
+                ho_area = area_by_id.get(str(h.get("hoId")))
+                if ho_area is None:
+                    continue
+                if abs(float(ho_area) - float(area)) <= 0.51:
+                    area_hits.append(h)
+        if floor is not None and area_hits:
+            floor_hits = [h for h in area_hits if _ho_matches_floor(h.get("hoName"), floor)]
+            if len(floor_hits) == 1:
+                return floor_hits[0]
+            if len(floor_hits) > 1:
+                return None
+        if len(area_hits) == 1:
+            return area_hits[0]
+        return None
+
+    def get_villa_kb_ai_price(
+        self,
+        address: str,
+        area: float,
+        complex_name: Optional[str] = None,
+        hint_text: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        빌라·다세대 주소 매칭 후 KB AI시세 + 단지 기본정보.
+        공식 KB시세(kb_price)는 채우지 않는다.
+        """
+        dongcode = self.find_dongcode(address)
+        if not dongcode:
+            address_attached = _make_attached_address(address)
+            if address_attached != address:
+                dongcode = self.find_dongcode(address_attached)
+        if not dongcode:
+            logger.info("빌라 AI시세: 법정동코드를 찾지 못해 생략")
+            return None
+
+        dongs = self.get_villa_dong_list(dongcode)
+        if not dongs:
+            logger.info("빌라 AI시세: 해당 동 빌라 목록 없음 (%s)", dongcode)
+            return None
+
+        complex_id_hint = _extract_kbland_complex_id(hint_text)
+        selected = self._select_villa_dong(
+            dongs, address, complex_name=complex_name, complex_id_hint=complex_id_hint
+        )
+        if not selected:
+            logger.info(
+                "빌라 AI시세: 주소 매칭 실패 (dongcode=%s, lot=%s, name=%s, hint_id=%s)",
+                dongcode,
+                _extract_lot_number_from_address(address),
+                complex_name,
+                complex_id_hint,
+            )
+            return None
+
+        dong_id = selected.get("dongId")
+        building_name = selected.get("buildingName") or selected.get("dongName") or complex_name
+        complex_id = selected.get("complexId")
+        logger.info(
+            "✅ 빌라 동 매칭: %s (dongId=%s, complexId=%s, %s)",
+            building_name, dong_id, complex_id, selected.get("landAddress"),
+        )
+        print(f"[OK] 빌라 동 매칭: {building_name} (id={complex_id})")
+
+        result: Dict[str, Any] = {
+            "kb_price": None,
+            "kb_price_min": None,
+            "kb_price_raw": None,
+            "kb_price_min_raw": None,
+            "kb_ai_price": None,
+            "kb_ai_price_min": None,
+            "kb_ai_price_max": None,
+            "complex_name": building_name,
+            "area": area,
+            "area_requested": area,
+            "area_diff": 0.0,
+            "pyeong": "",
+            "type": "",
+            "dongcode": dongcode,
+            "complex_id": str(complex_id) if complex_id is not None else None,
+            "same_price_area_matched": False,
+            "redevelop_stages": [],
+            "households": None,
+            "buildings": None,
+            "approval_date": None,
+            "years_since_completion": None,
+            "complex_type": "연립/다세대",
+            "redevelop_yn": False,
+            "villa_dong_id": dong_id,
+            "villa_ho_name": None,
+        }
+
+        hos = self.get_villa_hos(str(dong_id)) if dong_id else []
+        selected_ho = self._select_villa_ho(hos, address, area, dong_id=str(dong_id) if dong_id else None)
+        if selected_ho and dong_id:
+            ho_id = selected_ho.get("hoId")
+            ho_name = selected_ho.get("hoName")
+            price_row = self.get_villa_ho_price(str(dong_id), ho_id)
+            avg = _parse_sale_price_man((price_row or {}).get("averageSalePrice"))
+            lower = _parse_sale_price_man((price_row or {}).get("lowerSalePrice"))
+            upper = _parse_sale_price_man((price_row or {}).get("upperSalePrice"))
+            ho_area = (price_row or {}).get("area")
+            try:
+                ho_area_f = float(ho_area) if ho_area is not None else None
+            except (TypeError, ValueError):
+                ho_area_f = None
+            result["villa_ho_name"] = str(ho_name) if ho_name is not None else None
+            if ho_area_f:
+                result["area"] = ho_area_f
+                result["area_diff"] = abs(ho_area_f - area) if area else 0.0
+                try:
+                    result["pyeong"] = f"{ho_area_f / 3.3058:.1f}"
+                except Exception:
+                    pass
+            if avg:
+                result["kb_ai_price"] = avg
+                result["kb_ai_price_min"] = lower
+                result["kb_ai_price_max"] = upper
+                logger.info(
+                    "✅ 빌라 KB AI시세: 일반 %s만원 하한 %s만원 (%s %s호)",
+                    f"{avg:,.0f}", f"{lower:,.0f}" if lower else "-", building_name, ho_name,
+                )
+                print(f"[OK] 빌라 KB AI시세: 일반 {avg:,.0f}만원 ({building_name} {ho_name}호)")
+            else:
+                logger.info("빌라 호실 매칭은 됐으나 AI시세 금액 없음 (hoId=%s)", ho_id)
+        else:
+            logger.info("빌라 단지 식별 완료, 호실 미확정 → AI시세 생략 (단지정보만)")
+            print("[!] 빌라 호실을 특정하지 못해 AI시세는 생략, 단지 정보만 반환")
+
+        if complex_id is not None:
+            extra = self.get_complex_extra_via_api(str(complex_id))
+            for key in (
+                "households", "buildings", "approval_date", "years_since_completion",
+                "complex_type", "complex_name",
+            ):
+                if extra.get(key) is not None:
+                    result[key] = extra[key]
+            if extra.get("redevelop_yn"):
+                result["redevelop_yn"] = True
+                result["redevelop_stages"] = extra.get("redevelop_stages") or []
+            if extra.get("source_url"):
+                result["source_url"] = extra["source_url"]
+        if not result.get("source_url") and result.get("complex_id"):
+            result["source_url"] = f"https://kbland.kr/c/{result['complex_id']}"
+
+        return result
+
     def get_rcns_info(self, complex_id: str) -> Optional[Dict[str, Any]]:
         """단지 재건축/정비사업 정보 (kbland complex/rcnsInfo). Playwright 없이 단계·인가일 확보."""
         if not complex_id:
@@ -2867,6 +3279,50 @@ def get_kb_price_from_registry(address: str, area: str, registry_text: Optional[
                     complex_name = potential_name
                     logger.info(f"✅ 주소에서 단지명 추출 (번지수 기준): {complex_name}")
     
-    # KB 시세 조회
+    # KB 시세 조회.
+    # 다세대·연립·빌라 힌트가 있으면 아파트 목록(온천동 100여 개 + hscmList)을
+    # 먼저 훑지 않고 빌라 AI시세·단지정보를 바로 가져온다.
     api = KBPriceAPI()
-    return api.get_kb_price(address, area_float, complex_name=complex_name, force_officetel=force_officetel)
+    villa = None
+    villa_tried = False
+    villa_hint = _text_indicates_villa_or_multi(registry_text) or _text_indicates_villa_or_multi(address)
+    if villa_hint:
+        logger.info("   다세대/연립/빌라 힌트 → 빌라 AI시세 경로 우선")
+        villa = api.get_villa_kb_ai_price(
+            address, area_float, complex_name=complex_name, hint_text=registry_text
+        )
+        villa_tried = True
+        if villa and (villa.get("kb_ai_price") or villa.get("complex_id")):
+            return villa
+
+    result = api.get_kb_price(
+        address, area_float, complex_name=complex_name, force_officetel=force_officetel
+    )
+    if result and result.get("kb_price"):
+        return result
+
+    if not villa_tried:
+        villa = api.get_villa_kb_ai_price(
+            address, area_float, complex_name=complex_name, hint_text=registry_text
+        )
+    if not villa:
+        return result
+    if not result:
+        return villa
+
+    # 공식시세는 없지만 아파트 단지가 이미 식별된 경우:
+    # 같은 단지일 때만 AI시세를 얹고, 다른 단지면 아파트 식별 결과를 유지한다.
+    result_cid = str(result.get("complex_id") or "")
+    villa_cid = str(villa.get("complex_id") or "")
+    if result_cid and villa_cid and result_cid != villa_cid:
+        logger.info(
+            "빌라 AI시세 단지가 기존 식별 단지와 다름 → AI시세 생략 (apt=%s, villa=%s)",
+            result_cid, villa_cid,
+        )
+        return result
+    for key, value in villa.items():
+        if key.startswith("kb_ai") or key.startswith("villa_"):
+            result[key] = value
+        elif result.get(key) in (None, "", [], False) and value not in (None, "", []):
+            result[key] = value
+    return result

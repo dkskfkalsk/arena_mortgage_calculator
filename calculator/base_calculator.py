@@ -179,7 +179,9 @@ def get_property_type_key(property_type: str, special_notes: str = "") -> Option
         return "apartment_no_land_registry" if has_no_land_registry else "apartment"
     if "주상복합" in property_type:
         return "residential_commercial"
-    if "빌라" in property_type:
+    if "다세대" in property_type:
+        return "multi_family_house"
+    if "빌라" in property_type or "연립" in property_type:
         return "villa"
     if "오피스텔" in property_type:
         return "officetel"

@@ -1019,6 +1019,8 @@ def get_application(force_new=False):
             kb_api_no_result = False  # 결과 없음 시 True
             kb_complex_id = None  # KB 시세 참고 링크(kbland.kr/c/{단지ID})용
             kb_result = None  # KB API 전체 결과 (사용승인일·재건축 정보 포함)
+            kb_ai_price_num = None
+            kb_ai_price_min_num = None
             real_transactions_display = ""  # KB 시세 없을 때 공공데이터 실거래가
             
             # 등기부에서 주소와 면적을 추출한 경우 KB API 호출 (면적은 문자열 그대로 전달해 51/37.85 등 전용 추출)
@@ -1044,12 +1046,19 @@ def get_application(force_new=False):
                     logger.info(f"KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area_for_kb}")
                     
                     from KB_api.kb_price_api import get_kb_price_from_registry
-                    kb_result = get_kb_price_from_registry(address, area_for_kb, registry_text=result.원본텍스트)
+                    kb_hint_text = "\n".join(
+                        part for part in (result.원본텍스트 or "", caption or "") if part
+                    )
+                    kb_result = get_kb_price_from_registry(
+                        address, area_for_kb, registry_text=kb_hint_text
+                    )
                     
                     if kb_result:
                         kb_price_num = kb_result.get('kb_price')
                         kb_price_min_num = kb_result.get('kb_price_min')
                         kb_complex_id = kb_result.get('complex_id')
+                        kb_ai_price_num = kb_result.get('kb_ai_price')
+                        kb_ai_price_min_num = kb_result.get('kb_ai_price_min')
 
                         # 구축은 등기부 전유면적에 발코니가 포함돼 KB 전용면적과 다르다(은마 94.76 ↔ 76.79).
                         # KB '동일시세 전용면적' 목록으로 타입을 확정한 경우 면적 줄에 근거를 남긴다.
@@ -1073,6 +1082,13 @@ def get_application(force_new=False):
                             kb_price_low = f"{int(kb_price_min_num):,}"
                             print(f"[WEBHOOK] ✅ KB 시세 하한 조회 성공: {kb_price_low}만원", file=sys.stderr, flush=True)
                             logger.info(f"KB 시세 하한 조회 성공: {kb_price_low}만원")
+
+                        if kb_ai_price_num:
+                            print(
+                                f"[WEBHOOK] ✅ KB AI시세 조회 성공: 일반 {int(kb_ai_price_num):,}만원",
+                                file=sys.stderr, flush=True,
+                            )
+                            logger.info("KB AI시세 조회 성공: 일반 %s만원", f"{int(kb_ai_price_num):,}")
                         
                         # KB API 결과에서 세대수 정보 가져오기 (캡션에 없을 경우)
                         kb_households = kb_result.get('households')
@@ -1089,11 +1105,15 @@ def get_application(force_new=False):
                         kb_complex_name = kb_result.get('complex_name', '')
                         kb_complex_type = kb_result.get('complex_type')  # 스크래핑에서 추출한 단지유형
                         if not property_type:
-                            # 스크래핑에서 추출한 단지유형 우선 사용 (주상복합, 아파트, 오피스텔)
+                            # 스크래핑에서 추출한 단지유형 우선 사용 (주상복합, 아파트, 오피스텔, 연립/다세대)
                             if kb_complex_type:
                                 property_type = kb_complex_type
                                 print(f"[WEBHOOK] ✅ KB 스크래핑에서 구분 추출: {property_type}", file=sys.stderr, flush=True)
                                 logger.info(f"KB 스크래핑에서 구분 추출: {property_type}")
+                            elif kb_ai_price_num or kb_result.get("villa_dong_id"):
+                                property_type = "연립/다세대"
+                                print(f"[WEBHOOK] ✅ 빌라 AI시세 조회 → 구분: {property_type}", file=sys.stderr, flush=True)
+                                logger.info("빌라 AI시세 조회 → 구분: %s", property_type)
                             # 스크래핑 실패 시 기본값 "아파트"
                             elif kb_type or kb_complex_name:
                                 property_type = "아파트"
@@ -1232,6 +1252,19 @@ def get_application(force_new=False):
                 if kb_complex_id:
                     kb_price_url = f"https://kbland.kr/c/{kb_complex_id}"
                     lines.append(f"KB시세 참고 : {kb_price_url}")
+            elif kb_ai_price_num:
+                lines.append(f"KB AI시세 : 일반 {int(kb_ai_price_num):,}만원")
+                if kb_ai_price_min_num:
+                    lines.append(f"KB AI시세 : 하한 {int(kb_ai_price_min_num):,}만원")
+                if kb_complex_id:
+                    kb_price_url = f"https://kbland.kr/c/{kb_complex_id}"
+                    lines.append(f"KB시세 참고 : {kb_price_url}")
+                if real_transactions_display:
+                    tx_lines = [ln.strip() for ln in real_transactions_display.split("\n") if ln.strip()]
+                    if tx_lines:
+                        lines.append(f"실거래가 : {tx_lines[0]}")
+                        for ln in tx_lines[1:]:
+                            lines.append(f"           {ln}")
             else:
                 # KB 시세가 없어도 단지 식별 ID가 있으면 단지 페이지는 안내
                 lines.append("KB시세 : 없음")
@@ -1489,7 +1522,8 @@ def get_application(force_new=False):
             lines.append(f"요청사항 : {request_text}")
             
             # KB 시세 없을 때 맨 끝에 멘트 추가 (pdf_only 모드에서는 조회 자체를 안 하므로 생략)
-            if not kb_price and not pdf_only:
+            # 빌라 KB AI시세가 있으면 공식 KB 대신 안내했으므로 추가 시세 요청은 생략
+            if not kb_price and not pdf_only and not kb_ai_price_num:
                 lines.append("KB시세 없음. 다른 시세 첨부 바랍니다.")
             
             # 근저당권 원금 설정이 깔끔하지 않을 때 확인 필요 멘트 추가
@@ -1647,13 +1681,25 @@ def get_application(force_new=False):
                                     property_data["kb_price_raw"] = f"KB시세: {int(kb_price_num):,}만원"
                                     print(f"[WEBHOOK] ✅ KB 시세 조회 성공: {int(kb_price_num):,}만원", file=sys.stderr, flush=True)
                                     logger.info(f"KB 시세 조회 성공: {int(kb_price_num):,}만원")
+                                kb_ai_from_api = kb_result.get("kb_ai_price")
+                                if kb_ai_from_api and not property_data.get("kb_ai_price"):
+                                    property_data["kb_ai_price"] = kb_ai_from_api
+                                    if not kb_price_num:
+                                        property_data["price_type"] = "kb_ai"
+                                    print(
+                                        f"[WEBHOOK] ✅ KB AI시세 조회 성공: {int(kb_ai_from_api):,}만원",
+                                        file=sys.stderr, flush=True,
+                                    )
+                                    logger.info("KB AI시세 조회 성공: %s만원", f"{int(kb_ai_from_api):,}")
                                 if kb_result.get('approval_date') is not None:
                                     property_data["approval_date"] = kb_result["approval_date"]
                                 if kb_result.get('years_since_completion') is not None:
                                     property_data["years_since_completion"] = kb_result["years_since_completion"]
                                 if kb_result.get('households') is not None:
                                     property_data["household_count"] = kb_result["households"]
-                                if not kb_price_num:
+                                if kb_result.get("complex_type") and not property_data.get("property_type"):
+                                    property_data["property_type"] = kb_result["complex_type"]
+                                if not kb_price_num and not kb_ai_from_api:
                                     kb_api_no_result = True
                                     print(f"[WEBHOOK] ⚠️ KB 시세 조회 실패 (결과 없음)", file=sys.stderr, flush=True)
                                     logger.warning("KB 시세 조회 실패 (결과 없음)")

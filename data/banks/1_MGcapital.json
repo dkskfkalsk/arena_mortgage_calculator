@@ -513,9 +513,9 @@
     "_comment_villa": "빌라",
     "officetel": 1,
     "_comment_officetel": "오피스텔",
-    "detached_house": 1,
+    "detached_house": 0,
     "_comment_detached_house": "단독주택",
-    "multi_family_house": 1,
+    "multi_family_house": 0,
     "_comment_multi_family_house": "공동주택"
   },
   "conditions": [],
