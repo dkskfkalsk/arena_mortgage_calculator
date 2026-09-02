@@ -774,6 +774,19 @@ def _extract_complex_name_from_address(address: str) -> Optional[str]:
             if len(candidate) >= 4 and not _is_invalid_complex_name(candidate):
                 return candidate
 
+    # 번지 뒤 띄어쓰기 단지명: "606 송파 레이크힐 제1501동"
+    # 접미사(아파트/단지)가 없으면 기존 패턴이 '송파'만 잘라 KB 매칭이 실패한다.
+    m = re.search(
+        r"\d+(?:-\d+)?\s+([가-힣]+(?:\s+[가-힣]+)+)\s*(?=제\s*\d+(?:동|층|호)|$)",
+        address,
+    )
+    if m:
+        raw = m.group(1).strip()
+        if not re.search(r"(?:구역|사업|블럭|블록|롯트|필지)", raw):
+            candidate = _clean_extracted_complex_name(raw)
+            if len(candidate) >= 4 and not _is_invalid_complex_name(candidate):
+                return candidate
+
     return None
 
 
@@ -3279,9 +3292,10 @@ def get_kb_price_from_registry(address: str, area: str, registry_text: Optional[
                 else:
                     complex_name = None
     
-    # 번지수 + 한글 단지명 (제N동/제N층/제N호 앞까지) ex: "1562 천안역우방아이유쉘 제104동"
+    # 번지수 + 한글 단지명 (제N동/제N층/제N호 앞까지)
+    # 띄어쓰기 허용: "606 송파 레이크힐 제1501동" → 송파 레이크힐 (기존은 송파만 캡처)
     if not complex_name:
-        lot_name_pattern = r'\d+(?:-\d+)?\s+([가-힣]+?)(?=\s+제\d+동|\s+제\d+층|\s+제\d+호|$)'
+        lot_name_pattern = r'\d+(?:-\d+)?\s+([가-힣]+(?:\s+[가-힣]+)*)(?=\s+제\d+동|\s+제\d+층|\s+제\d+호|$)'
         match = re.search(lot_name_pattern, address)
         if match:
             potential_name = match.group(1).strip()
