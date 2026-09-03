@@ -1018,6 +1018,7 @@ def get_application(force_new=False):
             kb_api_failed = False  # 예외 발생 시 True
             kb_api_no_result = False  # 결과 없음 시 True
             kb_complex_id = None  # KB 시세 참고 링크(kbland.kr/c/{단지ID})용
+            kb_source_url = None  # KB API가 만든 참고 링크 (빌라는 ctype·brif 포함)
             kb_result = None  # KB API 전체 결과 (사용승인일·재건축 정보 포함)
             kb_ai_price_num = None
             kb_ai_price_min_num = None
@@ -1057,6 +1058,7 @@ def get_application(force_new=False):
                         kb_price_num = kb_result.get('kb_price')
                         kb_price_min_num = kb_result.get('kb_price_min')
                         kb_complex_id = kb_result.get('complex_id')
+                        kb_source_url = kb_result.get('source_url')
                         kb_ai_price_num = kb_result.get('kb_ai_price')
                         kb_ai_price_min_num = kb_result.get('kb_ai_price_min')
 
@@ -1250,14 +1252,14 @@ def get_application(force_new=False):
                 lines.append(f"KB시세 : 하한 {kb_price_low}만원" if kb_price_low else f"KB시세 : 하한      만원")
                 # KB 시세 참고 링크 (kbland.kr/c/{단지ID})
                 if kb_complex_id:
-                    kb_price_url = f"https://kbland.kr/c/{kb_complex_id}"
+                    kb_price_url = kb_source_url or f"https://kbland.kr/c/{kb_complex_id}"
                     lines.append(f"KB시세 참고 : {kb_price_url}")
             elif kb_ai_price_num:
                 lines.append(f"KB AI시세 : 일반 {int(kb_ai_price_num):,}만원")
                 if kb_ai_price_min_num:
                     lines.append(f"KB AI시세 : 하한 {int(kb_ai_price_min_num):,}만원")
                 if kb_complex_id:
-                    kb_price_url = f"https://kbland.kr/c/{kb_complex_id}"
+                    kb_price_url = kb_source_url or f"https://kbland.kr/c/{kb_complex_id}"
                     lines.append(f"KB AI시세 참고 : {kb_price_url}")
                 if real_transactions_display:
                     tx_lines = [ln.strip() for ln in real_transactions_display.split("\n") if ln.strip()]
@@ -1270,7 +1272,7 @@ def get_application(force_new=False):
                 lines.append("KB시세 : 없음")
                 lines.append("KB시세 : 하한      만원")
                 if kb_complex_id:
-                    kb_price_url = f"https://kbland.kr/c/{kb_complex_id}"
+                    kb_price_url = kb_source_url or f"https://kbland.kr/c/{kb_complex_id}"
                     lines.append(f"KB단지 참고 : {kb_price_url}")
                 if real_transactions_display:
                     tx_lines = [ln.strip() for ln in real_transactions_display.split("\n") if ln.strip()]

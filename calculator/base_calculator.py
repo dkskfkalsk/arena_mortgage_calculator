@@ -160,6 +160,18 @@ def _grades_fully_covered(credit_grade: str, grades_with_limit: Set[int]) -> boo
     return bool(grades_in_range) and grades_in_range <= grades_with_limit
 
 
+def contains_keyword(text: Any, keyword: str) -> bool:
+    """
+    제한 키워드 포함 검사. 띄어쓰기는 무시한다.
+
+    config는 '대지권 미등기'처럼 띄어 적는 곳과 붙여 적는 곳이 섞여 있고,
+    카드 특이사항은 '대지권미등기'로 붙여 나가서 그대로 비교하면 놓친다.
+    """
+    if not text or not keyword:
+        return False
+    return re.sub(r"\s+", "", str(keyword)) in re.sub(r"\s+", "", str(text))
+
+
 def get_property_type_key(property_type: str, special_notes: str = "") -> Optional[str]:
     """
     한글 물건유형·특이사항 → config 키(apartment, villa, …).
@@ -985,7 +997,7 @@ class BaseCalculator:
         
         found_keywords = []
         for keyword in restricted_keywords:
-            if keyword in special_notes:
+            if contains_keyword(special_notes, keyword):
                 found_keywords.append(keyword)
                 log_print(f"DEBUG: BaseCalculator.calculate - 특이사항에 '{keyword}' 발견, 취급 불가")
         
@@ -3120,11 +3132,11 @@ class BaseCalculator:
             found_keywords = []
             for keyword in keywords:
                 for field in check_fields:
-                    if field == "special_notes" and special_notes and keyword in special_notes:
+                    if field == "special_notes" and contains_keyword(special_notes, keyword):
                         if keyword not in found_keywords:
                             found_keywords.append(keyword)
                             log_print(f"DEBUG: BaseCalculator._validate_validation_rules - 특이사항에 제한 키워드 '{keyword}' 발견")
-                    elif field == "requests" and requests and keyword in requests:
+                    elif field == "requests" and contains_keyword(requests, keyword):
                         if keyword not in found_keywords:
                             found_keywords.append(keyword)
                             log_print(f"DEBUG: BaseCalculator._validate_validation_rules - 요청사항에 제한 키워드 '{keyword}' 발견")
@@ -3993,7 +4005,7 @@ class BaseCalculator:
             blob = " / ".join(haystacks)
             if not blob:
                 continue
-            if any(kw in blob for kw in keywords):
+            if any(contains_keyword(blob, kw) for kw in keywords):
                 if message not in messages:
                     messages.append(message)
         return messages

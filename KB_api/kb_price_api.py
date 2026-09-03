@@ -985,6 +985,33 @@ def _move_official_price_to_kb_ai(result: Dict[str, Any]) -> None:
     print(f"[!] 50세대 미만 단지 → KB AI시세로 표시: {price_num:,.0f}만원")
 
 
+_KBLAND_VILLA_TYPE_CODE = "08"  # 매물종별구분 08 = 연립/다세대
+
+
+def _kbland_complex_url(
+    complex_id: Any,
+    type_code: Any = None,
+    type_name: Any = None,
+) -> Optional[str]:
+    """
+    kbland 단지 페이지 링크.
+
+    /c/{id} 로만 열면 아파트 시세 탭이 떠서 연립/다세대는 KB AI시세가 보이지 않는다.
+    ctype(매물종별구분)+brif=villa 가 있어야 빌라 AI시세 탭이 열린다.
+    """
+    if complex_id is None or str(complex_id).strip() == "":
+        return None
+    url = f"https://kbland.kr/c/{complex_id}"
+    code = str(type_code or "").strip()
+    name = str(type_name or "")
+    is_villa = code == _KBLAND_VILLA_TYPE_CODE or (
+        not code and any(kw in name for kw in ("연립", "다세대", "빌라"))
+    )
+    if is_villa:
+        url += f"?ctype={_KBLAND_VILLA_TYPE_CODE}&brif=villa"
+    return url
+
+
 def _kb_data_api_get(path: str, params: Optional[Dict[str, Any]] = None) -> Optional[Any]:
     """kbland data-api GET. 성공 시 dataBody.data, 실패 시 None."""
     try:
@@ -2045,7 +2072,8 @@ class KBPriceAPI:
             "redevelop_yn": False,
             "complex_name": None,
             "complex_type": None,
-            "source_url": f"https://kbland.kr/c/{complex_id}" if complex_id else None,
+            "complex_type_code": None,
+            "source_url": _kbland_complex_url(complex_id),
             "error": None,
         }
 
@@ -2065,7 +2093,11 @@ class KBPriceAPI:
         out["households"] = to_int(main.get("총세대수"), 100000)
         out["buildings"] = to_int(main.get("총동수"), 10000)
         out["complex_type"] = main.get("매물종별구분명") or None
+        out["complex_type_code"] = str(main.get("매물종별구분") or "").strip() or None
         out["is_kb_ai_price"] = _should_classify_as_kb_ai(main, households=out["households"])
+        out["source_url"] = _kbland_complex_url(
+            complex_id, out["complex_type_code"], out["complex_type"]
+        )
 
         # 준공년월일 19790830 → 사용승인일 1979.08.30 (KB 페이지의 '사용승인일'과 같은 값)
         ymd = re.sub(r"\D", "", str(main.get("준공년월일") or ""))
@@ -2338,6 +2370,7 @@ class KBPriceAPI:
             "approval_date": None,
             "years_since_completion": None,
             "complex_type": "연립/다세대",
+            "complex_type_code": _KBLAND_VILLA_TYPE_CODE,
             "redevelop_yn": False,
             "villa_dong_id": dong_id,
             "villa_ho_name": None,
@@ -2384,7 +2417,7 @@ class KBPriceAPI:
             extra = self.get_complex_extra_via_api(str(complex_id))
             for key in (
                 "households", "buildings", "approval_date", "years_since_completion",
-                "complex_type", "complex_name",
+                "complex_type", "complex_type_code", "complex_name",
             ):
                 if extra.get(key) is not None:
                     result[key] = extra[key]
@@ -2393,8 +2426,12 @@ class KBPriceAPI:
                 result["redevelop_stages"] = extra.get("redevelop_stages") or []
             if extra.get("source_url"):
                 result["source_url"] = extra["source_url"]
-        if not result.get("source_url") and result.get("complex_id"):
-            result["source_url"] = f"https://kbland.kr/c/{result['complex_id']}"
+        if not result.get("source_url"):
+            result["source_url"] = _kbland_complex_url(
+                result.get("complex_id"),
+                result.get("complex_type_code"),
+                result.get("complex_type"),
+            )
 
         return result
 
@@ -3127,6 +3164,7 @@ class KBPriceAPI:
         result["approval_date"] = None   # 사용승인일 YYYY.MM.DD (기본정보)
         result["years_since_completion"] = None  # N년차 (기본정보)
         result["complex_type"] = None  # 주상복합, 아파트, 오피스텔 등
+        result["complex_type_code"] = None  # 매물종별구분 (참고 링크 ctype)
         result["redevelop_yn"] = False
         # fastPriceInfo 단지 항목에 세대수/동수 필드가 있으면 우선 사용
         for key in ("세대수", "총세대수", "총호수", "호수"):
@@ -3180,6 +3218,8 @@ class KBPriceAPI:
             if extra.get("complex_type") is not None:
                 result["complex_type"] = extra["complex_type"]
                 logger.info(f"✅ 단지유형: {result['complex_type']}")
+            if extra.get("complex_type_code") is not None:
+                result["complex_type_code"] = extra["complex_type_code"]
 
             # 세대수·동수: 단지 총세대수(임대 포함)를 시세 타입별 세대수 합산보다 우선
             if extra.get("households") is not None:
@@ -3217,6 +3257,12 @@ class KBPriceAPI:
             extra, households=result.get("households")
         ):
             _move_official_price_to_kb_ai(result)
+
+        result["source_url"] = extra.get("source_url") or _kbland_complex_url(
+            result.get("complex_id"),
+            result.get("complex_type_code"),
+            result.get("complex_type"),
+        )
         
         if result["kb_price"] is not None:
             price_info = f"{result['kb_price']:,.0f}만원"

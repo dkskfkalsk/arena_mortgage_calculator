@@ -186,6 +186,11 @@ class RegistryDocument:
 # 두류1,2동새마을금고처럼 동번호 사이 쉼표·중점이 있는 기관명
 _CREDITOR_NAME_TOKEN = r"[가-힣a-zA-Z][가-힣a-zA-Z0-9,·.&-]*"
 
+# 전유부분 대지권 표시 ('대지권의 목적인 토지의 표시'는 1동 건물 토지라 제외)
+_LAND_RIGHT_DISPLAY_RE = re.compile(
+    r"\(\s*대지권의\s*표시\s*\)|대지권\s*종류|대지권\s*비율"
+)
+
 
 def _normalize_creditor_name(raw: str) -> str:
     name = re.split(r"[\n\r]", raw or "")[0]
@@ -1460,30 +1465,26 @@ class RegistryParser:
         # 별도등기가 있고 말소되지 않았으면 True
         return has_separate and not is_cancelled
 
-    def _get_title_section(self) -> str:
-        """【 표 제 부 】 ~ 【 갑 구 】/【 을 구 】 구간"""
-        m = re.search(
-            r'【\s*표\s*제\s*부\s*】[\s\S]*?(?=【\s*갑\s*구\s*】|【\s*을\s*구\s*】|$)',
-            self.text, re.IGNORECASE
-        )
-        return m.group(0) if m else ""
-
     def _extract_no_land_registry(self) -> bool:
         """
-        집합건물 표제부에 대지권 항목이 없으면 대지권 미등기.
+        전유부분에 대지권 표시가 없으면 대지권 미등기.
         아파트·주상복합·빌라·오피스텔 등 집합건물 공통.
+
+        '대지권의 목적인 토지의 표시'는 1동 건물의 토지를 적은 항목이라
+        대지권 미등기 건에도 있어 판정 기준이 되지 못한다. 전유부분 대지권은
+        '( 대지권의 표시 )'와 대지권종류·대지권비율로 기재된다.
         """
         if not re.search(r'\[집합건물\]', self.text):
             return False
         if not re.search(r'전유부분의\s*건물', self.text):
             return False
-        title_section = self._get_title_section()
-        if not title_section:
-            return False
-        return not re.search(r'대지권', title_section)
+        return not _LAND_RIGHT_DISPLAY_RE.search(self.text)
 
 
-_NO_LAND_REGISTRY_PROPERTY_TYPES = ("주상복합", "아파트", "오피스텔", "빌라")
+# 긴 표기를 먼저 둬야 '연립/다세대'가 '연립'으로 잘리지 않는다
+_NO_LAND_REGISTRY_PROPERTY_TYPES = (
+    "주상복합", "아파트", "오피스텔", "연립/다세대", "다세대", "연립", "빌라",
+)
 
 
 def apply_no_land_registry_property_type(property_type: str, no_land_registry: bool) -> str:
