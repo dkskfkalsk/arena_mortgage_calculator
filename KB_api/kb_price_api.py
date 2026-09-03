@@ -932,6 +932,59 @@ def _parse_sale_price_man(value: Any) -> Optional[float]:
         return None
 
 
+def _is_truthy_kb_flag(value: Any) -> bool:
+    return str(value or "").strip().lower() in ("1", "y", "true", "yes")
+
+
+def _price_row_is_kb_ai(price_info: Optional[Dict[str, Any]]) -> bool:
+    """
+    50세대 미만 단지는 kbland에 KB AI시세로 올라온다.
+    API는 시세제공여부=1이어도 사이트/실무는 AI시세로 본다.
+    """
+    if not price_info:
+        return False
+    if _is_truthy_kb_flag(price_info.get("50세대미만여부")) or _is_truthy_kb_flag(
+        price_info.get("단지AI시세여부")
+    ):
+        return True
+    button = str(price_info.get("시세조사버튼구분") or "").strip()
+    return button in ("AI", "AI시세")
+
+
+def _households_are_under_50(households: Any) -> bool:
+    try:
+        return households is not None and int(households) < 50
+    except (TypeError, ValueError):
+        return False
+
+
+def _should_classify_as_kb_ai(
+    *flag_sources: Optional[Dict[str, Any]],
+    households: Any = None,
+) -> bool:
+    if _households_are_under_50(households):
+        return True
+    return any(_price_row_is_kb_ai(src) for src in flag_sources if src)
+
+
+def _move_official_price_to_kb_ai(result: Dict[str, Any]) -> None:
+    """공식 KB시세로 넣은 금액을 KB AI시세 필드로 옮긴다."""
+    price_num = result.get("kb_price")
+    if price_num is None:
+        return
+    price_min_num = result.get("kb_price_min")
+    result["kb_ai_price"] = price_num
+    result["kb_ai_price_min"] = price_min_num
+    result["kb_price"] = None
+    result["kb_price_min"] = None
+    result["kb_price_raw"] = f"KB AI시세: {price_num:,.0f}만원"
+    result["kb_price_min_raw"] = (
+        f"KB AI시세 하한: {price_min_num:,.0f}만원" if price_min_num else None
+    )
+    logger.info("50세대 미만/AI시세 단지 → KB AI시세로 분류: %s만원", f"{price_num:,.0f}")
+    print(f"[!] 50세대 미만 단지 → KB AI시세로 표시: {price_num:,.0f}만원")
+
+
 def _kb_data_api_get(path: str, params: Optional[Dict[str, Any]] = None) -> Optional[Any]:
     """kbland data-api GET. 성공 시 dataBody.data, 실패 시 None."""
     try:
@@ -2012,6 +2065,7 @@ class KBPriceAPI:
         out["households"] = to_int(main.get("총세대수"), 100000)
         out["buildings"] = to_int(main.get("총동수"), 10000)
         out["complex_type"] = main.get("매물종별구분명") or None
+        out["is_kb_ai_price"] = _should_classify_as_kb_ai(main, households=out["households"])
 
         # 준공년월일 19790830 → 사용승인일 1979.08.30 (KB 페이지의 '사용승인일'과 같은 값)
         ymd = re.sub(r"\D", "", str(main.get("준공년월일") or ""))
@@ -3049,6 +3103,8 @@ class KBPriceAPI:
             "kb_price_min": price_min_num,  # 하한 매매가 (만원 단위, 없으면 None)
             "kb_price_raw": f"{price_num:,.0f}만원" if price_num is not None else None,
             "kb_price_min_raw": f"{price_min_num:,.0f}만원" if price_min_num else None,
+            "kb_ai_price": None,
+            "kb_ai_price_min": None,
             "complex_name": selected_complex.get("단지명") or selected_complex.get("name", "알 수 없음"),
             "area": matched_area_val,  # 매칭된 면적
             "area_requested": area,  # 요청한 면적 (등기부 면적)
@@ -3060,6 +3116,9 @@ class KBPriceAPI:
             # 등기부 면적이 KB 전용면적과 달라 '동일시세 전용면적' 목록으로 매칭했는지 (구축)
             "same_price_area_matched": same_price_area_used,
         }
+        # 시세 행/단지 플래그가 있으면 바로 AI시세로 분류. 세대수는 extra 이후 한 번 더 본다.
+        if price_num is not None and _should_classify_as_kb_ai(matched_price, selected_complex):
+            _move_official_price_to_kb_ai(result)
         
         # 7. 재건축·세대수·사용승인일: 단지 목록 → complexMain/rcnsInfo → /c/ 스크래퍼 순으로 채우기
         result["redevelop_stages"] = []
@@ -3086,6 +3145,7 @@ class KBPriceAPI:
                     break
                 except (ValueError, TypeError):
                     pass
+        extra: Dict[str, Any] = {}
         if complex_id is not None:
             # 단지 부가정보(세대수·동수·사용승인일·유형·재건축단계)는 KB API 우선.
             # complexMain 하나에 재건축여부·총세대수·총동수·준공일·유형이 모두 있어
@@ -3151,11 +3211,21 @@ class KBPriceAPI:
                 logger.info(f"✅ 재건축 단계: {len(result['redevelop_stages'])}개")
                 if extra.get("error"):
                     result["redevelop_error"] = extra["error"]
+
+        # 세대수·complexMain 플래그가 뒤늦게 채워진 경우에도 AI시세로 재분류
+        if result.get("kb_price") is not None and _should_classify_as_kb_ai(
+            extra, households=result.get("households")
+        ):
+            _move_official_price_to_kb_ai(result)
         
         if result["kb_price"] is not None:
             price_info = f"{result['kb_price']:,.0f}만원"
             if price_min_num:
                 price_info += f" (하한: {price_min_num:,.0f}만원)"
+        elif result.get("kb_ai_price") is not None:
+            price_info = f"KB AI시세 {result['kb_ai_price']:,.0f}만원"
+            if result.get("kb_ai_price_min"):
+                price_info += f" (하한: {result['kb_ai_price_min']:,.0f}만원)"
         else:
             price_info = "시세없음"
         
@@ -3173,6 +3243,8 @@ class KBPriceAPI:
         logger.debug(f"   최종 결과: {result}")
         if result["kb_price"] is not None:
             print(f"[OK] KB 시세 조회 완료: {price_info} ({result['complex_name']})")
+        elif result.get("kb_ai_price") is not None:
+            print(f"[OK] KB AI시세 조회 완료: {price_info} ({result['complex_name']})")
         else:
             print(f"[OK] KB 단지 식별 완료(시세없음): {result['complex_name']} / id={result.get('complex_id')}")
         return result

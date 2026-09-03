@@ -1110,7 +1110,7 @@ def get_application(force_new=False):
                                 property_type = kb_complex_type
                                 print(f"[WEBHOOK] ✅ KB 스크래핑에서 구분 추출: {property_type}", file=sys.stderr, flush=True)
                                 logger.info(f"KB 스크래핑에서 구분 추출: {property_type}")
-                            elif kb_ai_price_num or kb_result.get("villa_dong_id"):
+                            elif kb_result.get("villa_dong_id"):
                                 property_type = "연립/다세대"
                                 print(f"[WEBHOOK] ✅ 빌라 AI시세 조회 → 구분: {property_type}", file=sys.stderr, flush=True)
                                 logger.info("빌라 AI시세 조회 → 구분: %s", property_type)
@@ -1258,7 +1258,7 @@ def get_application(force_new=False):
                     lines.append(f"KB AI시세 : 하한 {int(kb_ai_price_min_num):,}만원")
                 if kb_complex_id:
                     kb_price_url = f"https://kbland.kr/c/{kb_complex_id}"
-                    lines.append(f"KB시세 참고 : {kb_price_url}")
+                    lines.append(f"KB AI시세 참고 : {kb_price_url}")
                 if real_transactions_display:
                     tx_lines = [ln.strip() for ln in real_transactions_display.split("\n") if ln.strip()]
                     if tx_lines:
@@ -1315,6 +1315,18 @@ def get_application(force_new=False):
             gamak_excluded_creditors = []  # 1천만원 미만 차이로 감액등기 미적용된 금융사
             
             # 기존 근저당권 목록 처리
+            ltv_price_man = None
+            if kb_price:
+                try:
+                    ltv_price_man = int(str(kb_price).replace(",", ""))
+                except (ValueError, TypeError):
+                    ltv_price_man = None
+            elif kb_ai_price_num:
+                try:
+                    ltv_price_man = int(kb_ai_price_num)
+                except (TypeError, ValueError):
+                    ltv_price_man = None
+
             if result.근저당권목록:
                 total_amount = 0
                 mortgage_amounts = []  # 각 근저당권의 채권최고액 만원 단위 저장
@@ -1428,19 +1440,14 @@ def get_application(force_new=False):
                     mortgage_amounts.insert(insert_idx, dep)
                     principal_amounts.insert(insert_idx, dep)  # 세입자도 채권최고액=원금
                 
-                # KB시세 대비 LTV 계산 (채권최고액 기준 / 원금 기준)
-                if kb_price and mortgage_amounts:
+                # KB시세/KB AI시세 대비 LTV 계산 (채권최고액 기준 / 원금 기준)
+                if ltv_price_man and mortgage_amounts:
                     try:
-                        # KB시세 일반가를 만원 단위로 변환
-                        kb_price_man = int(kb_price.replace(',', ''))
-                        # 채권최고액 합계 계산 (만원 단위)
                         total_mortgage_man = sum(mortgage_amounts)
-                        # 원금 합계 계산 (만원 단위)
                         total_principal_man = sum(principal_amounts)
-                        # 비율 계산
-                        if kb_price_man > 0:
-                            ratio_mortgage = (total_mortgage_man / kb_price_man) * 100
-                            ratio_principal = (total_principal_man / kb_price_man) * 100
+                        if ltv_price_man > 0:
+                            ratio_mortgage = (total_mortgage_man / ltv_price_man) * 100
+                            ratio_principal = (total_principal_man / ltv_price_man) * 100
                             lines.append(f"{ratio_mortgage:.2f}% / {ratio_principal:.2f}%")
                     except (ValueError, ZeroDivisionError):
                         pass
@@ -1452,13 +1459,12 @@ def get_application(force_new=False):
                     dep = tenant['deposit_man']
                     mortgage_amounts.append(dep)
                     principal_amounts.append(dep)
-                # KB시세 대비 비율 계산 (LTV)
-                if kb_price and mortgage_amounts:
+                # KB시세/KB AI시세 대비 비율 계산 (LTV)
+                if ltv_price_man and mortgage_amounts:
                     try:
-                        kb_price_man = int(kb_price.replace(',', ''))
-                        if kb_price_man > 0:
+                        if ltv_price_man > 0:
                             total_man = sum(mortgage_amounts)
-                            ratio = (total_man / kb_price_man) * 100
+                            ratio = (total_man / ltv_price_man) * 100
                             lines.append(f"{ratio:.2f}% / {ratio:.2f}%")
                     except (ValueError, ZeroDivisionError):
                         pass
@@ -1467,11 +1473,10 @@ def get_application(force_new=False):
                 dep = tenant['deposit_man']
                 mortgage_amounts = [dep]
                 principal_amounts = [dep]
-                if kb_price:
+                if ltv_price_man:
                     try:
-                        kb_price_man = int(kb_price.replace(',', ''))
-                        if kb_price_man > 0:
-                            ratio = (dep / kb_price_man) * 100
+                        if ltv_price_man > 0:
+                            ratio = (dep / ltv_price_man) * 100
                             lines.append(f"{ratio:.2f}% / {ratio:.2f}%")
                     except (ValueError, ZeroDivisionError):
                         pass

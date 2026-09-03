@@ -183,6 +183,20 @@ class RegistryDocument:
         return "\n".join(lines)
 
 
+# 두류1,2동새마을금고처럼 동번호 사이 쉼표·중점이 있는 기관명
+_CREDITOR_NAME_TOKEN = r"[가-힣a-zA-Z][가-힣a-zA-Z0-9,·.&-]*"
+
+
+def _normalize_creditor_name(raw: str) -> str:
+    name = re.split(r"[\n\r]", raw or "")[0]
+    name = re.split(r"\n\s*\d+|\n\s*[가-힣]+\s*근저당권", name)[0]
+    name = re.split(r"\d{6}-\d+", name)[0]
+    name = re.sub(r"\s+", "", name).strip(" ,·.&-")
+    if len(name) < 2 or name.isdigit():
+        return ""
+    return name
+
+
 class RegistryParser:
     """등기부등본 PDF 파서"""
     
@@ -935,17 +949,12 @@ class RegistryParser:
                 # 근저당권자 찾기 (순위 블록에서 직접 추출)
                 # rank_block은 이미 다음 순위 전까지만 포함하므로, "근저당권자" 뒤의 텍스트 추출
                 # 패턴: "근저당권자 주식회사XXX" (줄바꿈이나 숫자로 시작하는 줄 전까지)
-                creditor_match = re.search(r'근저당권자\s*[:：]?\s*([가-힣a-zA-Z0-9]+(?:\s+[가-힣a-zA-Z0-9]+)*)', rank_block)
+                creditor_match = re.search(
+                    rf'근저당권자\s*[:：]?\s*({_CREDITOR_NAME_TOKEN}(?:[ \t]+{_CREDITOR_NAME_TOKEN})*)',
+                    rank_block,
+                )
                 if creditor_match:
-                    creditor = creditor_match.group(1).strip()
-                    # 줄바꿈이나 숫자로 시작하는 부분 제거
-                    creditor = re.split(r'\n\s*\d+|\n\s*[가-힣]+\s*근저당권', creditor)[0]
-                    creditor = creditor.strip()
-                    # 공백 제거
-                    creditor = re.sub(r'\s+', '', creditor)
-                    # 너무 짧거나 숫자만 있으면 제외
-                    if len(creditor) < 2 or creditor.isdigit():
-                        creditor = ""
+                    creditor = _normalize_creditor_name(creditor_match.group(1))
                 else:
                     creditor = ""
                 
@@ -1252,12 +1261,11 @@ class RegistryParser:
         """특정 섹션 내에서 순위번호의 근저당권자 찾기"""
         # 패턴: "N 근저당권설정 ... 근저당권자 XXX" (다음 순위 또는 [ 참 고 전까지)
         # 더 포괄적인 패턴: rank부터 근저당권자까지, 다음 rank나 [ 참 전까지
-        pattern = rf'{rank}\s+근저당권설정[\s\S]*?근저당권자\s+([가-힣a-zA-Z0-9]+(?:\s*[가-힣a-zA-Z0-9]+)*?)(?=\s*\d+\s+근저당권설정|\[\s*참|$)'
+        pattern = rf'{rank}\s+근저당권설정[\s\S]*?근저당권자\s+({_CREDITOR_NAME_TOKEN})(?=\s|$|\d{{6}}|\[\s*참)'
         match = re.search(pattern, section_text, re.DOTALL)
         if match:
-            creditor = match.group(1).strip()
-            creditor = re.sub(r'\s+', '', creditor)
-            if creditor and len(creditor) >= 2:
+            creditor = _normalize_creditor_name(match.group(1))
+            if creditor:
                 return creditor
         return ""
     
@@ -1276,12 +1284,11 @@ class RegistryParser:
     def _find_creditor_for_mortgage(self, rank: str) -> str:
         """특정 순위번호의 근저당권자 찾기 (전체 텍스트)"""
         # 을구 본문에서 찾기: "2 근저당권설정 ... 근저당권자 에이피엘대부"
-        pattern = rf'{rank}\s+근저당권설정[\s\S]*?근저당권자\s+([가-힣a-zA-Z0-9\s]+?)(?=\n\s*\n|\s*\d+\s+근저당권|채무자|대상소유자|\[|$)'
+        pattern = rf'{rank}\s+근저당권설정[\s\S]*?근저당권자\s+({_CREDITOR_NAME_TOKEN})(?=\s|$|\d{{6}}|채무자|대상소유자|\[)'
         match = re.search(pattern, self.text, re.DOTALL)
         if match:
-            creditor = match.group(1).strip()
-            creditor = re.sub(r'\s+', '', creditor)
-            if creditor and len(creditor) >= 2:
+            creditor = _normalize_creditor_name(match.group(1))
+            if creditor:
                 return creditor
         return ""
     

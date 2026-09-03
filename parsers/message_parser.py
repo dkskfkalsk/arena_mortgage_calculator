@@ -194,6 +194,10 @@ class MessageParser:
                         for j in range(1, 3):  # 다음 1-2줄 확인
                             if i + j < len(lines):
                                 next_line = lines[i + j].strip()
+                                if next_line and "참고" in next_line and (
+                                    "http" in next_line.lower() or "kbland" in next_line.lower()
+                                ):
+                                    break
                                 # 다음 줄이 숫자로 시작하거나 "하한", "상한" 같은 키워드가 있으면 추가
                                 if next_line and (any(keyword in next_line for keyword in ["하한", "상한", "일반"]) or re.search(r'[\d,]+', next_line)):
                                     value += " " + next_line
@@ -891,8 +895,18 @@ class MessageParser:
         
         elif "kbai" in key_clean or ("kb" in key_clean and "ai" in key_clean and "시세" in key_clean):
             # KB AI시세 - 별도 저장 (금융사별 price_sources.kb_ai_price에서 처리)
+            if "참고" in key_clean and (
+                (value and (value.strip().lower().startswith("http://") or value.strip().lower().startswith("https://")))
+                or "kbland.kr" in (value or "").lower()
+            ):
+                print(f"DEBUG: Parsed KB AI시세 - 키가 '참고'이고 값이 URL이라 시세로 사용 안 함: key={key}")
+                return
+            if "하한" in key_clean or str(value).strip().startswith("하한"):
+                print(f"DEBUG: Parsed KB AI시세 하한은 일반가를 덮어쓰지 않음: {value}")
+                return
             data["kb_ai_price"] = value
             data["price_type"] = "kb_ai"
+            data["kb_price_raw"] = f"KB AI시세: {value}"
             print(f"DEBUG: Parsed KB AI시세 - value: {value}")
         
         elif "kb시세" in key_clean or "시세" in key_clean:
