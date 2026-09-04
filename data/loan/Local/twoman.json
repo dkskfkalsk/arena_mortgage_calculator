@@ -18,6 +18,13 @@
     "housematch_price": 0
   },
   "min_amount": 1000,
+  "occupation_limit": {
+    "enabled": true,
+    "keywords": ["무직"],
+    "max_amount": 3000,
+    "applies_to_total": true,
+    "_comment": "무직 최대한도 3천만원. 대환원금이 3천 초과(예: 5천 대환)면 대환 미산출"
+  },
   "min_kb_price": 0,
   "hide_credit_grade": true,
   "show_region_grade": false,
@@ -69,7 +76,8 @@
     "LTV: 서울 75%, 경기·인천 72%, 그 외 68%",
     "대출금리 17~18%",
     "중도상환 수수료 2~3%",
-    "근저당 3순위까지 설정 가능"
+    "근저당 3순위까지 설정 가능",
+    "무직 최대한도 3천만원 (대환원금 3천 초과 시 대환 불가)"
   ],
   "_comment_hide_conditions": "한도 회신 시 conditions 노출 생략 (내용은 유지)",
   "hide_conditions": true

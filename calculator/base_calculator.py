@@ -1808,6 +1808,37 @@ class BaseCalculator:
                         taxi_limit_applied_flag = True  # 택시 한도 제한 적용 플래그 설정
                         print(f"DEBUG: BaseCalculator.calculate - 택시 관련 키워드 '{keyword}' 발견, 한도 제한: {max_amount_limit}만원")
                         break
+
+        # 직업별 최대한도 (투맨 무직 3천 등) — 선/후순위 캡 적용 후 다시 깎음
+        occupation_limit_config = self.config.get("occupation_limit") or {}
+        occupation_limit_applies_to_total = False
+        occupation_cap_amount = None
+        if occupation_limit_config.get("enabled", False):
+            occ_text = " ".join(
+                str(x or "")
+                for x in (
+                    property_data.get("occupation"),
+                    special_notes,
+                    property_data.get("requests"),
+                )
+            )
+            occ_compact = occ_text.replace(" ", "")
+            for keyword in occupation_limit_config.get("keywords") or []:
+                if not keyword:
+                    continue
+                kw = str(keyword)
+                if kw in occ_text or kw.replace(" ", "") in occ_compact:
+                    occ_limit = occupation_limit_config.get("max_amount")
+                    if occ_limit is not None:
+                        occupation_cap_amount = float(occ_limit)
+                        occupation_limit_applies_to_total = bool(
+                            occupation_limit_config.get("applies_to_total", True)
+                        )
+                        print(
+                            f"DEBUG: BaseCalculator.calculate - 직업 키워드 '{kw}' 발견, "
+                            f"한도 제한 예정: {occupation_cap_amount}만원"
+                        )
+                    break
         
         # 가계 상품: 서울 수도권 한도 제한 (1억)
         if is_household_product:
@@ -1870,6 +1901,13 @@ class BaseCalculator:
                 f"{'(대환 포함)' if is_refinance else ''}, "
                 f"max_amount_limit_subordinate 적용: {max_amount_limit}만원"
             )
+
+        if occupation_cap_amount is not None:
+            if max_amount_limit is None or max_amount_limit > occupation_cap_amount:
+                max_amount_limit = occupation_cap_amount
+            print(
+                f"DEBUG: BaseCalculator.calculate - 직업 최대한도 적용: {max_amount_limit}만원"
+            )
         
         # min_amount_by_grade: 급지별 최소진행금액 (디에스론: 4~5급지 3천만원)
         effective_min_amount = self.config.get("min_amount")
@@ -1893,7 +1931,10 @@ class BaseCalculator:
 
         # JB하이론 / 총실행 상한 상품: 대환 원금이 한도 초과 시 한도 미산출
         is_jb = self.is_jb
-        max_amount_limit_applies_to_total = self.config.get("max_amount_limit_applies_to_total", False)
+        max_amount_limit_applies_to_total = bool(
+            self.config.get("max_amount_limit_applies_to_total", False)
+            or occupation_limit_applies_to_total
+        )
         max_total_amount_limit = self.config.get("max_total_amount_limit")
         if is_refinance:
             over_cap = None
