@@ -1828,18 +1828,24 @@ class BaseCalculator:
             max_amount_limit = max_amount_limit_primary
             print(f"DEBUG: BaseCalculator.calculate - 선순위, max_amount_limit_primary 적용: {max_amount_limit}만원")
 
-        # 후순위(대환 아님) 전용 한도 (IM SOHO아파트론: 후순위 최대 5천만)
+        # 후순위 한도 (IM SOHO아파트론: 대환 아님·후순위만 5천만.
+        # Magellan 등: max_amount_limit_subordinate_includes_refinance=true 이면
+        # 2순위 대환(1순위 잔존)에도 후순위 캡 적용)
         max_amount_limit_subordinate = self.config.get("max_amount_limit_subordinate")
+        subordinate_includes_refinance = bool(
+            self.config.get("max_amount_limit_subordinate_includes_refinance", False)
+        )
         if (
             max_amount_limit_subordinate is not None
-            and not is_refinance
             and self._is_subordinate
+            and (not is_refinance or subordinate_includes_refinance)
         ):
             if max_amount_limit is None or max_amount_limit > max_amount_limit_subordinate:
                 max_amount_limit = max_amount_limit_subordinate
             print(
-                f"DEBUG: BaseCalculator.calculate - 후순위, max_amount_limit_subordinate 적용: "
-                f"{max_amount_limit}만원"
+                f"DEBUG: BaseCalculator.calculate - 후순위"
+                f"{'(대환 포함)' if is_refinance else ''}, "
+                f"max_amount_limit_subordinate 적용: {max_amount_limit}만원"
             )
         
         # min_amount_by_grade: 급지별 최소진행금액 (디에스론: 4~5급지 3천만원)
