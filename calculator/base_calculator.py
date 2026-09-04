@@ -176,6 +176,9 @@ def get_property_type_key(property_type: str, special_notes: str = "") -> Option
     """
     한글 물건유형·특이사항 → config 키(apartment, villa, …).
     property_type_conditions / household_property_types 등과 동일한 키 체계.
+
+    빌라·연립·다세대(연립/다세대 포함)는 실무상 동일 취급 → villa.
+    multi_family_house는 '공동주택' 표기 전용.
     """
     if not property_type:
         return None
@@ -191,9 +194,8 @@ def get_property_type_key(property_type: str, special_notes: str = "") -> Option
         return "apartment_no_land_registry" if has_no_land_registry else "apartment"
     if "주상복합" in property_type:
         return "residential_commercial"
-    if "다세대" in property_type:
-        return "multi_family_house"
-    if "빌라" in property_type or "연립" in property_type:
+    # 빌라 = 연립·다세대 통칭 (등기/KB '연립/다세대' 포함)
+    if "빌라" in property_type or "연립" in property_type or "다세대" in property_type:
         return "villa"
     if "오피스텔" in property_type:
         return "officetel"
