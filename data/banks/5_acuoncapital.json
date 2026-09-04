@@ -1,5 +1,5 @@
 {
-  "bank_name": "애큐온캐피탈 (일반사업자 기준)",
+  "bank_name": "애큐온캐피탈",
   "_comment_bank_name": "[]",
   "bank_id": "acuon_capital",
   "_comment_bank_id": "고정 식별자(변경 금지). base_calculator.py의 금융사별 특례 로직이 이 값으로 식별됨. bank_name(표시명)은 자유롭게 변경 가능.",
