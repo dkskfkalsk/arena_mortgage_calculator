@@ -1389,9 +1389,13 @@ class BaseCalculator:
             is_acuon = self.is_acuon
             is_mg_capital = self.is_mg_capital
             is_smart_saving = self.is_smart_saving
-            is_business_product = is_bnk or is_ok_bank or is_acuon or is_mg_capital or is_smart_saving
+            # 사업자금 상품(저축·캐피탈): MG/OK와 동일하게 마스터 명단 또는 기관명 '사업자금'만 대환
+            is_business_product = (
+                product_type == "business"
+                or is_bnk or is_ok_bank or is_acuon or is_mg_capital or is_smart_saving
+            )
             business_product_names = self._get_business_product_names() if is_business_product else []
-            # true: 저축은행 등 refinance_excluded_institution_types만 대환 불가, 그 외 캐피탈·은행 등 대환 가능
+            # true: 유형 제외(예: 저축은행)만 추가 차단. 화이트리스트는 건너뛰지 않음.
             refinance_exclude_types_only = bool(self.config.get("refinance_exclude_institution_types_only"))
             
             for mortgage in mortgages:
@@ -1417,6 +1421,20 @@ class BaseCalculator:
                         refinance_denied.append({
                             "priority": priority,
                             "reason": f"본인({institution_short}) 대환 불가",
+                        })
+                        other_mortgages.append(mortgage)
+                        continue
+
+                    # 대부 대환: 기관명에 '사업자금'이 있을 때만 사업자금 대환 가능
+                    inst_type = classify_financial_institution(institution)
+                    if inst_type == "대부" and "사업자금" not in institution.replace(" ", ""):
+                        print(
+                            f"DEBUG: BaseCalculator.calculate - {self.bank_name}: "
+                            f"'{institution}'는 대부(사업자금 미명시)라 대환 불가, 후순위로 처리"
+                        )
+                        refinance_denied.append({
+                            "priority": priority,
+                            "reason": f"대부 사업자금 미명시({institution_short}) 대환 불가",
                         })
                         other_mortgages.append(mortgage)
                         continue
@@ -1470,24 +1488,20 @@ class BaseCalculator:
                                 print(f"DEBUG: BaseCalculator.calculate - {self.bank_name} 가계자금: '{institution}'는 사업자금이 아니라 대환 불가, 후순위로 처리")
                                 continue
                     
-                    # BNK캐피탈, OK저축은행, 애큐온저축은행, MG캐피탈인 경우 대환 가능 기관 체크
+                    # 사업자금 상품: 마스터 명단(저축·캐피탈) 또는 기관명 '사업자금'만 대환 (MG/OK와 동일)
                     can_refinance = False
-                    if refinance_exclude_types_only:
-                        can_refinance = True
-                    elif is_business_product and business_product_names:
-                        # 리스트에 있는 기관인지 확인
+                    if is_business_product and business_product_names:
                         for ref_inst in business_product_names:
                             ref_inst_clean = ref_inst.replace(" ", "")
                             if ref_inst_clean in institution_clean:
                                 can_refinance = True
                                 break
-                        
-                        # 리스트에 없지만 '사업자금' 문자열이 있으면 대환 가능
                         if not can_refinance and "사업자금" in institution:
                             can_refinance = True
                             print(f"DEBUG: BaseCalculator.calculate - {self.bank_name}: '{institution}'에 '사업자금' 포함되어 대환 가능")
+                    elif refinance_exclude_types_only:
+                        can_refinance = True
                     else:
-                        # BNK캐피탈, OK저축은행, 애큐온저축은행, MG캐피탈이 아니면 대환 가능
                         can_refinance = True
                     
                     if can_refinance:
@@ -1515,6 +1529,15 @@ class BaseCalculator:
         )
         
         print(f"DEBUG: BaseCalculator.calculate - mortgages: {mortgages}")  # 추가
+
+        # 대부 선순위가 남는 후순위: 허용 금융사만 한도 산출, 나머지는 취급 불가
+        if other_mortgages and any(
+            classify_financial_institution(m.get("institution") or "") == "대부"
+            for m in other_mortgages
+        ):
+            if self.config.get("daebu_subordinate_allowed") is False:
+                print(f"DEBUG: BaseCalculator.calculate - {self.bank_name} 대부 후순위 취급 불가")
+                return self._error_result(["대부 후순위 취급 불가"])
         
         # BNK캐피탈인 경우 대환 요청이 있었는데 대환 가능한 기관이 없는지 확인
         is_bnk = self.is_bnk

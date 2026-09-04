@@ -1,5 +1,5 @@
 {
-  "bank_name": "OK저축은행 사업자금",
+  "bank_name": "OK저축은행",
   "bank_id": "ok_savingbank",
   "_comment_bank_id": "고정 식별자(변경 금지). base_calculator.py의 금융사별 특례 로직이 이 값으로 식별됨. bank_name(표시명)은 자유롭게 변경 가능.",
   "refinance_self_aliases": [
@@ -34,6 +34,8 @@
     "대구"
   ],
   "product_type": "business",
+  "daebu_subordinate_allowed": true,
+  "_comment_daebu_subordinate_allowed": "대부 선순위가 남는 후순위 한도 산출 허용",
   "self_refinance_excluded": [
     "OK저축은행",
     "오케이저축은행",

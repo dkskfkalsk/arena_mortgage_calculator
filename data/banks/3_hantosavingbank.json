@@ -15,6 +15,8 @@
     "인천"
   ],
   "product_type": "business",
+  "daebu_subordinate_allowed": false,
+  "_comment_daebu_subordinate_allowed": "false면 대부 선순위가 남는 후순위는 '대부 후순위 취급 불가'",
   "self_refinance_excluded": [
     "한국투자저축"
   ],
@@ -22,9 +24,9 @@
   "refinance_excluded_institution_types": [
     "저축은행"
   ],
-  "_comment_refinance_excluded_institution_types": "저축은행 유형만 대환 불가(후순위). 캐피탈·은행·대부 등은 대환 가능.",
-  "refinance_exclude_institution_types_only": true,
-  "_comment_refinance_exclude_institution_types_only": "마스터 대환 명단 화이트리스트 미적용. 저축은행 유형 제외만 적용.",
+  "_comment_refinance_excluded_institution_types": "저축은행 유형은 대환 불가(후순위). 그 외는 MG/OK와 동일하게 마스터 명단 또는 기관명 '사업자금'만 대환.",
+  "refinance_exclude_institution_types_only": false,
+  "_comment_refinance_exclude_institution_types_only": "false: 유형 제외 후 마스터 화이트리스트 적용. 대부는 '사업자금' 명시 시에만 대환.",
   "_comment_region_grades": "1급지95%(서울10개구) 2급지90%(서울나머지·과천·분당·동안) 3급지85%(경기·인천) 5급지70%(연천등8곳) 9급지 취급불가",
   "region_grades": {
     "서울특별시종로구": 2,

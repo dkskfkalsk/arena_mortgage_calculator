@@ -24,6 +24,8 @@
     "세종"
   ],
   "product_type": "business",
+  "daebu_subordinate_allowed": true,
+  "_comment_daebu_subordinate_allowed": "대부 선순위가 남는 후순위 한도 산출 허용",
   "self_refinance_excluded": [
     "JB하이론",
     "JB우리캐피탈",

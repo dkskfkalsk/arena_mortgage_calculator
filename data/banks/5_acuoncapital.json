@@ -32,6 +32,8 @@
     "경남"
   ],
   "product_type": "business",
+  "daebu_subordinate_allowed": false,
+  "_comment_daebu_subordinate_allowed": "false면 대부 선순위가 남는 후순위는 '대부 후순위 취급 불가'",
   "self_refinance_excluded": [
     "애큐온캐피탈",
     "애큐온저축은행",
