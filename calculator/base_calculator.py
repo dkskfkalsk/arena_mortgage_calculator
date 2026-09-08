@@ -1425,9 +1425,19 @@ class BaseCalculator:
                         other_mortgages.append(mortgage)
                         continue
 
-                    # 대부 대환: 기관명에 '사업자금'이 있을 때만 사업자금 대환 가능
+                    # 저축·캐피탈이 대부를 대환할 때만 기관명 '사업자금' 필수.
+                    # 대부 상품끼리는 사업자금 명시 없이 대환 가능 (refinance_all_requested 등).
                     inst_type = classify_financial_institution(institution)
-                    if inst_type == "대부" and "사업자금" not in institution.replace(" ", ""):
+                    self_inst_type = classify_financial_institution(self.bank_name)
+                    daebu_needs_business_label = (
+                        self_inst_type in ("저축은행", "캐피탈")
+                        and not self.config.get("refinance_all_requested")
+                    )
+                    if (
+                        daebu_needs_business_label
+                        and inst_type == "대부"
+                        and "사업자금" not in institution.replace(" ", "")
+                    ):
                         print(
                             f"DEBUG: BaseCalculator.calculate - {self.bank_name}: "
                             f"'{institution}'는 대부(사업자금 미명시)라 대환 불가, 후순위로 처리"
