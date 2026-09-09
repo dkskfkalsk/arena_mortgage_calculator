@@ -73,6 +73,7 @@ def get_application(force_new=False):
         from utils.validators import (
             extract_bank_appraisal_price_from_special_notes,
             extract_kb_ai_price_from_special_notes,
+            extract_kb_ai_lower_bound_from_special_notes,
             extract_housematch_price_from_special_notes,
             extract_realestatetech_price_from_special_notes,
             extract_korea_realestate_price_from_special_notes,
@@ -1029,9 +1030,26 @@ def get_application(force_new=False):
             has_area = bool(area and str(area).strip()) or (area_value is not None and area_value > 0)
             # 캡션에 KB AI시세만 있고 공식 KB시세(캡션 파싱값)가 없으면 자동 조회로 kb_price 채우지 않음
             kb_ai_from_caption = extract_kb_ai_price_from_special_notes(caption or "")
+            kb_ai_min_from_caption = extract_kb_ai_lower_bound_from_special_notes(caption or "")
             skip_kb_api_for_ai_only_caption = (
                 kb_ai_from_caption is not None and not (caption_info.get("kb_price") or "").strip()
             )
+            # 캡션 AI만 있는 경우: pdf_only(스크래핑 전용)에서만 캡션 숫자를 출력·LTV에 사용
+            # banks_2(API 방)는 기존처럼 공식 KB 조회 경로를 유지
+            if pdf_only and skip_kb_api_for_ai_only_caption:
+                kb_ai_price_num = kb_ai_from_caption
+                kb_ai_price_min_num = kb_ai_min_from_caption
+                print(
+                    f"[WEBHOOK] 캡션 KB AI시세 사용 (pdf_only): 일반 {int(kb_ai_from_caption):,}만원"
+                    + (f", 하한 {int(kb_ai_min_from_caption):,}만원" if kb_ai_min_from_caption else ""),
+                    file=sys.stderr,
+                    flush=True,
+                )
+                logger.info(
+                    "캡션 KB AI시세 사용 (pdf_only): 일반 %s만원%s",
+                    f"{int(kb_ai_from_caption):,}",
+                    f", 하한 {int(kb_ai_min_from_caption):,}만원" if kb_ai_min_from_caption else "",
+                )
             should_call_kb_api = (
                 address and address != "확인불가" and has_area and not pdf_only
                 and not skip_kb_api_for_ai_only_caption

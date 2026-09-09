@@ -258,6 +258,37 @@ def extract_kb_ai_price_from_special_notes(special_notes):
         return None
 
 
+def extract_kb_ai_lower_bound_from_special_notes(special_notes):
+    """
+    특이사항/캡션에서 KB AI시세 하한 추출.
+    "KB AI시세 : 하한 8,100만원" 또는 "KB AI시세 9400-8100만" 형식.
+    """
+    if not special_notes:
+        return None
+
+    try:
+        import re
+        notes_str = str(special_notes).strip()
+        patterns = [
+            r'KB\s*AI\s*시세\s*[:\s]*하한\s*[가]?\s*[:\s]*([\d,]+)',
+            r'KB\s*AI\s*시세\s*[:\s]*(?:일반\s*)?[\d,]+\s*[-~]\s*([\d,]+)',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, notes_str, re.IGNORECASE)
+            if match:
+                price_str_clean = match.group(1).replace("만원", "").replace("만", "").replace(",", "").strip()
+                if price_str_clean and len(price_str_clean) >= 3:
+                    price = float(price_str_clean)
+                    print(
+                        f"DEBUG: extract_kb_ai_lower_bound_from_special_notes - extracted KB AI 하한: {price}만원"
+                    )
+                    return price
+        return None
+    except (ValueError, AttributeError, TypeError) as e:
+        print(f"DEBUG: extract_kb_ai_lower_bound_from_special_notes - error: {e}, input: {special_notes}")
+        return None
+
+
 def extract_bank_appraisal_price_from_special_notes(special_notes):
     """
     특이사항에서 탁감가(은행감정가) 추출
