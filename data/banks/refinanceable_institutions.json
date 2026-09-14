@@ -7,6 +7,14 @@
     "https://www.crefia.or.kr/portal/company/membership/membershipIntroduction.xx?coCodeSubId=2"
   ],
   "_updated": "2026-04-01",
+  "extra_refinanceable": [
+    "새마을금고",
+    "금고",
+    "수협",
+    "조합",
+    "농협"
+  ],
+  "_comment_extra_refinanceable": "저축·캐피탈 명단 외 대환 허용 키워드. 요청된 근저당권자명에 포함되면 대환. savings_banks에 넣지 않음(조합 분류·설정비율 유지).",
   "hangul_aliases": [
     {
       "official": "A캐피탈",

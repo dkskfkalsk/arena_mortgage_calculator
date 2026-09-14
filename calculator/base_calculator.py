@@ -102,10 +102,19 @@ def _load_json_config_cached(path: str) -> Dict[str, Any]:
     return data
 
 
+def _merge_extra_refinanceable(base_names: List[str], data: Dict[str, Any]) -> List[str]:
+    """savings/capital names에 extra_refinanceable(새마을금고·농협 등) 키워드를 합친다."""
+    extra = data.get("extra_refinanceable") or []
+    if not extra:
+        return list(base_names)
+    return sorted(set(list(base_names) + list(extra)))
+
+
 def _load_refinanceable_master_names() -> List[str]:
     """
     저축은행·리스·할부(캐피탈) 등 마스터 명단 로드 (한 번만).
     우선순위: data/banks/refinanceable_institutions.json → data/refinanceable_institutions.json(legacy)
+    extra_refinanceable는 names/savings·capital과 항상 합친다 (조합 분류용 savings_banks와 분리).
     """
     global _REFINANCE_MASTER_NAMES_CACHE
     if _REFINANCE_MASTER_NAMES_CACHE is not None:
@@ -117,11 +126,11 @@ def _load_refinanceable_master_names() -> List[str]:
             data = json.load(f)
         names = data.get("names")
         if names:
-            _REFINANCE_MASTER_NAMES_CACHE = list(names)
+            _REFINANCE_MASTER_NAMES_CACHE = _merge_extra_refinanceable(list(names), data)
         else:
             s = data.get("savings_banks") or []
             c = data.get("capital_lease_installment") or []
-            _REFINANCE_MASTER_NAMES_CACHE = sorted(set(s + c))
+            _REFINANCE_MASTER_NAMES_CACHE = _merge_extra_refinanceable(s + c, data)
         return _REFINANCE_MASTER_NAMES_CACHE
     except Exception as e:
         logger.warning("refinanceable_institutions.json(banks) 로드 실패: %s", e)
@@ -129,7 +138,7 @@ def _load_refinanceable_master_names() -> List[str]:
     try:
         with open(legacy, "r", encoding="utf-8") as f:
             data = json.load(f)
-        _REFINANCE_MASTER_NAMES_CACHE = data.get("names") or []
+        _REFINANCE_MASTER_NAMES_CACHE = _merge_extra_refinanceable(data.get("names") or [], data)
     except Exception as e:
         logger.warning("refinanceable_institutions.json 로드 실패: %s", e)
         _REFINANCE_MASTER_NAMES_CACHE = []

@@ -67,6 +67,7 @@ HANGUL_ALIASES = [
 
 def main():
     extras = [alias for _, alias in HANGUL_ALIASES]
+    extra_refinanceable = ["새마을금고", "금고", "수협", "조합", "농협"]
     merged = sorted(set(SAVINGS + CAPITAL + extras))
     obj = {
         "_comment": (
@@ -75,11 +76,15 @@ def main():
             "시점·인허가 변동 시 금융감독원 파인·협회 공시로 갱신. "
             "hangul_aliases: 공식 상호의 영문 부분을 한글로 읽은 별칭(스크립트 HANGUL_ALIASES)."
         ),
+        "enabled": False,
+        "_comment_enabled": "기관 명단 참조 전용이며 한도 산출 계산기에 포함하지 않음 (bank_name 없이 로드 시 * Unknown 으로 표시되던 문제 방지)",
         "_sources": [
             "https://ko.wikipedia.org/wiki/대한민국의_금융기관_목록",
             "https://www.crefia.or.kr/portal/company/membership/membershipIntroduction.xx?coCodeSubId=2",
         ],
         "_updated": "2026-04-01",
+        "extra_refinanceable": extra_refinanceable,
+        "_comment_extra_refinanceable": "저축·캐피탈 명단 외 대환 허용 키워드. 요청된 근저당권자명에 포함되면 대환. savings_banks에 넣지 않음(조합 분류·설정비율 유지).",
         "hangul_aliases": [{"official": o, "hangul": h} for o, h in HANGUL_ALIASES],
         "savings_banks": SAVINGS,
         "capital_lease_installment": CAPITAL,
