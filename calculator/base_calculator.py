@@ -690,6 +690,8 @@ class BaseCalculator:
         self._promotion_rejection_reason = None
         self._gm_ltv_steps_override = None
         self._fractional_share_min_floor = None
+        self._household_ltv_reduction_meta = None
+        self._property_type_ltv_reduction_meta = None
         
         # config에 product_type이 있으면 product_type 파라미터가 없을 때 사용 (팀엑스대부 등)
         if product_type is None:
@@ -1719,6 +1721,10 @@ class BaseCalculator:
 
         # 세대수 기반 LTV 차감 (솔브레인저축은행 등: 100세대 미만 LTV 5%p)
         max_ltv, self._household_ltv_reduction_meta = self._apply_household_ltv_reduction(
+            max_ltv, property_data
+        )
+        # 물건 타입별 LTV 차감 (애큐온저축 오피스텔 5%p 등)
+        max_ltv, self._property_type_ltv_reduction_meta = self._apply_property_type_ltv_reduction(
             max_ltv, property_data
         )
         
@@ -2775,6 +2781,35 @@ class BaseCalculator:
                         min_amount=min_amount,
                     )
 
+            pt_meta = getattr(self, "_property_type_ltv_reduction_meta", None) or {}
+            if pt_meta.get("applied"):
+                before_ltv = pt_meta.get("before_ltv")
+                no_limit_msg = pt_meta.get("no_limit_error_message") or pt_meta.get("message")
+                if (
+                    before_ltv is not None
+                    and no_limit_msg
+                    and self._would_have_available_limit_at_ltv(
+                        kb_price=kb_price,
+                        max_ltv=float(before_ltv),
+                        total_mortgage=total_mortgage,
+                        refinance_principal=refinance_principal if is_refinance else 0,
+                        min_amount=min_amount,
+                        is_refinance=is_refinance,
+                    )
+                ):
+                    pt_conditions = list(self.config.get("conditions", []))
+                    if pt_meta.get("message") and pt_meta["message"] not in pt_conditions:
+                        pt_conditions.append(pt_meta["message"])
+                    print(
+                        f"DEBUG: BaseCalculator.calculate - {self.bank_name}: "
+                        f"물건타입 LTV 차감({pt_meta.get('before_ltv')}%→{pt_meta.get('after_ltv')}%)으로 한도 불가"
+                    )
+                    return self._error_result(
+                        [f"{refinance_denied_prefix}{no_limit_msg}"],
+                        conditions=pt_conditions,
+                        min_amount=min_amount,
+                    )
+
             # 선순위 채권최고(대환 제외 분 = other_mortgages)가 담보한도를 넘는지. 대환 대상 원금은 여기서 제외(2단계에서 차감).
             if total_mortgage > max_ltv_amount:
                 shortage = total_mortgage - max_ltv_amount
@@ -2906,6 +2941,11 @@ class BaseCalculator:
         if results and hh_meta.get("applied") and hh_meta.get("message"):
             if hh_meta["message"] not in conditions:
                 conditions.append(hh_meta["message"])
+
+        pt_meta = getattr(self, "_property_type_ltv_reduction_meta", None) or {}
+        if results and pt_meta.get("applied") and pt_meta.get("message"):
+            if pt_meta["message"] not in conditions:
+                conditions.append(pt_meta["message"])
 
         # 조건부 캡션 (공동명의·별도등기·대지권미등기 등) — 한도와 함께 멘트만
         if results and property_data:
@@ -4041,6 +4081,57 @@ class BaseCalculator:
             print(
                 f"DEBUG: _apply_household_ltv_reduction - {self.bank_name}: "
                 f"세대수 {household_count} < {threshold}, LTV {before}% → {after}%"
+            )
+            return after, meta
+        except (ValueError, TypeError):
+            return max_ltv, None
+
+    def _apply_property_type_ltv_reduction(
+        self,
+        max_ltv: Optional[float],
+        property_data: Optional[Dict[str, Any]],
+    ) -> Tuple[Optional[float], Optional[Dict[str, Any]]]:
+        """
+        물건 타입별 LTV 차감 (config: property_type_ltv_reduction).
+        예: 오피스텔이면 최대 LTV 5%p 차감.
+        """
+        cfg = self.config.get("property_type_ltv_reduction") or {}
+        if not cfg.get("enabled"):
+            return max_ltv, None
+        if max_ltv is None or property_data is None:
+            return max_ltv, None
+
+        ptype = property_data.get("property_type", "") or ""
+        notes = property_data.get("special_notes", "") or ""
+        ptype_key = get_property_type_key(ptype, notes)
+        if not ptype_key:
+            return max_ltv, None
+        type_cfg = cfg.get(ptype_key)
+        if not isinstance(type_cfg, dict):
+            return max_ltv, None
+        reduction = type_cfg.get("ltv_reduction")
+        if reduction is None:
+            return max_ltv, None
+        try:
+            reduction_f = float(reduction)
+            if reduction_f <= 0:
+                return max_ltv, None
+            before = float(max_ltv)
+            after = max(0.0, before - reduction_f)
+            label = ptype or ptype_key
+            meta = {
+                "applied": True,
+                "before_ltv": before,
+                "after_ltv": after,
+                "reduction": reduction_f,
+                "property_type_key": ptype_key,
+                "message": type_cfg.get("message") or f"*{label} LTV{reduction_f:g}%차감",
+                "no_limit_error_message": type_cfg.get("no_limit_error_message")
+                or f"*{label} LTV{reduction_f:g}%차감으로 한도 불가",
+            }
+            print(
+                f"DEBUG: _apply_property_type_ltv_reduction - {self.bank_name}: "
+                f"{ptype_key} LTV {before}% → {after}% (-{reduction_f:g}%p)"
             )
             return after, meta
         except (ValueError, TypeError):
