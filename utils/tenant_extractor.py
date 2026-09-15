@@ -51,7 +51,32 @@ def extract_tenant_info(text: str, parse_amount_fn=None) -> Optional[Dict[str, A
     def _parse_deposit(txt):
         if not txt:
             return None
-        txt = txt.strip().replace(',', '').replace(' ', '').replace('，', '')
+        raw = txt.strip()
+        txt = raw.replace(',', '').replace('，', '')
+        # 복합 형식은 parse_amount_fn 우선 (3억4천, 1억5천만 등)
+        if parse_amount_fn:
+            val = parse_amount_fn(txt)
+            if val is not None:
+                try:
+                    val_i = int(val)
+                    if val_i >= 100:
+                        return val_i
+                except (TypeError, ValueError):
+                    pass
+        # 억 + 천: 3억4천 / 3억 4천만 / 3억4천만원 → 34000만원
+        m = re.search(r'(\d+\.?\d*)\s*억\s*(\d+)\s*천(?:\s*만)?', txt)
+        if m:
+            try:
+                return int(float(m.group(1)) * 10000 + int(m.group(2)) * 1000)
+            except ValueError:
+                pass
+        # 억 + 만: 1억2620만
+        m = re.search(r'(\d+\.?\d*)\s*억\s*(\d+)\s*만', txt)
+        if m:
+            try:
+                return int(float(m.group(1)) * 10000 + int(m.group(2)))
+            except ValueError:
+                pass
         # 억 단위: 1억 → 10000만원
         m = re.search(r'(\d+\.?\d*)\s*억', txt)
         if m:
@@ -66,12 +91,8 @@ def extract_tenant_info(text: str, parse_amount_fn=None) -> Optional[Dict[str, A
                 return int(m.group(1)) * 1000
             except ValueError:
                 pass
-        # 만 단위: 3000만, 3,000만 → 3000만원 (parse_amount_fn이 있으면 복합 형식 지원)
-        if parse_amount_fn:
-            val = parse_amount_fn(txt)
-            if val is not None:
-                return val
-        m = re.search(r'^(\d+)$', txt)
+        # 만 단위: 3000만, 3,000만 → 3000만원
+        m = re.search(r'^(\d+)$', txt.replace(' ', ''))
         if m:
             return int(m.group(1))
         m = re.search(r'(\d+)\s*만', txt)
@@ -87,6 +108,9 @@ def extract_tenant_info(text: str, parse_amount_fn=None) -> Optional[Dict[str, A
     
     # 보증금 패턴 (콤마 포함 숫자 [\d,]+ 지원, 다양한 형식)
     deposit_patterns = [
+        # 전세 세입자 3억4천 / 전세세입자 3억 4천만원 / 월세입자 1억5천만
+        (r'(?:전세|월세)?\s*세?입자[^\d]*(\d+\s*억(?:\s*\d+\s*천(?:\s*만)?)?(?:\s*\d+\s*만)?\s*원?)', 1),
+        (r'(?:1|2)순위\s*[:：\s]*(?:전세|월세)?\s*세?입자[^\d]*(\d+\s*억(?:\s*\d+\s*천(?:\s*만)?)?(?:\s*\d+\s*만)?\s*원?)', 1),
         # 1순위 월세입자 3,000만 / 월세 120만원 (콤마 포함, 만 단위)
         (r'(?:1|2)순위\s*[:：\s]*(?:전세|월세)?입자[^\d]*([\d,]+)\s*만\s*원?', 1),
         (r'(?:1|2)순위\s*(?:전세|월세)?입자[^\d]*([\d,]+)\s*만\s*원?', 1),
@@ -112,6 +136,7 @@ def extract_tenant_info(text: str, parse_amount_fn=None) -> Optional[Dict[str, A
         # 3천만, 5천만원 (1순위 월세입자 3천만) - 캡처 전체를 _parse_deposit에 전달
         (r'(?:1|2)순위\s*(?:전세|월세)?입자[^\d]*(\d+\s*천\s*만)\s*원?', 1),
         (r'(?:전세|월세)?입자[^\d]*(\d+\s*천\s*만)\s*원?', 1),
+        (r'(\d+\s*억\s*\d+\s*천(?:\s*만)?\s*원?)', 1),
         (r'(\d+\.?\d*)\s*억\s*원?', 1),
     ]
     for dp, grp in deposit_patterns:
@@ -146,7 +171,7 @@ def extract_tenant_info(text: str, parse_amount_fn=None) -> Optional[Dict[str, A
         # 표시명: 월세 있으면 월세입자, 전세입자 키워드 있으면 전세입자, 아니면 세입자
         if monthly_rent_man:
             display_name = '월세입자'
-        elif re.search(r'전세(?:세)?입자', text):
+        elif re.search(r'전세\s*(?:세)?입자', text):
             display_name = '전세입자'
         else:
             display_name = '세입자'

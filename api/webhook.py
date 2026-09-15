@@ -386,12 +386,12 @@ def get_application(force_new=False):
             # 공백 제거한 버전도 함께 확인
             text_no_space = text_clean.replace(' ', '').replace('　', '')
             
-            # 패턴 1: "1억5천만원" 또는 "1억 5천만" (억 + 천만)
-            pattern1 = r'(\d+)\s*억\s*(\d+)\s*천\s*만\s*원?'
+            # 패턴 1: "1억5천만원" / "1억 5천만" / "3억4천" (억 + 천만, '만' 생략 가능)
+            pattern1 = r'(\d+)\s*억\s*(\d+)\s*천(?:\s*만)?\s*원?'
             match1 = re.search(pattern1, text_clean)
             if not match1:
                 # 공백 없는 버전 시도
-                pattern1_no_space = r'(\d+)억(\d+)천만원?'
+                pattern1_no_space = r'(\d+)억(\d+)천(?:만)?원?'
                 match1 = re.search(pattern1_no_space, text_no_space)
             if match1:
                 eok = int(match1.group(1))  # 억 단위
