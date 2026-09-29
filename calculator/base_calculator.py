@@ -688,6 +688,7 @@ class BaseCalculator:
         self._promotion_applied = False
         self._promotion_name = None
         self._promotion_rejection_reason = None
+        self._extra_ltv_above_max = None
         self._gm_ltv_steps_override = None
         self._fractional_share_min_floor = None
         self._household_ltv_reduction_meta = None
@@ -706,6 +707,7 @@ class BaseCalculator:
         kb_price_raw = property_data.get("kb_price_raw") or property_data.get("kb_price")
         log_print(f"DEBUG: BaseCalculator.calculate - kb_price_raw: {kb_price_raw}, type: {type(kb_price_raw)}")
         kb_price = self.validate_kb_price(property_data.get("kb_price") if property_data.get("kb_price_raw") else kb_price_raw)
+        applied_price_source = "kb" if kb_price is not None else None
         log_print(f"DEBUG: BaseCalculator.calculate - kb_price after validation: {kb_price}")
         
         # 탁감가 여부 확인 (kb_price가 설정되어 있어도 체크)
@@ -805,6 +807,7 @@ class BaseCalculator:
                 if kb_ai_price is not None:
                     log_print(f"DEBUG: BaseCalculator.calculate - KB AI시세 추출: {kb_ai_price}만원")
                     kb_price = kb_ai_price
+                    applied_price_source = "kb_ai"
                     kb_price_raw = f"KB AI시세: {kb_ai_price}만원"
                     property_data["kb_price_raw"] = kb_price_raw  # property_data 업데이트
                     property_data["kb_price"] = kb_price  # property_data 업데이트
@@ -813,6 +816,7 @@ class BaseCalculator:
             if kb_price is None and price_sources.get("bank_appraisal_price", 0) == 1 and bank_appraisal_price is not None:
                 log_print(f"DEBUG: BaseCalculator.calculate - ✅ 탁감가 사용: {bank_appraisal_price}만원")
                 kb_price = bank_appraisal_price
+                applied_price_source = "bank_appraisal"
                 kb_price_raw = f"탁감가: {bank_appraisal_price}만원"
                 property_data["kb_price_raw"] = kb_price_raw  # property_data 업데이트
                 property_data["kb_price"] = kb_price  # property_data 업데이트
@@ -823,6 +827,7 @@ class BaseCalculator:
                 if realestatetech_price is not None:
                     log_print(f"DEBUG: BaseCalculator.calculate - 부동산테크 시세 추출: {realestatetech_price}만원")
                     kb_price = realestatetech_price
+                    applied_price_source = "realestatetech"
                     kb_price_raw = f"부동산테크 시세: {realestatetech_price}만원"
                     property_data["kb_price_raw"] = kb_price_raw  # property_data 업데이트
                     property_data["kb_price"] = kb_price  # property_data 업데이트
@@ -832,6 +837,7 @@ class BaseCalculator:
                 if korea_realestate_price is not None:
                     log_print(f"DEBUG: BaseCalculator.calculate - 한국부동산원 시세 추출: {korea_realestate_price}만원")
                     kb_price = korea_realestate_price
+                    applied_price_source = "korea_realestate"
                     kb_price_raw = f"한국부동산원 시세: {korea_realestate_price}만원"
                     property_data["kb_price_raw"] = kb_price_raw  # property_data 업데이트
                     property_data["kb_price"] = kb_price  # property_data 업데이트
@@ -841,6 +847,7 @@ class BaseCalculator:
                 if housematch_price is not None:
                     log_print(f"DEBUG: BaseCalculator.calculate - 하우스머치 시세 추출: {housematch_price}만원")
                     kb_price = housematch_price
+                    applied_price_source = "housematch"
                     kb_price_raw = f"하우스머치 시세: {housematch_price}만원"
                     property_data["kb_price_raw"] = kb_price_raw  # property_data 업데이트
                     property_data["kb_price"] = kb_price  # property_data 업데이트
@@ -961,6 +968,10 @@ class BaseCalculator:
         region_errors, grade = self._collect_region_validation(region)
         if region_errors:
             return self._error_result(region_errors)
+
+        eup_error = self._eupmyeon_restriction_error(property_data.get("address", ""))
+        if eup_error:
+            return self._error_result([eup_error])
 
         # KB시세 최소 금액 확인 (property_type_conditions에 없으면 전역 min_kb_price 사용)
         # ※ 대상 지역(솔브레인: 부산·울산·경남)인 경우에만 이 한도/조건 멘트가 회신됨
@@ -1196,6 +1207,7 @@ class BaseCalculator:
             is_apartment = property_type and "아파트" in property_type and "주상복합" not in property_type
             is_residential_commercial = property_type and "주상복합" in property_type
             is_officetel = property_type and "오피스텔" in property_type
+            is_villa = property_type and any(k in property_type for k in ("빌라", "연립", "다세대"))
             
             # 현재 층수 추출 (주소에서)
             floor = None
@@ -1225,6 +1237,10 @@ class BaseCalculator:
                 officetel_rules = lower_bound_config["officetel"].get("rules", [])
                 apply_lower_bound = self._check_lower_bound_rules(officetel_rules, floor, total_floors)
                 log_print(f"DEBUG: 오피스텔 하한가 규칙 적용 결과: {apply_lower_bound}")
+            elif is_villa and "villa" in lower_bound_config:
+                villa_rules = lower_bound_config["villa"].get("rules", [])
+                apply_lower_bound = self._check_lower_bound_rules(villa_rules, floor, total_floors)
+                log_print(f"DEBUG: 빌라 하한가 규칙 적용 결과: {apply_lower_bound}")
             elif (is_apartment or is_residential_commercial or is_officetel) and not any(
                 k in lower_bound_config for k in ("apartment", "residential_commercial", "officetel")
             ):
@@ -1774,6 +1790,22 @@ class BaseCalculator:
         # 신용점수/등급 확인
         credit_score = property_data.get("credit_score")
         credit_grade = self.credit_score_to_grade(credit_score)
+        if (
+            credit_grade is None
+            and credit_score is None
+            and self.config.get("no_credit_score_grade") is not None
+        ):
+            credit_grade = int(self.config["no_credit_score_grade"])
+            print(f"DEBUG: BaseCalculator.calculate - 신용점수 없음, {credit_grade}등급 기준 한도")
+
+        matrix_applied = self._resolve_area_region_credit_ltv(
+            grade, property_data, credit_grade, credit_score
+        )
+        if isinstance(matrix_applied, dict):
+            return self._error_result([matrix_applied["error"]])
+        if isinstance(matrix_applied, (int, float)):
+            max_ltv = matrix_applied
+            print(f"DEBUG: BaseCalculator.calculate - 면적·급지·신용 LTV 적용: {max_ltv}%")
         
         # MG캐피탈: 내부 등급 파싱 (등급 우선)
         is_mg_capital = self.is_mg_capital
@@ -2228,6 +2260,24 @@ class BaseCalculator:
                 return None
             
             print(f"DEBUG: BaseCalculator.calculate - max_ltv: {max_ltv}, ltv_steps: {ltv_steps}")  # 추가
+
+            promo_ltv = self._limit_promotion_extra_ltv(
+                max_ltv=max_ltv,
+                region=region,
+                property_data=property_data,
+                credit_grade=credit_grade,
+                lower_bound_applied=lower_bound_applied,
+                price_source=applied_price_source,
+                kb_price=kb_price,
+                total_mortgage=total_mortgage,
+                is_refinance=is_refinance,
+                refinance_principal=refinance_principal,
+                max_amount_limit=max_amount_limit,
+            )
+            self._extra_ltv_above_max = promo_ltv
+            if promo_ltv is not None and promo_ltv not in ltv_steps:
+                ltv_steps = sorted(list(ltv_steps) + [promo_ltv], reverse=True)
+                print(f"DEBUG: BaseCalculator.calculate - 한도프로모션 LTV {promo_ltv}% 추가: {ltv_steps}")
             
             # 애큐온캐피탈: 신용 X일 때 금리 범위(1~7등급 min~max)로 산출
             max_ltv_by_region_credit_grade = self.config.get("max_ltv_by_region_credit_grade", {})
@@ -2252,7 +2302,7 @@ class BaseCalculator:
                 bands = self.config.get("ltv_bands_subordinate" if is_subordinate else "ltv_bands_primary", [])
                 min_amount_config = effective_min_amount
                 for ltv in ltv_steps:
-                    if max_ltv is not None and ltv > max_ltv:
+                    if self._is_ltv_above_cap(ltv, max_ltv):
                         continue
                     any_grade_allows = False
                     for g in range(1, 8):
@@ -2341,7 +2391,7 @@ class BaseCalculator:
                 primary_rates = self.config.get("primary_interest_rates_by_ltv", {})
                 min_amount_config = effective_min_amount
                 for ltv in ltv_steps:
-                    if max_ltv is not None and ltv > max_ltv:
+                    if self._is_ltv_above_cap(ltv, max_ltv):
                         continue
                     amount_info = self.calculate_available_amount(
                         kb_price, ltv, total_mortgage, is_refinance, refinance_principal
@@ -2501,8 +2551,8 @@ class BaseCalculator:
                     # 2단계: ltv_steps 순회하여 추가 산출 (이미 산출된 LTV 제외)
                     if ltv_steps:
                         for ltv in ltv_steps:
-                            # 최대 LTV를 초과하면 스킵
-                            if max_ltv is not None and ltv > max_ltv:
+                            # 최대 LTV를 초과하면 스킵 (한도프로모션 추가 줄은 예외)
+                            if self._is_ltv_above_cap(ltv, max_ltv):
                                 continue
                             
                             # 이미 산출된 LTV는 제외 (중복 방지)
@@ -2571,8 +2621,8 @@ class BaseCalculator:
                 else:
                     # 기존 로직: ltv_steps 순회
                     for ltv in ltv_steps:
-                        # 최대 LTV를 초과하면 스킵 (이미 필터링했지만 안전장치)
-                        if max_ltv is not None and ltv > max_ltv:
+                        # 최대 LTV를 초과하면 스킵 (한도프로모션 추가 줄은 예외)
+                        if self._is_ltv_above_cap(ltv, max_ltv):
                             print(f"DEBUG: LTV {ltv} > max_ltv {max_ltv}, skipping")  # 추가
                             continue
                         
@@ -2706,6 +2756,10 @@ class BaseCalculator:
                             "fixed_rate_comment": rate_info.get("fixed_rate_comment"),
                             "refinance_institutions": (refinance_institutions if is_household_for_ok else all_refinance_institutions) if is_refinance else None
                         }
+                        extra_ltv = getattr(self, "_extra_ltv_above_max", None)
+                        if extra_ltv is not None and int(ltv) == int(extra_ltv):
+                            promo_cfg = self.config.get("limit_promotion") or {}
+                            result["promotion_name"] = promo_cfg.get("name") or "한도프로모션"
                         if rates_by_group:
                             result["business_type"] = "startup" if self._is_startup_business else "regular"
                         results.append(result)
@@ -2915,7 +2969,9 @@ class BaseCalculator:
         if amount_condition_threshold is not None and amount_condition_message and results:
             for r in results:
                 total = r.get("total_amount") or r.get("available_amount") or r.get("amount") or 0
-                if total >= amount_condition_threshold:
+                comparison = self.config.get("amount_condition_comparison", "gte")
+                over = total > amount_condition_threshold if comparison == "gt" else total >= amount_condition_threshold
+                if over:
                     conditions.append(amount_condition_message)
                     break
 
@@ -3755,6 +3811,256 @@ class BaseCalculator:
                             "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주", "대구"]
         return key in metropolitan_keys
     
+    def _eupmyeon_restriction_error(self, address: str) -> Optional[str]:
+        """읍·면·리 주소 취급 불가. allowed_pairs에 있는 시+읍면만 예외."""
+        cfg = self.config.get("eupmyeon_restriction") or {}
+        if not cfg.get("enabled"):
+            return None
+        compact = (address or "").replace(" ", "")
+        if not compact:
+            return None
+        has_eup_myeon = ("읍" in compact) or ("면" in compact)
+        has_ri = re.search(r"리(?![시군구])", compact) is not None
+        if not has_eup_myeon and not has_ri:
+            return None
+        for pair in cfg.get("allowed_pairs") or []:
+            if not isinstance(pair, (list, tuple)) or len(pair) < 2:
+                continue
+            city, place = str(pair[0]), str(pair[1])
+            if city and place and city in compact and place in compact:
+                return None
+        return cfg.get("error_message") or "읍·면·리 지역은 취급 불가입니다"
+
+    def _resolve_area_region_credit_ltv(
+        self,
+        region_grade: Union[int, str],
+        property_data: Dict[str, Any],
+        credit_grade: Optional[int],
+        credit_score: Optional[int],
+    ) -> Union[None, float, Dict[str, str]]:
+        """
+        면적·지역급지·신용등급·선후순위·물건(아파트/대단지빌라)별 최대 LTV.
+        설정이 없으면 None(기존 max_ltv 유지). 오류면 {"error": 메시지}. 성공이면 LTV float.
+        """
+        cfg = self.config.get("ltv_by_area_region_credit")
+        if not cfg:
+            return None
+        if credit_grade is None:
+            if credit_score is not None:
+                return {"error": "신용점수로 등급을 확인할 수 없어 한도 산출이 불가합니다"}
+            return {"error": "신용등급 기준이 없어 한도 산출이 불가합니다"}
+
+        allowed_primary = cfg.get("primary_region_grades")
+        if allowed_primary is not None and not getattr(self, "_is_subordinate", False):
+            allowed = {str(g) for g in allowed_primary}
+            if str(region_grade) not in allowed:
+                return {"error": "2~3급지는 선순위 취급 불가입니다"}
+
+        area = property_data.get("area")
+        try:
+            area_f = float(area)
+        except (TypeError, ValueError):
+            return {"error": "전용면적 정보가 없어 한도 산출이 불가합니다"}
+
+        ptype_key = get_property_type_key(
+            property_data.get("property_type", ""),
+            property_data.get("special_notes", ""),
+        )
+        group = None
+        for group_name, keys in (cfg.get("property_groups") or {}).items():
+            if ptype_key in (keys or []):
+                group = group_name
+                break
+        if not group:
+            return {"error": "해당 물건 유형의 한도 기준이 없습니다"}
+
+        band_key = None
+        for band in cfg.get("area_bands") or []:
+            cap = band.get("max_inclusive")
+            if cap is None or area_f <= float(cap):
+                band_key = str(band.get("key"))
+                break
+        if not band_key:
+            return {"error": "전용면적 구간을 확인할 수 없습니다"}
+
+        priority = "subordinate" if getattr(self, "_is_subordinate", False) else "primary"
+        table = (
+            cfg.get(priority, {})
+            .get(group, {})
+            .get(band_key, {})
+            .get(str(region_grade), {})
+        )
+        if not isinstance(table, dict):
+            return {"error": "해당 급지 한도 기준이 없습니다"}
+        raw = table.get(str(credit_grade))
+        try:
+            ltv = float(raw)
+        except (TypeError, ValueError):
+            return {"error": "해당 조건의 대출한도가 없습니다"}
+        if ltv <= 0:
+            return {"error": "해당 조건의 대출한도가 없습니다"}
+        print(
+            f"DEBUG: _resolve_area_region_credit_ltv - {priority}/{group}/{band_key} "
+            f"급지{region_grade} 신용{credit_grade}등급 면적{area_f}㎡ → {ltv}%"
+        )
+        return ltv
+
+    def _is_ltv_above_cap(self, ltv: Union[int, float], max_ltv: Optional[float]) -> bool:
+        """일반 상한을 넘는 LTV인지. 한도프로모션으로 추가한 칸은 상한 위로 둔다."""
+        if max_ltv is None or ltv <= max_ltv:
+            return False
+        extra = getattr(self, "_extra_ltv_above_max", None)
+        try:
+            return extra is None or int(ltv) != int(extra)
+        except (TypeError, ValueError):
+            return True
+
+    def _limit_promotion_extra_ltv(
+        self,
+        max_ltv: Optional[float],
+        region: str,
+        property_data: Dict[str, Any],
+        credit_grade: Optional[int],
+        lower_bound_applied: bool,
+        price_source: Optional[str],
+        kb_price: Optional[float],
+        total_mortgage: float,
+        is_refinance: bool,
+        refinance_principal: float,
+        max_amount_limit: Optional[float],
+    ) -> Optional[int]:
+        """
+        일반 한도 줄은 유지하고, 프로모션 대상이면 상한보다 높은 LTV 한 줄만 반환.
+        조건이 안 맞거나 합계가 한도를 넘으면 None.
+        """
+        cfg = self.config.get("limit_promotion") or {}
+        if not cfg.get("enabled"):
+            return None
+        if max_ltv is None:
+            return None
+        if cfg.get("subordinate_only") and not getattr(self, "_is_subordinate", False):
+            print("DEBUG: _limit_promotion_extra_ltv - 선순위라 프로모션 없음")
+            return None
+        if credit_grade is None:
+            return None
+        max_credit = cfg.get("max_credit_grade")
+        if max_credit is not None and int(credit_grade) > int(max_credit):
+            print(f"DEBUG: _limit_promotion_extra_ltv - 신용 {credit_grade}등급 프로모션 없음")
+            return None
+
+        allowed_types = cfg.get("property_type_keys") or []
+        ptype_key = get_property_type_key(
+            property_data.get("property_type", ""),
+            property_data.get("special_notes", ""),
+        )
+        if allowed_types and ptype_key not in allowed_types:
+            print(f"DEBUG: _limit_promotion_extra_ltv - 물건 {ptype_key} 프로모션 없음")
+            return None
+
+        if cfg.get("exclude_lower_bound") and lower_bound_applied:
+            print("DEBUG: _limit_promotion_extra_ltv - 하한가 적용건 프로모션 없음")
+            return None
+
+        allowed_sources = cfg.get("allowed_price_sources") or []
+        if allowed_sources and price_source not in allowed_sources:
+            print(f"DEBUG: _limit_promotion_extra_ltv - 시세 {price_source} 프로모션 없음")
+            return None
+
+        min_household = cfg.get("min_household_count")
+        if min_household is not None:
+            household_count = property_data.get("household_count")
+            try:
+                household_n = int(household_count)
+            except (TypeError, ValueError):
+                household_n = None
+            if household_n is None or household_n < int(min_household):
+                print(f"DEBUG: _limit_promotion_extra_ltv - 세대수 {household_count} 프로모션 없음")
+                return None
+
+        min_birth_year = cfg.get("min_birth_year")
+        if min_birth_year is not None and self._birth_year_before(property_data, int(min_birth_year)):
+            print("DEBUG: _limit_promotion_extra_ltv - 생년 기준 미달 프로모션 없음")
+            return None
+
+        regions = [r for r in (cfg.get("regions") or []) if isinstance(r, str)]
+        if regions and self._lookup_address_config({r: True for r in regions}, region) is None:
+            print(f"DEBUG: _limit_promotion_extra_ltv - 지역 {region} 프로모션 없음")
+            return None
+
+        area = property_data.get("area")
+        try:
+            area_f = float(area)
+        except (TypeError, ValueError):
+            return None
+        max_area = cfg.get("max_area")
+        if max_area is not None and area_f > float(max_area):
+            print(f"DEBUG: _limit_promotion_extra_ltv - 면적 {area_f}㎡ 프로모션 없음")
+            return None
+
+        band_key = None
+        for band in cfg.get("area_bands") or []:
+            cap = band.get("max_inclusive")
+            if cap is None or area_f <= float(cap):
+                band_key = str(band.get("key"))
+                break
+        table = (cfg.get("ltv_by_area_credit") or {}).get(band_key or "", {})
+        raw = table.get(str(int(credit_grade))) if isinstance(table, dict) else None
+        try:
+            promo_ltv = float(raw)
+        except (TypeError, ValueError):
+            return None
+        if promo_ltv <= float(max_ltv):
+            print(f"DEBUG: _limit_promotion_extra_ltv - 프로모션 {promo_ltv}%가 일반 상한 {max_ltv}% 이하")
+            return None
+
+        if kb_price is None or kb_price <= 0:
+            return None
+        amount_info = self.calculate_available_amount(
+            kb_price,
+            promo_ltv,
+            total_mortgage,
+            is_refinance,
+            refinance_principal if is_refinance else 0,
+        )
+        total = amount_info["total_amount"]
+        available = amount_info["available_amount"]
+        if max_amount_limit is not None and self.config.get("max_amount_limit_applies_to_total"):
+            if is_refinance:
+                total = min(total, float(max_amount_limit))
+                available = total - refinance_principal
+            else:
+                available = min(available, float(max_amount_limit))
+                total = available
+        if available <= 0:
+            print("DEBUG: _limit_promotion_extra_ltv - 프로모션 가용한도 없음")
+            return None
+        total = self.round_down_to_hundred_thousand(total)
+        cap = cfg.get("max_total_amount")
+        if cap is not None and total > float(cap):
+            print(f"DEBUG: _limit_promotion_extra_ltv - 합계 {total}만원 > {cap}만원, 프로모션 줄 제외")
+            return None
+        print(f"DEBUG: _limit_promotion_extra_ltv - 프로모션 LTV {int(promo_ltv)}% 합계 {total}만원")
+        return int(promo_ltv)
+
+    def _birth_year_before(self, property_data: Dict[str, Any], min_birth_year: int) -> bool:
+        """생년이 있으면 그 해 미만만 제외. 생년이 없고 만나이만 있으면 확실히 이전 해인 경우만 제외."""
+        birth_year = property_data.get("birth_year")
+        if birth_year is not None:
+            try:
+                return int(birth_year) < min_birth_year
+            except (TypeError, ValueError):
+                return False
+        age = property_data.get("age")
+        if age is None:
+            return False
+        if isinstance(age, str):
+            age = age.strip().strip("()")
+        try:
+            age_n = int(age)
+        except (TypeError, ValueError):
+            return False
+        return age_n > (date.today().year - min_birth_year)
+
     def get_max_ltv_by_grade(self, grade: Union[int, str], region: str = None, property_data: Dict[str, Any] = None) -> Optional[float]:
         """
         급지별 최대 LTV 조회
@@ -3770,6 +4076,16 @@ class BaseCalculator:
         Returns:
             최대 LTV (float) 또는 None
         """
+        # 면적·신용·선후순위 LTV는 근저당 분류 뒤에 다시 계산한다. 여기선 조기 종료만 막는다.
+        if self.config.get("ltv_by_area_region_credit"):
+            if grade in (9, "9"):
+                return None
+            if str(grade) in ("1", "2", "3"):
+                print("DEBUG: get_max_ltv_by_grade - 면적·급지·신용 LTV는 선후순위 확정 후 재계산")
+                return 90.0
+            print(f"DEBUG: get_max_ltv_by_grade - LTV 매트릭스 미지원 급지 {grade}")
+            return None
+
         max_ltv_by_address = self.config.get("max_ltv_by_address", {})
         if max_ltv_by_address and region:
             address_ltv = self._lookup_address_config(max_ltv_by_address, region)
@@ -4476,6 +4792,10 @@ class BaseCalculator:
         Returns:
             하한가 적용 여부
         """
+        if any(rule.get("all_floors") for rule in rules):
+            log_print("DEBUG: _check_lower_bound_rules - all_floors")
+            return True
+
         if floor is None:
             return False
         
@@ -5049,6 +5369,22 @@ class BaseCalculator:
         
         print(f"DEBUG: get_interest_rate - ltv: {ltv}, credit_score: {credit_score}, credit_grade: {credit_grade}, region_grade: {region_grade}, is_subordinate: {is_subordinate}")  # 추가
         print(f"DEBUG: get_interest_rate - ltv_key: {ltv_key}, available ltv_keys: {list(ltv_rates.keys())}")  # 추가
+
+        # LTV가 금리표 칸과 다르면 이상인 칸 중 가장 낮은 금리 사용 (87% → 90%이하)
+        if ltv_key not in ltv_rates and self.config.get("interest_rate_ltv_match") == "ceil":
+            ltv_float = float(ltv)
+            candidates = []
+            for key in ltv_rates.keys():
+                try:
+                    key_float = float(key)
+                except (TypeError, ValueError):
+                    continue
+                if key_float + 1e-9 >= ltv_float:
+                    candidates.append(key_float)
+            if candidates:
+                closest = min(candidates)
+                ltv_key = str(int(closest)) if closest == int(closest) else str(closest)
+                print(f"DEBUG: get_interest_rate - LTV {ltv}% → 금리 구간 {ltv_key}%")
         
         # 애큐온저축은행, MG캐피탈: LTV 키가 없으면 범위 기반으로 금리 조회
         is_acuon = self.is_acuon

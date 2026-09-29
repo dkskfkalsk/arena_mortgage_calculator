@@ -356,6 +356,10 @@ def _format_result_with_label(
                 line = f"{result_type} {ltv_str} {format_amount(total_amount)} / {rate_str} / 가용 {format_amount(available_amount)}"
             else:
                 line = f"{result_type} {ltv_str} {amount_str} / {rate_str}"
+
+        promotion_name = result.get("promotion_name")
+        if promotion_name:
+            line += f" ({promotion_name})"
         
         # 등급별 산출인 경우 각 줄에 등급 표시 (예: 1~3등급기준). hide_credit_grade면 생략
         if not bank_result.get("hide_credit_grade", False):
