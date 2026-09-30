@@ -75,6 +75,23 @@ class AuctionInfo:
 
 
 @dataclass
+class ProvisionalRegistrationInfo:
+    """가등기 정보 (소유권이전청구권가등기 등)"""
+    종류: str  # 가등기
+    권리자: str
+    접수일: str
+
+
+class RegistryTextNotFoundError(ValueError):
+    """텍스트 레이어가 없는 PDF(스캔본 등). 정규식 파싱 불가."""
+
+    USER_MESSAGE = "텍스트를 읽을 수 없는 PDF입니다. 등기소 발급본(요약본 포함)을 다시 올려 주세요."
+
+    def __init__(self, message: str = None):
+        super().__init__(message or self.USER_MESSAGE)
+
+
+@dataclass
 class RegistryDocument:
     """등기부등본 파싱 결과"""
     # 기본 정보
@@ -95,6 +112,9 @@ class RegistryDocument:
     
     # 경매 정보
     경매목록: List[AuctionInfo] = None
+
+    # 가등기 정보 (요약본 갑구에 남아 있는 것만)
+    가등기목록: List[ProvisionalRegistrationInfo] = None
     
     # 환매특약/전매제한 정보
     환매특약: str = ""
@@ -120,6 +140,8 @@ class RegistryDocument:
             self.압류목록 = []
         if self.경매목록 is None:
             self.경매목록 = []
+        if self.가등기목록 is None:
+            self.가등기목록 = []
     
     def to_dict(self) -> Dict:
         """딕셔너리로 변환"""
@@ -133,6 +155,7 @@ class RegistryDocument:
             "근저당권목록": [asdict(m) for m in self.근저당권목록],
             "압류목록": [asdict(s) for s in self.압류목록],
             "경매목록": [asdict(a) for a in self.경매목록],
+            "가등기목록": [asdict(g) for g in self.가등기목록],
             "환매특약": self.환매특약,
         }
     
@@ -178,6 +201,14 @@ class RegistryDocument:
                     lines.append(f"     사건번호: {a.사건번호}")
         else:
             lines.append(f"\n【 경매 정보 】 없음")
+
+        if self.가등기목록:
+            lines.append(f"\n【 가등기 】 ({len(self.가등기목록)}건)")
+            for i, g in enumerate(self.가등기목록, 1):
+                lines.append(f"  {i}. [{g.종류}] 권리자: {g.권리자}")
+                lines.append(f"     접수일: {g.접수일}")
+        else:
+            lines.append(f"\n【 가등기 】 없음")
         
         lines.append("\n" + "=" * 60)
         return "\n".join(lines)
@@ -227,8 +258,11 @@ class RegistryParser:
         return self.text
     
     def parse(self, pdf_path: str) -> RegistryDocument:
-        """PDF 파싱하여 RegistryDocument 반환"""
+        """PDF 파싱하여 RegistryDocument 반환. 텍스트 레이어가 없으면 RegistryTextNotFoundError."""
         self.extract_text_from_pdf(pdf_path)
+        if not self.text.strip():
+            logger.warning("텍스트 레이어 없는 PDF(스캔본 추정): %s", os.path.basename(pdf_path))
+            raise RegistryTextNotFoundError()
         
         doc = RegistryDocument()
         doc.원본텍스트 = self.text
@@ -243,6 +277,7 @@ class RegistryParser:
         doc.근저당권목록 = self._extract_mortgages()
         doc.압류목록 = self._extract_seizures()
         doc.경매목록 = self._extract_auctions()
+        doc.가등기목록 = self._extract_provisional_registrations()
         doc.환매특약 = self._extract_special_conditions()
         doc.별도등기 = self._extract_separate_registry()
         doc.대지권미등기 = self._extract_no_land_registry()
@@ -1319,79 +1354,226 @@ class RegistryParser:
         
         return ""
     
-    def _extract_seizures(self) -> List[SeizureInfo]:
-        """압류/가압류 정보 추출"""
-        seizures = []
-        
-        # 압류 패턴 - 순위번호 포함하여 더 정확하게
-        seizure_pattern = r'(\d+)\s+(압류|가압류)\s+(\d{4})년(\d{1,2})월(\d{1,2})일.*?(?:권리자|채권자)\s+(\S+)'
-        
-        matches = re.finditer(seizure_pattern, self.text)
-        for match in matches:
-            rank = match.group(1)
-            seizure_type = match.group(2)
-            year = match.group(3)
-            month = match.group(4).zfill(2)
-            day = match.group(5).zfill(2)
-            creditor = match.group(6)
-            
-            seizure = SeizureInfo(
-                종류=seizure_type,
-                권리자=creditor,
-                접수일=f"{year}.{month}.{day}"
-            )
-            seizures.append(seizure)
-        
-        # 중복 제거 (종류, 권리자, 접수일 기준)
+    # ------------------------------------------------------------------
+    # 갑구 제한사항 (압류·가압류·가등기·임의경매·강제경매 개시결정)
+    # 요약본 "2. 소유지분을 제외한 소유권에 관한 사항 ( 갑구 )"는
+    # 말소되지 않은 항목만 있으므로 이 섹션을 1순위로 읽는다.
+    # 요약본이 없는 PDF만 갑구 본문에서 읽고 말소분을 제외한다.
+    # ------------------------------------------------------------------
+
+    _GAPGU_HOLDER_LABEL_RE = re.compile(r'(채권자|권리자|신청인|가등기권자)[ \t]*([^\n]*)')
+    _GAPGU_DATE_RE = re.compile(r'(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일')
+
+    @staticmethod
+    def _classify_gapgu_purpose(purpose_compact: str) -> str:
+        """등기목적 문구 → 종류. 표 칸에서 잘린 '소유권이전청구권가등'도 가등기로 본다."""
+        if '경매개시' in purpose_compact or '경매개시' in purpose_compact.replace('결정', ''):
+            return '임의경매' if '임의' in purpose_compact else '강제경매'
+        if '가압류' in purpose_compact:
+            return '가압류'
+        if '압류' in purpose_compact:
+            return '압류'
+        if '가등' in purpose_compact:
+            return '가등기'
+        # 가처분 등 그 외 갑구 사항은 특이사항 대상 아님
+        return ''
+
+    @staticmethod
+    def _normalize_right_holder(raw: str) -> str:
+        """권리자·채권자 이름. 국세 압류의 '권리자 국'은 '국세'로 표기."""
+        name = re.split(r"[\n\r]", raw or "")[0]
+        name = re.split(r"\d{6}-[\d*]+", name)[0]
+        name = re.sub(r"\s+", "", name).strip(" ,·.&-")
+        if not name or name.isdigit():
+            return ""
+        if name == '국':
+            return '국세'
+        return name
+
+    def _summary_owner_names(self) -> set:
+        """요약본 소유지분현황의 소유자·공유자 이름. 채권자 줄바꿈 시 대상소유자와 구분."""
+        names = set()
+        for match in re.finditer(r'([가-힣]{2,10})\s*\(\s*(?:소유자|공유자)\s*\)', self.text):
+            names.add(match.group(1))
+        return names
+
+    def _get_ownership_restriction_section(self) -> str:
+        """요약본 '소유지분을 제외한 소유권에 관한 사항(갑구)'. 없으면 빈 문자열."""
+        chunks = []
+        for page_text in self.pages_text:
+            compact = re.sub(r'\s+', '', page_text)
+            if '소유지분을제외한' in compact or '주요등기사항요약' in compact:
+                chunks.append(page_text)
+        if not chunks:
+            return ""
+        summary_text = "\n".join(chunks)
+        match = re.search(
+            r'소유지분을\s*제외한\s*소유권에\s*관한\s*사항[\s\S]*?(?=\(근\)\s*저당권|\[\s*참\s*고|출력일시|$)',
+            summary_text,
+        )
+        return match.group(0) if match else ""
+
+    def _has_summary_section(self) -> bool:
+        return any(
+            re.search(r'주요\s*등기사항\s*요약', page_text) for page_text in self.pages_text
+        )
+
+    def _get_gapgu_body_section(self) -> str:
+        """본문 【 갑 구 】 ~ 【 을 구 】 (요약본 없을 때 폴백용)."""
+        match = re.search(
+            r'【\s*갑\s*구\s*】[\s\S]*?(?=【\s*을\s*구\s*】|주요\s*등기사항\s*요약|$)',
+            self.text,
+        )
+        return match.group(0) if match else ""
+
+    def _holder_from_gapgu_block(self, block: str, owner_names: set) -> str:
+        """
+        권리자/채권자/가등기권자 이름.
+        요약본은 칸이 어긋나 '날짜채권자' 다음 줄에 대상소유자가 오고,
+        실제 이름은 그 아래 줄로 나뉘는 경우가 있다.
+        """
+        label = self._GAPGU_HOLDER_LABEL_RE.search(block)
+        if not label:
+            return ""
+        same_line = self._normalize_right_holder(label.group(2))
+        if same_line:
+            return same_line
+
+        parts = []
+        for line in block[label.end():].splitlines():
+            compact = re.sub(r'\s+', '', line.strip())
+            if not compact:
+                continue
+            if re.fullmatch(r'\d+(?:-\d+)?\.?', compact):
+                break
+            if compact.startswith('(근)저당권') or '참고사항' in compact:
+                break
+            if re.fullmatch(r'제\d+호', compact) or re.fullmatch(r'\(전\d+\)', compact):
+                continue
+            if self._GAPGU_DATE_RE.fullmatch(compact):
+                continue
+            if re.fullmatch(r'\d{6}-[\d*]+', compact):
+                continue
+            if compact in owner_names:
+                continue
+            parts.append(compact)
+
+        if not parts:
+            return ""
+        name = parts[0]
+        for extra in parts[1:]:
+            # '유한회' + '사' 처럼 표 칸에서 잘린 끝부분만 이어 붙인다.
+            if len(extra) <= 4:
+                name += extra
+                continue
+            break
+        return self._normalize_right_holder(name)
+
+    def _parse_gapgu_blocks(self, text: str, owner_names: set) -> List[dict]:
+        """
+        갑구 텍스트를 순위번호 단위로 잘라 {rank, kind, holder, date} 목록으로.
+        순위번호 줄은 들여쓰기 없이 숫자만 있는 줄(주소 속 '609' 같은 들여쓴 숫자는 제외).
+        """
+        lines = text.split('\n')
+        rank_idx = [
+            i for i, line in enumerate(lines)
+            if re.fullmatch(r'\d+(?:-\d+)?', line.rstrip())
+        ]
+        results = []
+        for n, i in enumerate(rank_idx):
+            rank = lines[i].strip()
+            end = rank_idx[n + 1] if n + 1 < len(rank_idx) else len(lines)
+            block_lines = lines[i + 1:end]
+            block = "\n".join(block_lines)
+
+            # 등기목적: 첫 날짜 전까지의 문구
+            date_match = self._GAPGU_DATE_RE.search(block)
+            if not date_match:
+                continue
+            purpose_compact = re.sub(r'\s+', '', block[:date_match.start()])
+            kind = self._classify_gapgu_purpose(purpose_compact)
+            if not kind:
+                continue
+            # '4번압류등기말소' 같은 말소·변경 항목은 제한사항이 아님
+            if '말소' in purpose_compact or '변경' in purpose_compact or '경정' in purpose_compact:
+                continue
+
+            results.append({
+                'rank': rank,
+                'kind': kind,
+                'holder': self._holder_from_gapgu_block(block, owner_names),
+                'date': (
+                    f"{date_match.group(1)}."
+                    f"{date_match.group(2).zfill(2)}."
+                    f"{date_match.group(3).zfill(2)}"
+                ),
+            })
+        return results
+
+    def _is_gapgu_entry_cancelled(self, rank: str, kind: str, body: str) -> bool:
+        """본문 폴백: 'N번압류등기말소', 'N번임의경매개시결정등기말소' 등이 뒤에 있으면 말소."""
+        keyword = {
+            '압류': r'압\s*류',
+            '가압류': r'가\s*압\s*류',
+            '가등기': r'가\s*등\s*기',
+            '임의경매': r'임의\s*경매\s*개시\s*결\s*정',
+            '강제경매': r'강제\s*경매\s*개시\s*결\s*정',
+        }[kind]
+        pattern = rf'{re.escape(rank)}\s*번\s*{keyword}[\s\S]{{0,40}}?말\s*소'
+        return re.search(pattern, body) is not None
+
+    def _gapgu_entries(self) -> List[dict]:
+        """유효한(말소되지 않은) 갑구 제한사항. 요약본 우선, 없으면 본문 폴백."""
+        if hasattr(self, '_gapgu_cache'):
+            return self._gapgu_cache
+        owner_names = self._summary_owner_names()
+        entries: List[dict] = []
+        if self._has_summary_section():
+            section = self._get_ownership_restriction_section()
+            if section:
+                entries = self._parse_gapgu_blocks(section, owner_names)
+        else:
+            body = self._get_gapgu_body_section()
+            if body:
+                for entry in self._parse_gapgu_blocks(body, owner_names):
+                    if self._is_gapgu_entry_cancelled(entry['rank'], entry['kind'], body):
+                        continue
+                    entries.append(entry)
+
         seen = set()
         unique = []
-        for s in seizures:
-            key = (s.종류, s.권리자, s.접수일)
-            if key not in seen:
-                seen.add(key)
-                unique.append(s)
-        
+        for entry in entries:
+            key = (entry['kind'], entry['holder'], entry['date'])
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(entry)
+        self._gapgu_cache = unique
         return unique
-    
+
+    def _extract_seizures(self) -> List[SeizureInfo]:
+        """압류/가압류 (유효분만)"""
+        return [
+            SeizureInfo(종류=e['kind'], 권리자=e['holder'], 접수일=e['date'])
+            for e in self._gapgu_entries()
+            if e['kind'] in ('압류', '가압류')
+        ]
+
     def _extract_auctions(self) -> List[AuctionInfo]:
-        """경매 정보 추출 (말소되지 않은 것만)"""
-        auctions = []
-        
-        # 임의경매, 강제경매 패턴
-        auction_pattern = r'(\d+)\s+(임의경매개시결정|강제경매개시결정)\s+(\d{4})년(\d{1,2})월(\d{1,2})일.*?(?:채권자|신청인)\s+(\S+)'
-        
-        matches = re.finditer(auction_pattern, self.text)
-        for match in matches:
-            rank = match.group(1)
-            auction_type = match.group(2).replace("개시결정", "")
-            year = match.group(3)
-            month = match.group(4).zfill(2)
-            day = match.group(5).zfill(2)
-            creditor = match.group(6)
-            
-            # 해당 경매가 말소되었는지 확인
-            cancel_patterns = [
-                rf'{rank}번임의경매개시결.*?등기말소',
-                rf'{rank}번강제경매개시결.*?등기말소',
-                rf'{rank}번\s*임의경매.*?말소',
-                rf'{rank}번\s*강제경매.*?말소',
-            ]
-            
-            is_cancelled = False
-            for pattern in cancel_patterns:
-                if re.search(pattern, self.text, re.DOTALL):
-                    is_cancelled = True
-                    break
-            
-            if not is_cancelled:
-                auction = AuctionInfo(
-                    종류=auction_type,
-                    채권자=creditor,
-                    접수일=f"{year}.{month}.{day}"
-                )
-                auctions.append(auction)
-        
-        return auctions
+        """임의경매·강제경매 개시결정 (유효분만)"""
+        return [
+            AuctionInfo(종류=e['kind'], 채권자=e['holder'], 접수일=e['date'])
+            for e in self._gapgu_entries()
+            if e['kind'] in ('임의경매', '강제경매')
+        ]
+
+    def _extract_provisional_registrations(self) -> List[ProvisionalRegistrationInfo]:
+        """가등기 (유효분만). 종류 구분 없이 '가등기'로 통일."""
+        return [
+            ProvisionalRegistrationInfo(종류=e['kind'], 권리자=e['holder'], 접수일=e['date'])
+            for e in self._gapgu_entries()
+            if e['kind'] == '가등기'
+        ]
     
     def _extract_special_conditions(self) -> str:
         """환매특약/전매제한 정보 추출 (요약본 기준 - 말소된 사항 제외, 유효한 사항만)"""

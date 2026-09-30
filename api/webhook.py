@@ -307,7 +307,7 @@ def get_application(force_new=False):
                 
                 # PDF 분석 (무거운 동기 작업은 스레드 풀에서 실행해 이벤트 루프 블로킹 방지)
                 import tempfile
-                from parsers.registry_parser import analyze_pdf
+                from parsers.registry_parser import analyze_pdf, RegistryTextNotFoundError
                 
                 # 임시 파일로 저장 후 분석
                 with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp_file:
@@ -320,7 +320,18 @@ def get_application(force_new=False):
                         result = analyze_pdf(tmp_path)
                         return format_registry_result(result, caption, file_name, pdf_only=pdf_only_mode)
                     loop = asyncio.get_event_loop()
-                    response = await loop.run_in_executor(None, _blocking_pdf_work)
+                    try:
+                        response = await loop.run_in_executor(None, _blocking_pdf_work)
+                    except RegistryTextNotFoundError:
+                        # 스캔본 등 텍스트 레이어 없는 PDF: OCR 미지원, 재업로드 안내
+                        print(f"[WEBHOOK] PDF has no text layer: {file_name}", file=sys.stderr, flush=True)
+                        if processing_msg:
+                            try:
+                                await processing_msg.delete()
+                            except Exception:
+                                pass
+                        await reply_text_safe(f"⚠️ {RegistryTextNotFoundError.USER_MESSAGE}")
+                        return
                     
                     # "분석 중" 메시지 삭제
                     if processing_msg:
@@ -1515,17 +1526,25 @@ def get_application(force_new=False):
             for cred in gamak_excluded_creditors:
                 special_notes.append(f"{cred} 감액등기 미적용")
             
+            # 요약본 갑구 유효분: 압류·가압류 / 경매개시결정 / 가등기·가처분 (채권자·접수일까지만 기재)
+            def _gapgu_label(kind: str, holder: str, date: str) -> str:
+                detail = ", ".join(x for x in (holder, date) if x)
+                return f"{kind}({detail})" if detail else kind
+
             if result.압류목록:
-                seizure_info = []
-                for s in result.압류목록:
-                    seizure_info.append(f"{s.종류}({s.권리자})")
-                special_notes.append("압류: " + ", ".join(seizure_info))
+                special_notes.append("압류: " + ", ".join(
+                    _gapgu_label(s.종류, s.권리자, s.접수일) for s in result.압류목록
+                ))
             
             if result.경매목록:
-                auction_info = []
-                for a in result.경매목록:
-                    auction_info.append(f"{a.종류}({a.채권자})")
-                special_notes.append("경매: " + ", ".join(auction_info))
+                special_notes.append("경매: " + ", ".join(
+                    _gapgu_label(f"{a.종류}개시결정", a.채권자, a.접수일) for a in result.경매목록
+                ))
+
+            if getattr(result, '가등기목록', None):
+                special_notes.append("가등기: " + ", ".join(
+                    _gapgu_label(g.종류, g.권리자, g.접수일) for g in result.가등기목록
+                ))
             
             # 환매특약/전매제한 정보 추가
             if hasattr(result, '환매특약') and result.환매특약:
