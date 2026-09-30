@@ -555,9 +555,10 @@
     "_comment": "금융사별 제한 조건 설정 (enabled: true일 때만 적용)",
     "enabled": true,
     "occupation_requirements": {
-      "_comment": "직업 요구사항 (required_keywords: 필수 키워드, forbidden_keywords: 금지 키워드, check_fields: 체크할 필드)",
+      "_comment": "직업 요구사항 (required_keywords: 필수 키워드, forbidden_keywords: 금지 키워드, check_fields: 체크할 필드). '사업자'는 직업란만, '사업자보유'는 특이사항·요청사항도 인식",
       "required_keywords": [
-        "사업자"
+        "사업자",
+        "사업자보유"
       ],
       "forbidden_keywords": [],
       "_comment_forbidden_keywords": "법인사업자는 corporate_business_restriction에서 통일 처리",

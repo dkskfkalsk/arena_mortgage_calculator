@@ -252,29 +252,29 @@ def _format_result_with_label(
     )
     biz_prefix = f" ({business_type_label})" if business_type_label else ""
     hide_credit_grade = bank_result.get("hide_credit_grade", False)
+    # 등급 표시는 신용점수를 입력한 경우에만, 금융사명 옆에 한 번. 한도 줄마다는 붙이지 않는다.
+    show_credit_grade = bank_result.get("credit_score_provided", True) and not hide_credit_grade
     show_region_grade = bank_result.get("show_region_grade", False)
     region_grade = bank_result.get("region_grade")
     region_grade_suffix = f" ({region_grade}급지)" if (show_region_grade and region_grade is not None and str(region_grade) != "9") else ""
+
+    def _grade_suffix(grade) -> str:
+        if show_credit_grade and grade is not None and str(grade).strip():
+            return f" ({grade}등급기준)"
+        return ""
+
     if all_below_minimum:
         first_result = results[0]
-        credit_grade = first_result.get("credit_grade") if not hide_credit_grade else None
-        if credit_grade:
-            header = f"* {bank_name}{biz_prefix} ({credit_grade}등급기준){region_grade_suffix}{lower_bound_suffix}"
-        else:
-            header = f"* {bank_name}{biz_prefix}{region_grade_suffix}{lower_bound_suffix}"
+        header = f"* {bank_name}{biz_prefix}{_grade_suffix(first_result.get('credit_grade'))}{region_grade_suffix}{lower_bound_suffix}"
         return f"{header}\n최소진행금액 부족으로 진행 어렵습니다"
     
     first_result = results[0]
-    credit_grade = first_result.get("credit_grade") if not hide_credit_grade else None
     grade_values = [r.get("credit_grade") for r in results if r.get("credit_grade") is not None] if not hide_credit_grade else []
     has_multiple_grades = len(set(str(g) for g in grade_values)) > 1 if grade_values else False
     
-    if has_multiple_grades:
-        header = f"* {bank_name}{biz_prefix} (등급별){region_grade_suffix}{lower_bound_suffix}"
-    elif credit_grade:
-        header = f"* {bank_name}{biz_prefix} ({credit_grade}등급기준){region_grade_suffix}{lower_bound_suffix}"
-    else:
-        header = f"* {bank_name}{biz_prefix}{region_grade_suffix}{lower_bound_suffix}"
+    # 등급별(신용 없음) 산출이면 헤더에 등급 문구 없음. 단일 등급이면 신용 입력 시에만 'N등급기준'
+    header_grade = "" if has_multiple_grades else _grade_suffix(first_result.get("credit_grade"))
+    header = f"* {bank_name}{biz_prefix}{header_grade}{region_grade_suffix}{lower_bound_suffix}"
     
     lines = [header]
     
@@ -361,11 +361,7 @@ def _format_result_with_label(
         if promotion_name:
             line += f" ({promotion_name})"
         
-        # 등급별 산출인 경우 각 줄에 등급 표시 (예: 1~3등급기준). hide_credit_grade면 생략
-        if not bank_result.get("hide_credit_grade", False):
-            result_credit_grade = result.get("credit_grade")
-            if result_credit_grade is not None and str(result_credit_grade).strip():
-                line += f" ({result_credit_grade}등급기준)"
+        # 등급 문구는 헤더에만 표시 (한도 줄에는 붙이지 않음)
         
         # 기준 LTV 이하 지역인 경우 메시지 추가
         below_standard_ltv = result.get("below_standard_ltv", False)

@@ -1790,6 +1790,8 @@ class BaseCalculator:
         # 신용점수/등급 확인
         credit_score = property_data.get("credit_score")
         credit_grade = self.credit_score_to_grade(credit_score)
+        # 신용점수(또는 MG 내부등급)가 입력됐을 때만 헤더에 'N등급기준' 표시
+        credit_score_provided = credit_score is not None and str(credit_score).strip() != ""
         if (
             credit_grade is None
             and credit_score is None
@@ -1813,6 +1815,7 @@ class BaseCalculator:
             mg_internal_grade = self._parse_mg_internal_grade(property_data)
             if mg_internal_grade is not None:
                 credit_grade = mg_internal_grade
+                credit_score_provided = True
                 print(f"DEBUG: BaseCalculator.calculate - MG캐피탈 내부 등급 적용: {credit_grade}등급")
         
         # 최대 신용등급 (애큐온캐피탈·data/loan 등 bank_name별 max_credit_grade)
@@ -3092,6 +3095,7 @@ class BaseCalculator:
             "price_type_used": price_type_used,  # 적용된 시세 타입: 일반/하한/탁감가
             "region_grade": grade,  # 급지 (show_region_grade 시 헤더에 N급지 표시)
             "hide_credit_grade": self.config.get("hide_credit_grade", False),
+            "credit_score_provided": credit_score_provided,  # 신용점수 입력 시에만 헤더에 N등급기준 표시
             "show_region_grade": self.config.get("show_region_grade", False),
             "hide_conditions": self.config.get("hide_conditions", False)
         }
@@ -3267,16 +3271,22 @@ class BaseCalculator:
             check_fields = occupation_requirements.get("check_fields", ["occupation", "special_notes", "requests"])
             
             # 필수 키워드 체크
+            # '사업자' 단독 키워드는 직업란만 본다. 특이사항의 '임대사업자만 보유' 같은 문구에
+            # '사업자'가 섞여 직장인이 사업자로 인식되는 것을 막기 위함.
+            # '사업자보유'처럼 보유 조건을 뜻하는 키워드만 특이사항·요청사항에서도 인식 (띄어쓰기 무시).
+            occupation_only_keywords = {"사업자"}
             if required_keywords:
                 found_required = False
                 for keyword in required_keywords:
                     if "occupation" in check_fields and occupation and keyword in occupation:
                         found_required = True
                         break
-                    if "special_notes" in check_fields and special_notes and keyword in special_notes:
+                    if keyword in occupation_only_keywords:
+                        continue
+                    if "special_notes" in check_fields and contains_keyword(special_notes, keyword):
                         found_required = True
                         break
-                    if "requests" in check_fields and requests and keyword in requests:
+                    if "requests" in check_fields and contains_keyword(requests, keyword):
                         found_required = True
                         break
                 
