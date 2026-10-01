@@ -887,8 +887,10 @@
     "error_message": "읍·면·리 지역은 취급 불가입니다"
   },
   "_comment_eupmyeon_restriction": "읍·면·리 불가. allowed_pairs(시+읍면)만 예외: 김포 고촌·양촌, 남양주 와부·오남·진접·퇴계원",
-  "conditions": [],
-  "_comment_conditions": "한도와 함께 항상 붙는 고정 문구. 비어 있으면 조건 멘트 없음",
+  "conditions": [
+    "나이스 710점 이상 필수 조건"
+  ],
+  "_comment_conditions": "한도와 함께 항상 붙는 고정 문구. 한도가 나온 건만 한도 아래에 표시",
   "amount_condition_threshold": 50000,
   "_comment_amount_condition_threshold": "비교 금액 5억원. 단위는 만원",
   "amount_condition_comparison": "gt",
