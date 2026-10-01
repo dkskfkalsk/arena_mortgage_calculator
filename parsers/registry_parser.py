@@ -370,23 +370,29 @@ class RegistryParser:
         """PDF에서 '84\\n.8799㎡'처럼 정수부와 소수부가 줄바꿈으로 끊긴 숫자를 이어 붙임"""
         return re.sub(r'(\d+)\s*[\r\n]+\s*(\.\d+)', r'\1\2', text)
 
+    # 전유부분 호수: 일반 '제702호' 및 복합호수 '제605-1804호'
+    _UNIT_HO_RE = r'제\s*\d+(?:-\d+)?호'
+    # (전 1) 같은 이기 표시는 섹션이 아님. 대지권/갑구에서만 전유부분 블록을 끊는다.
+    _EXCLUSIVE_BUILDING_SECTION_RE = re.compile(
+        r'\(\s*전유부분의\s*건물의\s*표시\s*\)\s*([\s\S]*?)'
+        r'(?=\(\s*대지권의\s*표시\s*\)|【\s*갑|【\s*을|【|$)'
+    )
+
+    def _exclusive_building_section(self, text: str) -> str:
+        match = self._EXCLUSIVE_BUILDING_SECTION_RE.search(text)
+        return match.group(1) if match else ""
+
     def _extract_area(self) -> str:
         """면적 추출 (전용면적) - 표제부 '전유부분의 건물의 표시'에 기재된 면적 사용"""
         # 줄바꿈으로 쪼개진 소수(예: 84\\n.8799㎡)를 먼저 복원
         text = self._normalize_split_decimals(self.text)
 
         # 1순위: ( 전유부분의 건물의 표시 ) 블록에서 추출 (층별 면적 240㎡ 등과 구분)
-        building_section = ""
-        m_building_full = re.search(
-            r'\(\s*전유부분의\s*건물의\s*표시\s*\)\s*([\s\S]*?)(?=\(\s*[^)]*\)|【|$)',
-            text
-        )
-        if m_building_full:
-            building_section = m_building_full.group(1)
+        building_section = self._exclusive_building_section(text)
         if building_section:
             for row_pattern in [
-                r'제\s*\d+층\s*제\s*\d+호[\s\S]{0,120}?(\d+\.?\d*)\s*㎡',
-                r'제\s*\d+동\s*제\s*\d+호[\s\S]{0,120}?(\d+\.?\d*)\s*㎡',
+                rf'제\s*\d+층[\s\S]{{0,120}}?{self._UNIT_HO_RE}[\s\S]{{0,80}}?(\d+\.?\d*)\s*㎡',
+                rf'제\s*\d+동[\s\S]{{0,120}}?{self._UNIT_HO_RE}[\s\S]{{0,80}}?(\d+\.?\d*)\s*㎡',
             ]:
                 match_row = re.search(row_pattern, building_section)
                 if match_row:
@@ -416,7 +422,7 @@ class RegistryParser:
                 return f"{non_floor_areas[0][1]}㎡"
 
         # 2순위: "제N층 제N호" 직후 150자 이내 첫 XX㎡ (층별 면적 "N층 XX㎡" 제외)
-        for m in re.finditer(r'제\s*\d+층\s*제\s*\d+호', text):
+        for m in re.finditer(rf'제\s*\d+층[\s\S]{{0,80}}?{self._UNIT_HO_RE}', text):
             snippet = text[m.end():m.end() + 150]
             area_m = re.search(r'(\d+\.?\d*)\s*㎡', snippet)
             if area_m:
@@ -449,11 +455,12 @@ class RegistryParser:
                 except ValueError:
                     pass
 
-        # 공급 37.85 형태: "51㎡ 37.85㎡" 또는 "51 37.85 ㎡" (공백 구분) → 두 번째(전용) 사용
+        # 공급 37.85 형태: "51㎡ 37.85㎡" 또는 "51 37.85 ㎡" (같은 줄 공백 구분) → 두 번째(전용) 사용
+        # 줄바꿈은 허용하지 않음. 표제부에서 '정자일로 248' 다음 줄의 층별면적(3516㎡)과 붙는 오탐 방지
         space_pair_patterns = [
-            r'(\d+\.?\d*)\s*㎡\s+(\d+\.?\d*)\s*㎡',
-            r'(\d+\.?\d*)\s+(\d+\.?\d*)\s*㎡',
-            r'(\d+\.?\d*)\s+(\d+\.?\d*)\s*[㎡m²]',
+            r'(\d+\.?\d*)\s*㎡[ \t]+(\d+\.?\d*)\s*㎡',
+            r'(\d+\.?\d*)[ \t]+(\d+\.?\d*)\s*㎡',
+            r'(\d+\.?\d*)[ \t]+(\d+\.?\d*)\s*[㎡m²]',
         ]
         for pattern in space_pair_patterns:
             match = re.search(pattern, text)
@@ -492,26 +499,16 @@ class RegistryParser:
             table_section_for_building = m_table.group(0)
         search_for_building = table_section_for_building if table_section_for_building else text
 
-        building_section = ""
-        m_building = re.search(
-            r'\(\s*전유부분의\s*건물의\s*표시\s*\)\s*([\s\S]*?)(?=\(\s*[^)]*\)|【|$)', search_for_building
-        )
-        if m_building:
-            building_section = m_building.group(1)
+        building_section = self._exclusive_building_section(search_for_building)
         # PDF 추출 순서상 ( 전유부분의 건물의 표시 )가 표제부~갑구 구간 밖(다른 페이지)에 있을 수 있음 → 전체 텍스트에서 재탐색
         if not building_section:
-            m_building_full = re.search(
-                r'\(\s*전유부분의\s*건물의\s*표시\s*\)\s*([\s\S]*?)(?=\(\s*[^)]*\)|【|$)',
-                text
-            )
-            if m_building_full:
-                building_section = m_building_full.group(1)
+            building_section = self._exclusive_building_section(text)
         if building_section:
             # 표제부 표에서 해당 호실 행의 면적 우선: "제N층 제N호" 또는 "제N동 제N호" + 건물내역(철근콘크리트/목조/철골 등) + XX㎡
             # 건물내역 문구는 다양하므로 구조 종류에 의존하지 않고, 호실 직후 ~80자 이내 첫 면적 사용
             for row_pattern in [
-                r'제\s*\d+층\s*제\s*\d+호[\s\S]{0,80}?(\d+\.?\d*)\s*㎡',
-                r'제\s*\d+동\s*제\s*\d+호[\s\S]{0,80}?(\d+\.?\d*)\s*㎡',
+                rf'제\s*\d+층[\s\S]{{0,120}}?{self._UNIT_HO_RE}[\s\S]{{0,80}}?(\d+\.?\d*)\s*㎡',
+                rf'제\s*\d+동[\s\S]{{0,120}}?{self._UNIT_HO_RE}[\s\S]{{0,80}}?(\d+\.?\d*)\s*㎡',
             ]:
                 match_row = re.search(row_pattern, building_section)
                 if match_row:
@@ -552,7 +549,8 @@ class RegistryParser:
                 return f"{non_floor_areas[0][1]}㎡"
 
         # 1. (전 1) 63.81㎡ 형태: 전유 1호기 전용면적 명시 (동문아파트 등)
-        match = re.search(r'\(전\s*\d+\)\s*(\d+\.?\d*)\s*㎡', text)
+        # 이기 등기에서는 '(전 1)' 다음 줄에 호수, 그 다음 줄에 면적이 오는 경우가 있다.
+        match = re.search(r'\(전\s*\d+\)[\s\S]{0,80}?(\d+\.?\d*)\s*㎡', text)
         if match:
             area = match.group(1)
             area_float = float(area)
