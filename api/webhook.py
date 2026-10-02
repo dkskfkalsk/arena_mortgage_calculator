@@ -871,8 +871,7 @@ def get_application(force_new=False):
                     lines.append(f"거주여부 : {caption_info['residence']}")
                     lines.append(f"소유현황 : 신탁")
             elif result.소유자목록:
-                # 공동명의인 경우 2명 모두 표시
-                owners = result.소유자목록[:2]  # 최대 2명까지
+                owners = result.소유자목록
                 
                 # 첫 번째 소유자의 나이 계산 (만나이, 한국 시간 기준)
                 age = ""
@@ -915,7 +914,6 @@ def get_application(force_new=False):
                     if len(owners) == 1:
                         name_display = f"{borrower}(차), {owners[0].성명}(담) {age}"
                     else:
-                        # 공동명의인 경우 2명 모두 표시
                         owner_names = ", ".join([o.성명 for o in owners])
                         name_display = f"{borrower}(차), {owner_names}(담) {age}"
                 else:
@@ -923,7 +921,6 @@ def get_application(force_new=False):
                     if len(owners) == 1:
                         name_display = f"{owners[0].성명} {age}"
                     else:
-                        # 공동명의인 경우 2명 모두 표시
                         owner_names = ", ".join([o.성명 for o in owners])
                         name_display = f"{owner_names} {age}"
                 
@@ -932,11 +929,13 @@ def get_application(force_new=False):
                 lines.append(f"신용점수 : {caption_info['credit_score']}")
                 lines.append(f"거주여부 : {caption_info['residence']}")
                 
-                # 소유현황
-                if len(owners) == 1:
+                from parsers.registry_parser import format_ownership_share_note
+                share_note = format_ownership_share_note(owners)
+                if share_note:
+                    share = share_note.replace("지분 ", "", 1)
+                elif len(owners) == 1:
                     share = owners[0].지분 if owners[0].지분 else "단독소유"
                 else:
-                    # 공동명의인 경우
                     share = "공동소유"
                 lines.append(f"소유현황 : {share}")
             else:
@@ -1007,6 +1006,8 @@ def get_application(force_new=False):
             # 세대수, 구분, KB시세 (캡션에서 추출한 정보 사용, KB API 결과로 업데이트 가능)
             households = caption_info.get('households') or ''
             property_type = caption_info.get('property_type') or ''
+            if not property_type:
+                property_type = getattr(result, "부동산구분", "") or ""
             
             # KB시세: 캡션에서 추출한 것이 없으면 등기부 주소/면적로 자동 조회
             kb_price = caption_info['kb_price']
@@ -1557,6 +1558,14 @@ def get_application(force_new=False):
             if should_note_no_land_registry(property_type, getattr(result, '대지권미등기', False)):
                 if "대지권미등기" not in " / ".join(special_notes):
                     special_notes.append("대지권미등기")
+
+            from parsers.registry_parser import format_ownership_share_note
+            share_note = format_ownership_share_note(getattr(result, "소유자목록", None) or [])
+            if share_note and share_note not in special_notes:
+                special_notes.append(share_note)
+            land_category = getattr(result, "지목", "") or ""
+            if land_category == "임야" and "지목 임야" not in special_notes:
+                special_notes.append("지목 임야")
             
             # 특이사항
             lines.append(f"특이사항 : {' / '.join(special_notes) if special_notes else ''}")

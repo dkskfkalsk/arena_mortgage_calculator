@@ -15,7 +15,8 @@ from typing import Dict, List, Optional, Any, Union, Set, Tuple
 from utils.validators import (
     validate_kb_price, extract_lower_bound_price, extract_kb_ai_price_from_special_notes,
     extract_bank_appraisal_price_from_special_notes, extract_realestatetech_price_from_special_notes,
-    extract_korea_realestate_price_from_special_notes, extract_housematch_price_from_special_notes
+    extract_korea_realestate_price_from_special_notes, extract_housematch_price_from_special_notes,
+    parse_price_manwon,
 )
 from utils.mortgage_calculator import classify_financial_institution
 
@@ -208,10 +209,14 @@ def get_property_type_key(property_type: str, special_notes: str = "") -> Option
         return "villa"
     if "오피스텔" in property_type:
         return "officetel"
-    if "단독주택" in property_type:
+    if "단독주택" in property_type or "다가구" in property_type or "다중주택" in property_type:
         return "detached_house"
     if "공동주택" in property_type:
         return "multi_family_house"
+    if "임야" in property_type:
+        return "forest"
+    if "토지" in property_type:
+        return "land"
     return None
 
 
@@ -262,6 +267,88 @@ def infer_fractional_ownership(property_data: Dict[str, Any]) -> Optional[bool]:
     if "지분" in o and "단독" not in o:
         return True
     return None
+
+
+def _parse_ownership_share_entries(property_data: Dict[str, Any]) -> List[Tuple[str, int, int]]:
+    """특이사항·소유현황의 '지분 홍길동 1/2, 엄홍길 1/2' 또는 '홍길동 1/2' 를 읽는다."""
+    texts = [
+        str(property_data.get("special_notes") or ""),
+        str(property_data.get("ownership") or ""),
+    ]
+    share_re = re.compile(
+        r"([가-힣]{2,5})\s*(?:(\d+)\s*/\s*(\d+)|(\d+)\s*분의\s*(\d+))"
+    )
+    for text in texts:
+        match = re.search(r"지분\s*[:：]?\s*(.+)", text)
+        body = match.group(1).split("요청사항")[0] if match else text
+        entries: List[Tuple[str, int, int]] = []
+        seen = set()
+        for found in share_re.finditer(body):
+            name = found.group(1)
+            if found.group(2):
+                num, den = int(found.group(2)), int(found.group(3))
+            else:
+                den, num = int(found.group(4)), int(found.group(5))
+            if den <= 0 or num <= 0 or (name, num, den) in seen:
+                continue
+            seen.add((name, num, den))
+            entries.append((name, num, den))
+        if entries:
+            return entries
+    return []
+
+
+def _borrower_name_candidates(name_field: str) -> List[str]:
+    text = name_field or ""
+    marked = re.findall(r"([가-힣]{2,5})\s*\(\s*차", text)
+    if marked:
+        return marked
+    cleaned = re.sub(r"\([^)]*\)", " ", text)
+    return re.findall(r"[가-힣]{2,5}", cleaned)
+
+
+def resolve_ownership_share(property_data: Dict[str, Any]) -> Tuple[float, str, str, str]:
+    """
+    차주와 같은 소유자의 지분 비율.
+    반환: (비율, 표시문구, 차주이름, 오류문구). 지분 정보가 없으면 비율 1.
+    """
+    entries = _parse_ownership_share_entries(property_data)
+    if not entries:
+        return 1.0, "", "", ""
+    if len(entries) == 1 and entries[0][1] == entries[0][2]:
+        return 1.0, "", entries[0][0], ""
+
+    candidates = _borrower_name_candidates(str(property_data.get("name") or ""))
+    owner_names = [name for name, _, _ in entries]
+    matched = [name for name in candidates if name in owner_names]
+    # 성명에 소유자가 전원 적혀 있으면 차주를 특정할 수 없다
+    if len(matched) != 1:
+        names = ", ".join(f"{name} {num}/{den}" for name, num, den in entries)
+        return 1.0, "", "", f"공동소유 지분({names})은 성명에 차주를 적어 주세요 (예: 홍길동(차))"
+
+    borrower = matched[0]
+    num, den = next((n, d) for name, n, d in entries if name == borrower)
+    label = f"{borrower} {num}/{den}"
+    return num / den, label, borrower, ""
+
+
+def mortgage_counts_for_borrower(mortgage: Dict[str, Any], borrower: str) -> bool:
+    """지분 한도에서 이 선순위를 차주 지분에서 뺄지. 세입자는 항상 빼고, 다른 공유자 명의는 빼지 않는다."""
+    if mortgage.get("is_tenant"):
+        return True
+    institution = str(mortgage.get("institution") or "")
+    if any(token in institution for token in ("세입자", "전세입자", "월세입자", "전세권")):
+        return True
+    debtor = str(mortgage.get("debtor") or "")
+    paren = re.search(r"\(([^)]*)\)", institution)
+    if paren:
+        parts = [p.strip() for p in paren.group(1).split("/") if p.strip()]
+        if parts:
+            debtor = parts[-1]
+    compact = re.sub(r"\s+", "", debtor)
+    if not compact or not borrower:
+        return True
+    return re.search(re.escape(borrower) + r"(?:등|외|[^가-힣]|$)", compact) is not None
 
 
 def fractional_share_condition_requested(property_data: Dict[str, Any]) -> bool:
@@ -691,6 +778,10 @@ class BaseCalculator:
         self._extra_ltv_above_max = None
         self._gm_ltv_steps_override = None
         self._fractional_share_min_floor = None
+        self._ownership_share_ratio = 1.0
+        self._ownership_share_label = ""
+        self._ownership_share_skipped = False
+        self._applied_price_source = None
         self._household_ltv_reduction_meta = None
         self._property_type_ltv_reduction_meta = None
         
@@ -808,7 +899,18 @@ class BaseCalculator:
                     log_print(f"DEBUG: BaseCalculator.calculate - KB AI시세 추출: {kb_ai_price}만원")
                     kb_price = kb_ai_price
                     applied_price_source = "kb_ai"
+                    previous_raw = " ".join(
+                        str(x or "")
+                        for x in (
+                            property_data.get("kb_price_raw"),
+                            special_notes,
+                            original_kb_price_raw,
+                        )
+                    )
                     kb_price_raw = f"KB AI시세: {kb_ai_price}만원"
+                    ai_lower = extract_lower_bound_price(previous_raw)
+                    if ai_lower:
+                        kb_price_raw = f"{kb_price_raw} 하한 {int(ai_lower)}만원"
                     property_data["kb_price_raw"] = kb_price_raw  # property_data 업데이트
                     property_data["kb_price"] = kb_price  # property_data 업데이트
             
@@ -851,6 +953,26 @@ class BaseCalculator:
                     kb_price_raw = f"하우스머치 시세: {housematch_price}만원"
                     property_data["kb_price_raw"] = kb_price_raw  # property_data 업데이트
                     property_data["kb_price"] = kb_price  # property_data 업데이트
+
+            if kb_price is None and price_sources.get("real_transaction_price", 0) == 1:
+                real_tx = property_data.get("real_transaction_price")
+                if real_tx is None:
+                    blob = " ".join(
+                        str(property_data.get(key) or "")
+                        for key in ("special_notes", "requests", "kb_price_raw")
+                    )
+                    tx_match = re.search(r"실거래가\s*[:：]?\s*([^\n]+)", blob)
+                    if tx_match:
+                        real_tx = parse_price_manwon(tx_match.group(1))
+                else:
+                    real_tx = parse_price_manwon(str(real_tx)) if not isinstance(real_tx, (int, float)) else float(real_tx)
+                if real_tx:
+                    log_print(f"DEBUG: BaseCalculator.calculate - 실거래가 사용: {real_tx}만원")
+                    kb_price = float(real_tx)
+                    applied_price_source = "real_transaction"
+                    kb_price_raw = f"실거래가: {kb_price}만원"
+                    property_data["kb_price_raw"] = kb_price_raw
+                    property_data["kb_price"] = kb_price
         
         if kb_price is None:
             log_print(f"DEBUG: BaseCalculator.calculate - KB price is None, returning None")
@@ -1194,6 +1316,8 @@ class BaseCalculator:
         if validation_errors:
             return self._error_result(validation_errors)
         
+        self._applied_price_source = applied_price_source
+
         # 하한가 적용 조건 확인
         lower_bound_config = self.config.get("lower_bound_price", {})
         lower_bound_applied = False  # 하한가 적용 여부 플래그
@@ -1249,6 +1373,14 @@ class BaseCalculator:
                     apply_lower_bound = True
                     log_print(f"DEBUG: 기존 양식 하한가 적용 (1,2층)")
             
+            only_sources = lower_bound_config.get("only_price_sources")
+            if apply_lower_bound and only_sources and applied_price_source not in only_sources:
+                apply_lower_bound = False
+                log_print(
+                    f"DEBUG: 하한가 미적용 - 시세소스 {applied_price_source} "
+                    f"(허용: {only_price_sources})"
+                )
+
             if apply_lower_bound:
                 lower_bound_price = extract_lower_bound_price(kb_price_raw)
                 if lower_bound_price is not None:
@@ -1362,6 +1494,25 @@ class BaseCalculator:
         
         # 기존 근저당권 총액: 대환 제외·후순위 공통으로 선순위 채권최고액 합. 대환 상환액은 refinance_principal(원금)로 별도 차감.
         mortgages = property_data.get("mortgages", [])
+        if self.config.get("ownership_share_limit"):
+            ratio, label, borrower, share_error = resolve_ownership_share(property_data)
+            if share_error:
+                log_print(f"DEBUG: BaseCalculator.calculate - 지분 차주 미확인: {share_error}")
+                return self._error_result([share_error])
+            self._ownership_share_ratio = ratio
+            self._ownership_share_label = label
+            if ratio < 0.999 and borrower:
+                kept = []
+                for mortgage in mortgages:
+                    if mortgage_counts_for_borrower(mortgage, borrower):
+                        kept.append(mortgage)
+                    else:
+                        self._ownership_share_skipped = True
+                        log_print(
+                            f"DEBUG: BaseCalculator.calculate - 차주 {borrower} 아닌 선순위 제외: "
+                            f"{mortgage.get('institution')}"
+                        )
+                mortgages = kept
         
         # 대환할 근저당권 찾기 (여러 개 대비하여 누적합으로 처리)
         refinance_principal = 0.0  # 대환할 근저당권 원금 합계
@@ -3006,6 +3157,12 @@ class BaseCalculator:
             if pt_meta["message"] not in conditions:
                 conditions.append(pt_meta["message"])
 
+        share_label = getattr(self, "_ownership_share_label", "") or ""
+        if results and share_label:
+            conditions.append(f"지분 {share_label} 적용")
+        if results and getattr(self, "_ownership_share_skipped", False):
+            conditions.append("차주가 아닌 공유자 명의 선순위는 차감하지 않음")
+
         # 조건부 캡션 (공동명의·별도등기·대지권미등기 등) — 한도와 함께 멘트만
         if results and property_data:
             for caption_msg in self._collect_caption_rule_messages(property_data):
@@ -3327,16 +3484,19 @@ class BaseCalculator:
             keywords = restricted_keywords_config.get("keywords", [])
             
             found_keywords = []
+            field_values = {
+                "special_notes": special_notes,
+                "requests": requests,
+                "property_type": str(property_data.get("property_type") or ""),
+                "ownership": str(property_data.get("ownership") or ""),
+            }
             for keyword in keywords:
                 for field in check_fields:
-                    if field == "special_notes" and contains_keyword(special_notes, keyword):
+                    val = field_values.get(field, "")
+                    if val and contains_keyword(val, keyword):
                         if keyword not in found_keywords:
                             found_keywords.append(keyword)
-                            log_print(f"DEBUG: BaseCalculator._validate_validation_rules - 특이사항에 제한 키워드 '{keyword}' 발견")
-                    elif field == "requests" and contains_keyword(requests, keyword):
-                        if keyword not in found_keywords:
-                            found_keywords.append(keyword)
-                            log_print(f"DEBUG: BaseCalculator._validate_validation_rules - 요청사항에 제한 키워드 '{keyword}' 발견")
+                            log_print(f"DEBUG: BaseCalculator._validate_validation_rules - {field}에 제한 키워드 '{keyword}' 발견")
             
             if found_keywords:
                 error_msg_template = restricted_keywords_config.get("error_message",
@@ -4895,8 +5055,9 @@ class BaseCalculator:
                 "available_amount": 가용 한도 (원금)
             }
         """
-        max_amount_principal = kb_price * (ltv / 100)
-        print(f"DEBUG: calculate_available_amount - kb_price: {kb_price}, ltv: {ltv}, total_mortgage(선순위채권최고): {total_mortgage}, is_refinance: {is_refinance}, refinance_principal(대환 원금): {refinance_principal}")  # 추가
+        share_ratio = getattr(self, "_ownership_share_ratio", 1.0) or 1.0
+        max_amount_principal = kb_price * (ltv / 100) * share_ratio
+        print(f"DEBUG: calculate_available_amount - kb_price: {kb_price}, ltv: {ltv}, share: {share_ratio}, total_mortgage(선순위채권최고): {total_mortgage}, is_refinance: {is_refinance}, refinance_principal(대환 원금): {refinance_principal}")  # 추가
         print(f"DEBUG: calculate_available_amount - max_amount_principal (kb_price * ltv/100): {max_amount_principal}")  # 추가
         
         if is_refinance:
@@ -5128,6 +5289,16 @@ class BaseCalculator:
                 if m.get("kb_price_gte") is not None and kb_v < float(m["kb_price_gte"]):
                     continue
                 if m.get("kb_price_lt") is not None and kb_v >= float(m["kb_price_lt"]):
+                    continue
+                if m.get("household_gte") is not None:
+                    household_count = pdat.get("household_count")
+                    try:
+                        if household_count is None or int(household_count) < int(m["household_gte"]):
+                            continue
+                    except (TypeError, ValueError):
+                        continue
+                price_sources = m.get("price_sources")
+                if price_sources and getattr(self, "_applied_price_source", None) not in price_sources:
                     continue
                 rng = pr.get("range")
                 if rng and len(rng) >= 2:
@@ -5751,6 +5922,8 @@ class BaseCalculator:
     
     def _is_blocked_by_personal_mortgage(self, property_data: Dict[str, Any]) -> bool:
         """금융사 config에 따라 개인설정 후순위 차단 여부."""
+        if self.config.get("personal_mortgage_subordinate_allowed"):
+            return False
         allow_physical = self.config.get("allow_physical_collateral_subordinate", False)
         return self._has_personal_mortgage(property_data, allow_physical_collateral=allow_physical)
 

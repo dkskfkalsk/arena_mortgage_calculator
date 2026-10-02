@@ -191,6 +191,31 @@ def parse_amount(amount_str):
         return None
 
 
+def parse_price_manwon(text):
+    """
+    '1억5,000만', '15,000만원', '15000만' 형식을 만원 단위 숫자로 변환.
+    """
+    if text is None or text == "":
+        return None
+    if isinstance(text, (int, float)):
+        return float(text)
+    try:
+        import re
+        compact = str(text).replace(",", "").replace(" ", "")
+        eok = re.search(r"(\d+)억(?:(\d+)만)?", compact)
+        if eok:
+            man = int(eok.group(1)) * 10000
+            if eok.group(2):
+                man += int(eok.group(2))
+            return float(man)
+        man_only = re.search(r"(\d+(?:\.\d+)?)만", compact)
+        if man_only:
+            return float(man_only.group(1))
+        return None
+    except (ValueError, TypeError):
+        return None
+
+
 def extract_lower_bound_price(kb_price):
     """
     KB시세에서 하한가 추출

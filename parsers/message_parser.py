@@ -100,6 +100,7 @@ class MessageParser:
             "mortgages": [],
             "special_notes": None,
             "requests": None,
+            "real_transaction_price": None,
             "region": None,
             "required_amount": None
         }
@@ -885,6 +886,13 @@ class MessageParser:
             data["kb_price_raw"] = f"탁감가: {value}"
             print(f"DEBUG: Parsed 감정가/탁감가 - key: {key}, value: {value}")
         
+        elif "실거래" in key_clean:
+            from utils.validators import parse_price_manwon
+            price = parse_price_manwon(value)
+            if price is not None:
+                data["real_transaction_price"] = price
+                print(f"DEBUG: Parsed 실거래가 - {price}만원")
+
         elif "하우스머치" in key_clean:
             # 하우스머치 시세 - 별도 저장 (kb_price에 넣지 않음, 금융사별 price_sources에서 처리)
             validated = validate_kb_price(value)
@@ -902,6 +910,9 @@ class MessageParser:
                 print(f"DEBUG: Parsed KB AI시세 - 키가 '참고'이고 값이 URL이라 시세로 사용 안 함: key={key}")
                 return
             if "하한" in key_clean or str(value).strip().startswith("하한"):
+                raw = str(data.get("kb_price_raw") or "")
+                if value and "하한" not in raw:
+                    data["kb_price_raw"] = f"{raw} 하한 {value}".strip()
                 print(f"DEBUG: Parsed KB AI시세 하한은 일반가를 덮어쓰지 않음: {value}")
                 return
             data["kb_ai_price"] = value

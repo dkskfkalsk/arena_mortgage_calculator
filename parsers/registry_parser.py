@@ -12,6 +12,7 @@ import os
 import json
 import sys
 import logging
+from math import gcd
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
 
@@ -124,6 +125,12 @@ class RegistryDocument:
     
     # 대지권 미등기 (집합건물 표제부에 대지권 항목 없음)
     대지권미등기: bool = False
+
+    # 토지 지목 (임야·대·전 등). 토지 등기가 아니면 빈 문자열
+    지목: str = ""
+
+    # 캡션에 구분이 없을 때 쓰는 물건 종류 (토지·임야·단독주택 등)
+    부동산구분: str = ""
     
     # 수탁자 여부 (신탁인 경우)
     수탁자여부: bool = False  # True면 수탁자가 있음 (신탁)
@@ -281,6 +288,8 @@ class RegistryParser:
         doc.환매특약 = self._extract_special_conditions()
         doc.별도등기 = self._extract_separate_registry()
         doc.대지권미등기 = self._extract_no_land_registry()
+        doc.지목 = self._extract_land_category()
+        doc.부동산구분 = self._extract_property_kind(doc.지목)
         
         # 수탁자 여부 확인 (갑구에 수탁자 키워드가 있는지 확인)
         doc.수탁자여부 = self._check_trustee()
@@ -714,6 +723,81 @@ class RegistryParser:
             return m.group(0)
         return summary_text
     
+    def _fraction_after_owner(self, text: str, start: int):
+        """소유자 표기 직후 최종지분. '14분의 7' → (7, 14), 단독소유 → (1, 1)."""
+        rest = text[start:]
+        nxt = re.search(r'[가-힣]{2,5}\s*\(\s*(?:소유자|공유자)\s*\)', rest)
+        chunk = rest[: nxt.start() if nxt else 240]
+        frac = re.search(r'(\d+)\s*분의\s*(\d+)', chunk)
+        if frac:
+            return int(frac.group(2)), int(frac.group(1))
+        if "단독소유" in chunk:
+            return 1, 1
+        return None, None
+
+    @staticmethod
+    def _add_fraction(n1, d1, n2, d2):
+        if n1 is None or d1 is None:
+            return n2, d2
+        if n2 is None or d2 is None:
+            return n1, d1
+        den = d1 // gcd(d1, d2) * d2
+        return n1 * (den // d1) + n2 * (den // d2), den
+
+    @staticmethod
+    def _format_share(num, den) -> Optional[str]:
+        if num is None or den is None or den == 0:
+            return None
+        g = gcd(int(num), int(den))
+        num = int(num) // g
+        den = int(den) // g
+        if num == den:
+            return "1/1"
+        return f"{num}/{den}"
+
+    def _extract_land_category(self) -> str:
+        """토지 등기 표제·요약의 지목. 임야·대·전·답 등."""
+        categories = (
+            "공장용지", "창고용지", "학교용지", "주유소용지", "목장용지", "종교용지",
+            "체육용지", "수도용지", "철도용지", "과수원", "잡종지", "주차장", "유원지",
+            "광천지", "사적지", "양어장", "임야", "도로", "구거", "하천", "유지",
+            "염전", "제방", "묘지", "공원", "전", "답", "대",
+        )
+        found = ""
+        for blob in re.findall(r'\[토지\][^\n]+', self.text):
+            for cat in categories:
+                if re.search(rf'{cat}\s*[\d,]+', blob):
+                    found = cat
+                    break
+        if found:
+            return found
+        block_match = re.search(r'토지의\s*표시[\s\S]{0,900}?갑\s*구', self.text)
+        if not block_match:
+            return ""
+        last = ""
+        cat_set = set(categories)
+        for line in block_match.group(0).splitlines():
+            token = re.sub(r'\s+', '', line)
+            if token in cat_set:
+                last = token
+        return last
+
+    def _extract_property_kind(self, land_category: str) -> str:
+        """캡션에 구분이 없을 때 등기 표제에서 토지·임야·단독주택을 추정."""
+        head = self.text[:2500]
+        if "[토지]" in head or "- 토지 -" in head[:800]:
+            if land_category == "임야":
+                return "임야"
+            return "토지"
+        if "- 건물 -" in head[:800]:
+            if "다가구" in head:
+                return "다가구주택"
+            if "다중주택" in head:
+                return "다중주택"
+            if "단독주택" in head or re.search(r'주택', head):
+                return "단독주택"
+        return ""
+
     def _extract_owners(self) -> List[OwnerInfo]:
         """소유자 정보 추출 - 요약본 우선, 요약본에서 (수탁자)인 경우만 건너뜀"""
         logger.debug("🔍 소유자 정보 추출 시작")
@@ -771,12 +855,12 @@ class RegistryParser:
                                 mm = int(resident_num[2:4])
                                 dd = int(resident_num[4:6])
                                 if 1 <= mm <= 12 and 1 <= dd <= 31:
-                                    # 중복 체크
-                                    if not any(n == name and r == resident_num for n, r in owner_matches):
-                                        owner_matches.append((name, resident_num))
-                                        logger.info(f"✅ 소유자 추출 성공: {name} (주민번호: {resident_num}-*******)")
-                                    else:
-                                        logger.debug(f"⚠️ 중복 소유자 무시: {name}")
+                                    num, den = self._fraction_after_owner(search_text, match.end())
+                                    owner_matches.append((name, resident_num, num, den))
+                                    logger.info(
+                                        f"✅ 소유자 추출 성공: {name} (주민번호: {resident_num}-*******) "
+                                        f"지분={self._format_share(num, den)}"
+                                    )
                             except Exception as e:
                                 logger.debug(f"⚠️ 주민번호 검증 실패: {e}")
                     else:
@@ -802,9 +886,12 @@ class RegistryParser:
                                 try:
                                     mm, dd = int(resident_num[2:4]), int(resident_num[4:6])
                                     if 1 <= mm <= 12 and 1 <= dd <= 31:
-                                        if not any(n == name and r == resident_num for n, r in owner_matches):
-                                            owner_matches.append((name, resident_num))
-                                            logger.info(f"✅ 소유자 추출 성공(전체): {name} (주민번호: {resident_num}-*******)")
+                                        num, den = self._fraction_after_owner(search_text, match.end())
+                                        owner_matches.append((name, resident_num, num, den))
+                                        logger.info(
+                                            f"✅ 소유자 추출 성공(전체): {name} (주민번호: {resident_num}-*******) "
+                                            f"지분={self._format_share(num, den)}"
+                                        )
                                 except Exception:
                                     pass
                     if owner_matches:
@@ -812,28 +899,35 @@ class RegistryParser:
                 if owner_matches:
                     break
         
-        # OwnerInfo로 변환
+        # 같은 사람(이름+주민번호)이 순위번호별로 나뉘면 지분을 합산
         owners = []
-        for name, resident_num in owner_matches:
+        buckets = {}
+        order = []
+        for name, resident_num, num, den in owner_matches:
+            key = (name, resident_num)
+            if key not in buckets:
+                buckets[key] = [num, den]
+                order.append(key)
+            else:
+                buckets[key][0], buckets[key][1] = self._add_fraction(
+                    buckets[key][0], buckets[key][1], num, den
+                )
+        for name, resident_num in order:
+            num, den = buckets[(name, resident_num)]
             birth = self._convert_birth_date(resident_num)
-            share = "공동소유" if len(owner_matches) > 1 else "단독소유"
-            
-            owner = OwnerInfo(
+            share = self._format_share(num, den)
+            if share == "1/1" and len(order) == 1:
+                share = "단독소유"
+            elif share is None:
+                share = "단독소유" if len(order) == 1 else "확인불가"
+            owners.append(OwnerInfo(
                 성명=name,
                 주민번호=f"{resident_num}-*******",
                 생년월일=birth,
                 주소="",
-                지분=share
-            )
-            owners.append(owner)
-        
-        # 중복 제거 (이름 기준)
-        seen_names = set()
-        unique_owners = []
-        for owner in owners:
-            if owner.성명 not in seen_names:
-                seen_names.add(owner.성명)
-                unique_owners.append(owner)
+                지분=share,
+            ))
+        unique_owners = owners
         
         if unique_owners:
             logger.info(f"✅ 총 {len(unique_owners)}명의 소유자 추출 완료: {[o.성명 for o in unique_owners]}")
@@ -1665,6 +1759,23 @@ class RegistryParser:
 _NO_LAND_REGISTRY_PROPERTY_TYPES = (
     "주상복합", "아파트", "오피스텔", "연립/다세대", "다세대", "연립", "빌라",
 )
+
+
+def format_ownership_share_note(owners: List[OwnerInfo]) -> str:
+    """특이사항에 넣을 지분 문구. 단독 1인이면 빈 문자열."""
+    if not owners:
+        return ""
+    fractional = [
+        o for o in owners
+        if o.지분 and o.지분 not in ("단독소유", "1/1")
+    ]
+    if len(owners) < 2 and not fractional:
+        return ""
+    parts = []
+    for owner in owners:
+        share = owner.지분 if owner.지분 and owner.지분 != "단독소유" else "1/1"
+        parts.append(f"{owner.성명} {share}")
+    return "지분 " + ", ".join(parts)
 
 
 def apply_no_land_registry_property_type(property_type: str, no_land_registry: bool) -> str:
