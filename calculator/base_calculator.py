@@ -792,6 +792,13 @@ class BaseCalculator:
         # 모든 검증 오류를 수집
         validation_errors = []
         
+        # 앞선 금융사가 대체 시세(부동산테크·실거래가 등)를 kb_price에 써 넣었어도
+        # 이 금융사는 사용자 최초 입력 기준으로 시세를 다시 판단해야 한다
+        _price_snapshot = property_data.get("_price_input_snapshot")
+        if _price_snapshot is not None:
+            property_data["kb_price"] = _price_snapshot.get("kb_price")
+            property_data["kb_price_raw"] = _price_snapshot.get("kb_price_raw")
+        
         # KB시세 검증
         # 파서에서 kb_price_raw(원본 문자열)와 kb_price(숫자)를 분리해서 전달
         # kb_price_raw가 있으면 원본 문자열 사용, 없으면 kb_price를 원본으로 사용 (하위호환)
@@ -801,55 +808,56 @@ class BaseCalculator:
         applied_price_source = "kb" if kb_price is not None else None
         log_print(f"DEBUG: BaseCalculator.calculate - kb_price after validation: {kb_price}")
         
-        # 탁감가 여부 확인 (kb_price가 설정되어 있어도 체크)
+        # 시세 우선순위: KB시세 > 부동산테크 > KB AI시세 > 감정가·탁감가 > 한국부동산원 > 하우스머치 > 실거래가
+        # 파서는 탁감가를 kb_price 칸에 넣으므로, 공식 KB시세가 아니면 대체 시세 후보로 내린다
         price_sources = self.config.get("price_sources", {})
-        is_tackgamga = False
-        if kb_price_raw:
-            kb_price_raw_str = str(kb_price_raw).lower()
-            if "탁감가" in kb_price_raw_str or "감정가" in kb_price_raw_str or "은행감정가" in kb_price_raw_str:
-                is_tackgamga = True
-                log_print(f"DEBUG: BaseCalculator.calculate - 탁감가 감지됨 (kb_price_raw): {kb_price_raw}")
+        _appraisal_keywords = ("탁감", "감정가")
+        is_tackgamga_in_kb_field = bool(kb_price_raw) and any(k in str(kb_price_raw) for k in _appraisal_keywords)
+        appraisal_from_kb_field = None
+        if is_tackgamga_in_kb_field and kb_price is not None:
+            log_print(f"DEBUG: BaseCalculator.calculate - 탁감가 감지됨 (kb_price_raw): {kb_price_raw} → 대체 시세 후보로 처리")
+            appraisal_from_kb_field = kb_price
+            kb_price = None
+            applied_price_source = None
+        has_real_kb = kb_price is not None
         
-        # special_notes에서도 탁감가 확인
-        if not is_tackgamga:
-            special_notes = property_data.get("special_notes", "") or ""
-            if special_notes:
-                special_notes_str = str(special_notes).lower()
-                if "탁감가" in special_notes_str or "감정가" in special_notes_str or "은행감정가" in special_notes_str:
-                    is_tackgamga = True
-                    log_print(f"DEBUG: BaseCalculator.calculate - 탁감가 감지됨 (special_notes): {special_notes}")
+        special_notes_for_check = str(property_data.get("special_notes", "") or "")
+        is_tackgamga = not has_real_kb and (
+            is_tackgamga_in_kb_field or any(k in special_notes_for_check for k in _appraisal_keywords)
+        )
         
-        # 탁감가가 입력되어 있고, 해당 금융사가 탁감가를 사용하지 않으면 즉시 반환
-        if is_tackgamga and price_sources.get("bank_appraisal_price", 0) == 0:
-            log_print(f"DEBUG: BaseCalculator.calculate - 탁감가 입력됨 but 금융사가 탁감가 미사용: {self.bank_name}")
-            validation_errors.append("감정가·탁감가 적용 불가")
-            return self._error_result(validation_errors)
-        
-        # KB AI시세만 있고 해당 금융사가 취급하지 않을 경우
-        # (앞선 금융사 calculate가 kb_ai를 kb_price에 반영하면 property_data.kb_price가 채워져 오판됨 → 스냅샷 우선)
+        # (앞선 금융사 calculate가 대체 시세를 kb_price에 반영해도 오판하지 않도록 스냅샷 우선)
         _pin = property_data.get("_price_input_snapshot")
         if _pin is not None:
-            _kb_in, _pt_in, _kai_in = _pin.get("kb_price"), _pin.get("price_type"), _pin.get("kb_ai_price")
+            _pt_in, _kai_in = _pin.get("price_type"), _pin.get("kb_ai_price")
         else:
-            _kb_in = property_data.get("kb_price")
             _pt_in = property_data.get("price_type")
             _kai_in = property_data.get("kb_ai_price")
-        is_kb_ai_only = (
-            (_pt_in == "kb_ai" or _kai_in)
-            and not _kb_in
-        )
-        if is_kb_ai_only and price_sources.get("kb_ai_price", 0) == 0:
-            log_print(f"DEBUG: BaseCalculator.calculate - KB AI시세 입력됨 but 금융사가 KB AI시세 미사용: {self.bank_name}")
-            validation_errors.append("KB AI시세 적용 불가")
-            return self._error_result(validation_errors)
-        
-        # 하우스머치 시세만 있고 해당 금융사가 취급하지 않을 경우
+        is_kb_ai_only = (_pt_in == "kb_ai" or bool(_kai_in)) and not has_real_kb
         is_housematch_only = (
             property_data.get("price_type") == "housematch" or property_data.get("housematch_price") is not None
-        )
-        if is_housematch_only and price_sources.get("housematch_price", 0) == 0:
-            log_print(f"DEBUG: BaseCalculator.calculate - 하우스머치 시세 입력됨 but 금융사가 하우스머치 시세 미사용: {self.bank_name}")
-            validation_errors.append("하우스머치 시세 적용 불가")
+        ) and not has_real_kb
+        _tech_in = (
+            _pin.get("realestatetech_price") if _pin is not None else property_data.get("realestatetech_price")
+        ) or extract_realestatetech_price_from_special_notes(special_notes_for_check)
+        is_realestatetech_only = (_pt_in == "realestatetech" or _tech_in is not None) and not has_real_kb
+        
+        # 공식 KB시세가 없고 대체 시세가 입력됐는데, 이 금융사가 그중 하나도 취급하지 않으면 산출 불가
+        # (여러 시세가 함께 들어오면 취급하는 시세가 하나라도 있는 금융사는 우선순위대로 산출 진행)
+        provided_alt_sources = [
+            (key, label)
+            for flag, key, label in (
+                (is_realestatetech_only, "realestatetech_price", "부동산테크 시세"),
+                (is_kb_ai_only, "kb_ai_price", "KB AI시세"),
+                (is_tackgamga, "bank_appraisal_price", "감정가·탁감가"),
+                (is_housematch_only, "housematch_price", "하우스머치 시세"),
+            )
+            if flag
+        ]
+        if provided_alt_sources and not any(price_sources.get(key, 0) == 1 for key, _ in provided_alt_sources):
+            labels = "·".join(label for _, label in provided_alt_sources)
+            log_print(f"DEBUG: BaseCalculator.calculate - {labels} 입력됨 but 금융사가 해당 시세 미사용: {self.bank_name}")
+            validation_errors.append(f"{labels} 적용 불가")
             return self._error_result(validation_errors)
         
         # price_sources 설정에 따라 시세 추출 시도 (KB시세가 없을 경우)
@@ -880,16 +888,22 @@ class BaseCalculator:
                     log_print(f"DEBUG: BaseCalculator.calculate - kb_price_raw에서 탁감가 추출 결과: {bank_appraisal_price}")
                 except Exception as e:
                     log_print(f"DEBUG: BaseCalculator.calculate - kb_price_raw에서 탁감가 추출 에러: {e}")
+            if bank_appraisal_price is None:
+                bank_appraisal_price = appraisal_from_kb_field
             
-            # 탁감가가 입력되어 있고, 해당 금융사가 탁감가를 사용하지 않으면 즉시 반환
-            if bank_appraisal_price is not None and price_sources.get("bank_appraisal_price", 0) == 0:
-                log_print(f"DEBUG: BaseCalculator.calculate - 탁감가 입력됨 ({bank_appraisal_price}만원) but 금융사가 탁감가 미사용")
-                validation_errors.append("감정가·탁감가 적용 불가")
-                return self._error_result(validation_errors)
+            # 우선순위에 따라 시세 추출 시도: 부동산테크 > KB AI > 감정가·탁감가 > 한국부동산원 > 하우스머치 > 실거래가
+            # (kb_price는 이미 위에서 확인했으므로 제외, 이 금융사가 취급하는 시세만 사용)
+            if price_sources.get("realestatetech_price", 0) == 1:
+                realestatetech_price = property_data.get("realestatetech_price") or extract_realestatetech_price_from_special_notes(special_notes)
+                if realestatetech_price is not None:
+                    log_print(f"DEBUG: BaseCalculator.calculate - 부동산테크 시세 추출: {realestatetech_price}만원")
+                    kb_price = realestatetech_price
+                    applied_price_source = "realestatetech"
+                    kb_price_raw = f"부동산테크 시세: {realestatetech_price}만원"
+                    property_data["kb_price_raw"] = kb_price_raw  # property_data 업데이트
+                    property_data["kb_price"] = kb_price  # property_data 업데이트
             
-            # 우선순위에 따라 시세 추출 시도
-            # kb_price는 이미 위에서 확인했으므로 제외
-            if price_sources.get("kb_ai_price", 0) == 1:
+            if kb_price is None and price_sources.get("kb_ai_price", 0) == 1:
                 kb_ai_price = None
                 if property_data.get("kb_ai_price"):
                     kb_ai_price = self.validate_kb_price(property_data.get("kb_ai_price"))
@@ -902,6 +916,7 @@ class BaseCalculator:
                     previous_raw = " ".join(
                         str(x or "")
                         for x in (
+                            property_data.get("kb_ai_price_raw"),
                             property_data.get("kb_price_raw"),
                             special_notes,
                             original_kb_price_raw,
@@ -923,16 +938,6 @@ class BaseCalculator:
                 property_data["kb_price_raw"] = kb_price_raw  # property_data 업데이트
                 property_data["kb_price"] = kb_price  # property_data 업데이트
                 log_print(f"DEBUG: BaseCalculator.calculate - property_data 업데이트 완료: kb_price={kb_price}, kb_price_raw={kb_price_raw}")
-            
-            if kb_price is None and price_sources.get("realestatetech_price", 0) == 1:
-                realestatetech_price = extract_realestatetech_price_from_special_notes(special_notes)
-                if realestatetech_price is not None:
-                    log_print(f"DEBUG: BaseCalculator.calculate - 부동산테크 시세 추출: {realestatetech_price}만원")
-                    kb_price = realestatetech_price
-                    applied_price_source = "realestatetech"
-                    kb_price_raw = f"부동산테크 시세: {realestatetech_price}만원"
-                    property_data["kb_price_raw"] = kb_price_raw  # property_data 업데이트
-                    property_data["kb_price"] = kb_price  # property_data 업데이트
             
             if kb_price is None and price_sources.get("korea_realestate_price", 0) == 1:
                 korea_realestate_price = extract_korea_realestate_price_from_special_notes(special_notes)
@@ -5974,6 +5979,7 @@ class BaseCalculator:
             "kb_price_raw": property_data.get("kb_price_raw"),
             "price_type": property_data.get("price_type"),
             "kb_ai_price": property_data.get("kb_ai_price"),
+            "realestatetech_price": property_data.get("realestatetech_price"),
         }
     
     @classmethod

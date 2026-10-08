@@ -168,11 +168,13 @@ def get_application(force_new=False):
             return chat_id in allowed_chat_ids
         
         def get_chat_type(chat_id):
-            """채팅방 타입 반환: 'banks', 'loan', 또는 'banks_2' (PDF 등기부등본 분석)"""
+            """채팅방 타입 반환: 'banks', 'loan', 'pdf_only' 또는 'banks_2' (PDF 등기부등본 분석)"""
             if chat_id in allowed_chat_ids_banks:
                 return "banks"
             elif chat_id in allowed_chat_ids_loan:
                 return "loan"
+            elif chat_id in allowed_chat_ids_pdf_only:
+                return "pdf_only"
             elif chat_id in allowed_chat_ids_banks_2:
                 return "banks_2"
             return "banks"  # 기본값은 banks
@@ -631,66 +633,65 @@ def get_application(force_new=False):
                         kb_price_found = True
                         break
             
-            # 2. 부동산테크시세 추출 (KB시세가 없을 경우)
-            # "KBx 8400", "부동산테크 50,000만" 형식
-            if not kb_price_found:
-                tech_patterns = [
-                    r'(?:부동산\s*테크|kb\s*x|kbx)\s*[:：/]?\s*([\d,\s억천만원]+)',
-                    r'(?:부동산\s*테크|kb\s*x|kbx)\s*[:：/]?\s*([\d,]+)',
-                ]
-                for pattern in tech_patterns:
-                    match = re.search(pattern, caption, re.IGNORECASE)
-                    if match:
-                        price_text = match.group(1).strip()
-                        price_man = parse_complex_amount(price_text)
-                        if price_man:
-                            info['kb_price'] = f"{price_man:,}"
-                            info['price_type'] = "부동산테크 시세"
-                            kb_price_found = True
-                            break
+            # 2~4. 대체 시세는 모두 수집 (우선순위: 부동산테크 > 감정가·탁감가 > 하우스머치, KB AI시세는 별도 처리)
+            # KB시세가 없으면 가장 우선인 대체 시세를 kb_price에 두고, 결과에는 수집한 대체 시세를 모두 표시
+            alt_prices = {}
             
-            # 3. 하우스머치 중위시세 추출 (KB시세, 부동산테크시세가 없을 경우)
-            # "하우스머치 40,000만", "하머중위 8400", "하우스머치 중위 8400" 형식
-            if not kb_price_found:
-                hammer_patterns = [
-                    r'(?:하우스\s*머치|하머)\s*[:：/]?\s*([\d,\s억천만원]+)',  # 하우스머치 40,000만 (중위 없이)
-                    r'(?:하우스\s*머치\s*중위|하머\s*중위|하머중위)\s*[:：/]?\s*([\d,\s억천만원]+)',
-                    r'(?:하우스\s*머치\s*중위|하머\s*중위|하머중위)\s*[:：/]?\s*([\d,]+)',
-                    # "KBx / 하머중위 8400" 형식에서 하머중위 뒤의 숫자 추출
-                    r'(?:kb\s*x|kbx)\s*/\s*(?:하우스\s*머치\s*중위|하머\s*중위|하머중위)\s*([\d,\s억천만원]+)',
-                    r'(?:kb\s*x|kbx)\s*/\s*(?:하우스\s*머치\s*중위|하머\s*중위|하머중위)\s*([\d,]+)',
-                ]
-                for pattern in hammer_patterns:
-                    match = re.search(pattern, caption, re.IGNORECASE)
-                    if match:
-                        price_text = match.group(1).strip()
-                        price_man = parse_complex_amount(price_text)
-                        if price_man:
-                            info['kb_price'] = f"{price_man:,}"
-                            info['price_type'] = "하우스머치 시세"
-                            kb_price_found = True
-                            break
+            # 부동산테크: "KBx 8400", "부동산테크 50,000만" 형식
+            tech_patterns = [
+                r'(?:부동산\s*테크|kb\s*x|kbx)\s*(?:시세)?\s*[:：/]?\s*([\d,\s억천만원]+)',
+                r'(?:부동산\s*테크|kb\s*x|kbx)\s*(?:시세)?\s*[:：/]?\s*([\d,]+)',
+            ]
+            for pattern in tech_patterns:
+                match = re.search(pattern, caption, re.IGNORECASE)
+                if match:
+                    price_man = parse_complex_amount(match.group(1).strip())
+                    if price_man:
+                        alt_prices["부동산테크 시세"] = f"{price_man:,}"
+                        break
             
-            # 4. 감정가/탁감가 추출 (KB시세, 부동산테크시세, 하우스머치 중위시세가 없을 경우)
-            # "은행감정가 8억", "감정가 80,000만원", "탁감가 82,000만", "탁감 80,000" 형식 처리
-            if not kb_price_found:
-                appraisal_patterns = [
-                    r'(?:은행\s*감정가|감정가|탁감가|탁감)\s*[:：]?\s*([\d,\s억천만원]+)',  # "감정가 60,000만", "탁감가 82,000만" 등
-                    r'(?:은행\s*감정가|감정가|탁감가|탁감)\s*[:：]?\s*([\d,]+(?:\s*만원?)?)',  # "감정가 60,000만" 형식 명시적 처리
-                    r'(?:은행\s*감정가|감정가|탁감가|탁감)\s*[:：]?\s*([\d,]+)',  # 숫자만 있는 경우
-                ]
-                for pattern in appraisal_patterns:
-                    match = re.search(pattern, caption, re.IGNORECASE)
-                    if match:
-                        price_text = match.group(1).strip()
-                        price_man = parse_complex_amount(price_text)
-                        if price_man:
-                            info['kb_price'] = f"{price_man:,}"
-                            info['price_type'] = "감정가·탁감가"
-                            kb_price_found = True
-                            print(f"[WEBHOOK] parse_caption_info - 감정가/탁감가 추출: {price_text} -> {price_man}만원", file=sys.stderr, flush=True)
-                            logger.info(f"parse_caption_info - 감정가/탁감가 추출: {price_text} -> {price_man}만원")
-                            break
+            # 하우스머치 중위시세: "하우스머치 40,000만", "하머중위 8400", "하우스머치 중위 8400" 형식
+            hammer_patterns = [
+                r'(?:하우스\s*머치|하머)\s*[:：/]?\s*([\d,\s억천만원]+)',  # 하우스머치 40,000만 (중위 없이)
+                r'(?:하우스\s*머치\s*중위|하머\s*중위|하머중위)\s*[:：/]?\s*([\d,\s억천만원]+)',
+                r'(?:하우스\s*머치\s*중위|하머\s*중위|하머중위)\s*[:：/]?\s*([\d,]+)',
+                # "KBx / 하머중위 8400" 형식에서 하머중위 뒤의 숫자 추출
+                r'(?:kb\s*x|kbx)\s*/\s*(?:하우스\s*머치\s*중위|하머\s*중위|하머중위)\s*([\d,\s억천만원]+)',
+                r'(?:kb\s*x|kbx)\s*/\s*(?:하우스\s*머치\s*중위|하머\s*중위|하머중위)\s*([\d,]+)',
+            ]
+            for pattern in hammer_patterns:
+                match = re.search(pattern, caption, re.IGNORECASE)
+                if match:
+                    price_man = parse_complex_amount(match.group(1).strip())
+                    if price_man:
+                        alt_prices["하우스머치 시세"] = f"{price_man:,}"
+                        break
+            
+            # 감정가/탁감가: "은행감정가 8억", "감정가 80,000만원", "탁감가 82,000만", "탁감 80,000" 형식 처리
+            appraisal_patterns = [
+                r'(?:은행\s*감정가|감정가|탁감가|탁감)\s*[:：]?\s*([\d,\s억천만원]+)',  # "감정가 60,000만", "탁감가 82,000만" 등
+                r'(?:은행\s*감정가|감정가|탁감가|탁감)\s*[:：]?\s*([\d,]+(?:\s*만원?)?)',  # "감정가 60,000만" 형식 명시적 처리
+                r'(?:은행\s*감정가|감정가|탁감가|탁감)\s*[:：]?\s*([\d,]+)',  # 숫자만 있는 경우
+            ]
+            for pattern in appraisal_patterns:
+                match = re.search(pattern, caption, re.IGNORECASE)
+                if match:
+                    price_text = match.group(1).strip()
+                    price_man = parse_complex_amount(price_text)
+                    if price_man:
+                        alt_prices["감정가·탁감가"] = f"{price_man:,}"
+                        print(f"[WEBHOOK] parse_caption_info - 감정가/탁감가 추출: {price_text} -> {price_man}만원", file=sys.stderr, flush=True)
+                        logger.info(f"parse_caption_info - 감정가/탁감가 추출: {price_text} -> {price_man}만원")
+                        break
+            
+            info['alt_prices'] = [
+                (label, alt_prices[label])
+                for label in ("부동산테크 시세", "감정가·탁감가", "하우스머치 시세")
+                if label in alt_prices
+            ]
+            if not kb_price_found and info['alt_prices']:
+                info['price_type'], info['kb_price'] = info['alt_prices'][0]
+                kb_price_found = True
             
             # KB시세 하한 추출 (복합 단위 지원, 줄바꿈 허용)
             kb_low_patterns = [
@@ -1046,8 +1047,8 @@ def get_application(force_new=False):
             skip_kb_api_for_ai_only_caption = (
                 kb_ai_from_caption is not None and not (caption_info.get("kb_price") or "").strip()
             )
-            # 캡션 AI만 있는 경우: pdf_only(스크래핑 전용)에서만 캡션 숫자를 출력·LTV에 사용
-            # banks_2(API 방)는 기존처럼 공식 KB 조회 경로를 유지
+            # 캡션 AI만 있는 경우: pdf_only(스크래핑 전용)는 캡션 숫자를 바로 출력·LTV에 사용
+            # banks_2(API 방)는 캡션 시세와 무관하게 KB API를 먼저 조회하고, KB시세가 없을 때만 캡션 시세 사용
             if pdf_only and skip_kb_api_for_ai_only_caption:
                 kb_ai_price_num = kb_ai_from_caption
                 kb_ai_price_min_num = kb_ai_min_from_caption
@@ -1064,7 +1065,6 @@ def get_application(force_new=False):
                 )
             should_call_kb_api = (
                 address and address != "확인불가" and has_area and not pdf_only
-                and not skip_kb_api_for_ai_only_caption
             )
             
             if should_call_kb_api:
@@ -1106,7 +1106,10 @@ def get_application(force_new=False):
                             )
                         
                         if kb_price_num:
+                            # 캡션에 적힌 KB시세·탁감가 등보다 API 공식 KB시세 우선 (하한도 API 값만 사용)
                             kb_price = f"{int(kb_price_num):,}"
+                            kb_price_low = None
+                            caption_price_type = None
                             print(f"[WEBHOOK] ✅ KB 시세 조회 성공: 일반 {kb_price}만원", file=sys.stderr, flush=True)
                             logger.info(f"KB 시세 조회 성공: 일반 {kb_price}만원")
                         
@@ -1181,6 +1184,11 @@ def get_application(force_new=False):
                     kb_api_failed = True
                     print(f"[WEBHOOK] ❌ KB 시세 조회 중 오류: {str(e)}", file=sys.stderr, flush=True)
                     logger.error(f"KB 시세 조회 중 오류: {str(e)}", exc_info=True)
+            
+            # API에서 KB AI시세를 못 가져왔으면 캡션에 적힌 KB AI시세 사용
+            if (not kb_price or caption_price_type) and not kb_ai_price_num and kb_ai_from_caption is not None:
+                kb_ai_price_num = kb_ai_from_caption
+                kb_ai_price_min_num = kb_ai_min_from_caption
             
             # KB 시세가 없으면 캡션에서 대체 시세 추출 시도 (감정가, 탁감가, 테크시세 등)
             alternative_price_type = caption_price_type  # 캡션에서 탁감가/감정가로 추출된 경우
@@ -1275,7 +1283,23 @@ def get_application(force_new=False):
             # 시세 표시 (KB 시세인지 대체 시세인지, 없음인지에 따라 다르게 표시)
             if alternative_price_type:
                 # 대체 시세 사용 시: "감정가 : 60,000만원" 형식
-                lines.append(f"{alternative_price_type} : {kb_price}만원")
+                # 캡션의 대체 시세와 KB AI시세를 모두 우선순위(부동산테크 > KB AI > 감정가·탁감가 > 한국부동산원 > 하우스머치) 순으로 표시
+                alt_price_map = dict(caption_info.get('alt_prices') or [])
+                alt_price_map.setdefault(alternative_price_type, kb_price)
+                if "부동산테크 시세" in alt_price_map:
+                    lines.append(f"부동산테크 시세 : {alt_price_map.pop('부동산테크 시세')}만원")
+                if kb_ai_price_num:
+                    lines.append(f"KB AI시세 : 일반 {int(kb_ai_price_num):,}만원")
+                    if kb_ai_price_min_num:
+                        lines.append(f"KB AI시세 : 하한 {int(kb_ai_price_min_num):,}만원")
+                for label in ("감정가·탁감가", "한국부동산원 시세", "하우스머치 시세"):
+                    if label in alt_price_map:
+                        lines.append(f"{label} : {alt_price_map.pop(label)}만원")
+                for label, value in alt_price_map.items():
+                    lines.append(f"{label} : {value}만원")
+                if kb_complex_id:
+                    kb_price_url = kb_source_url or f"https://kbland.kr/c/{kb_complex_id}"
+                    lines.append(f"KB단지 참고 : {kb_price_url}")
             elif kb_price:
                 # KB 시세 사용 시: 기존 형식 유지
                 lines.append(f"KB시세 : 일반 {kb_price}만원")
@@ -1685,130 +1709,134 @@ def get_application(force_new=False):
                 missing_required = []
                 missing_optional = []
                 
-                # KB시세가 없으면 KB API 검색 시도 (주소와 면적이 있는 경우)
-                # 대부계산기방(loan): 보낸 메시지 내용만 사용, KB API 호출 안 함
+                # KB 조회방(banks·banks_2): 메시지에 시세가 적혀 있어도 물건지 KB시세를 API로 항상 직접 조회
+                #   - 공식 KB시세가 나오면 그 값(일반·하한)으로 산출, 기재한 KB시세·대체 시세는 사용 안 함
+                #   - 공식 KB시세가 없으면 기재해 준 시세(KB시세·탁감가·KB AI·부동산테크 등)로 산출
+                # 대부계산기방(loan)·PDF방(pdf_only): 보낸 메시지 내용만 사용, KB API 호출 안 함
                 kb_api_searched = False
                 kb_api_failed = False
                 kb_api_no_result = False
                 
-                if not property_data.get("kb_price"):
-                    address = property_data.get("address", "")
-                    area = property_data.get("area")
-                    
-                    # 면적: 문자열 그대로 KB API에 전달 (51㎡/37.85㎡ → API에서 전용 37.85 사용)
-                    has_area = False
-                    if area is not None:
-                        if isinstance(area, str) and area.strip():
-                            has_area = True
-                        else:
-                            try:
-                                has_area = float(area) > 0
-                            except (ValueError, TypeError):
-                                pass
-                    
-                    # 본문에 KB AI시세만 있고 공식 KB시세는 없는 경우: KB API로 kb_price 채우지 않음
-                    # (KB시세 전용 금융사에 자동 조회 KB가 섞이는 것 방지, kb_ai_price만 쓰는 은행만 산출)
-                    # 파서가 kb_ai를 못 넣었어도 전체 메시지에서 KB AI 패턴이 있으면 동일하게 스킵
-                    kb_ai_from_message_text = extract_kb_ai_price_from_special_notes(message_text)
-                    skip_kb_api_auto_fill = (
-                        property_data.get("price_type") == "kb_ai"
-                        and property_data.get("kb_ai_price") is not None
-                    ) or kb_ai_from_message_text is not None
-                    
-                    # 주소와 면적이 있으면 KB API 검색 시도 (면적 문자열 그대로 전달)
-                    # loan 방에서는 보낸 내용만 사용하므로 KB API 호출 생략
-                    if chat_type != "loan" and address and address != "확인불가" and has_area and not skip_kb_api_auto_fill:
-                        kb_api_searched = True
+                address = property_data.get("address", "")
+                area = property_data.get("area")
+                
+                # 면적: 문자열 그대로 KB API에 전달 (51㎡/37.85㎡ → API에서 전용 37.85 사용)
+                has_area = False
+                if area is not None:
+                    if isinstance(area, str) and area.strip():
+                        has_area = True
+                    else:
                         try:
-                            area_for_kb = str(area).strip() if area else "0"
-                            print(f"[WEBHOOK] KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area_for_kb}", file=sys.stderr, flush=True)
-                            logger.info(f"KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area_for_kb}")
-                            
-                            from KB_api.kb_price_api import get_kb_price_from_registry
-                            kb_result = get_kb_price_from_registry(address, area_for_kb, registry_text=message_text)
-                            
-                            if kb_result:
-                                kb_price_num = kb_result.get('kb_price')
-                                if kb_price_num:
-                                    property_data["kb_price"] = kb_price_num
-                                    property_data["kb_price_raw"] = f"KB시세: {int(kb_price_num):,}만원"
-                                    print(f"[WEBHOOK] ✅ KB 시세 조회 성공: {int(kb_price_num):,}만원", file=sys.stderr, flush=True)
-                                    logger.info(f"KB 시세 조회 성공: {int(kb_price_num):,}만원")
-                                kb_ai_from_api = kb_result.get("kb_ai_price")
-                                if kb_ai_from_api and not property_data.get("kb_ai_price"):
-                                    property_data["kb_ai_price"] = kb_ai_from_api
-                                    if not kb_price_num:
-                                        property_data["price_type"] = "kb_ai"
-                                    print(
-                                        f"[WEBHOOK] ✅ KB AI시세 조회 성공: {int(kb_ai_from_api):,}만원",
-                                        file=sys.stderr, flush=True,
-                                    )
-                                    logger.info("KB AI시세 조회 성공: %s만원", f"{int(kb_ai_from_api):,}")
-                                if kb_result.get('approval_date') is not None:
-                                    property_data["approval_date"] = kb_result["approval_date"]
-                                if kb_result.get('years_since_completion') is not None:
-                                    property_data["years_since_completion"] = kb_result["years_since_completion"]
-                                if kb_result.get('households') is not None:
-                                    property_data["household_count"] = kb_result["households"]
-                                if kb_result.get("complex_type") and not property_data.get("property_type"):
-                                    property_data["property_type"] = kb_result["complex_type"]
-                                if not kb_price_num and not kb_ai_from_api:
-                                    kb_api_no_result = True
-                                    print(f"[WEBHOOK] ⚠️ KB 시세 조회 실패 (결과 없음)", file=sys.stderr, flush=True)
-                                    logger.warning("KB 시세 조회 실패 (결과 없음)")
-                            else:
-                                kb_api_no_result = True
-                                print(f"[WEBHOOK] ⚠️ KB 시세 조회 실패 (결과 없음)", file=sys.stderr, flush=True)
-                                logger.warning("KB 시세 조회 실패 (결과 없음)")
-                        except Exception as e:
-                            kb_api_failed = True
-                            print(f"[WEBHOOK] ❌ KB 시세 조회 중 오류: {str(e)}", file=sys.stderr, flush=True)
-                            logger.error(f"KB 시세 조회 중 오류: {str(e)}", exc_info=True)
-                    
-                    # KB API 검색 후에도 KB시세가 없으면 적용 가능한 대체 시세 추출 (탁감가·KB AI·하우스머치·부동산테크·한국부동산원)
-                    if not property_data.get("kb_price"):
-                        special_notes = property_data.get("special_notes", "") or ""
-                        bank_appraisal_price = extract_bank_appraisal_price_from_special_notes(special_notes)
-                        kb_ai_price = property_data.get("kb_ai_price") or extract_kb_ai_price_from_special_notes(
-                            special_notes
-                        ) or extract_kb_ai_price_from_special_notes(message_text)
-                        housematch_price = property_data.get("housematch_price") or extract_housematch_price_from_special_notes(special_notes)
-                        realestatetech_price = extract_realestatetech_price_from_special_notes(special_notes)
-                        korea_realestate_price = extract_korea_realestate_price_from_special_notes(special_notes)
-                        has_alternative_price = any([
-                            bank_appraisal_price is not None,
-                            kb_ai_price is not None,
-                            housematch_price is not None,
-                            realestatetech_price is not None,
-                            korea_realestate_price is not None,
-                        ])
-                        if has_alternative_price:
-                            # 적용 가능한 시세가 하나라도 있으면 한도 산출 진행 (해당 시세를 사용하는 금융사만 결과 나옴)
-                            if kb_ai_price is not None and not property_data.get("kb_ai_price"):
-                                property_data["kb_ai_price"] = kb_ai_price
+                            has_area = float(area) > 0
+                        except (ValueError, TypeError):
+                            pass
+                
+                if chat_type not in ("loan", "pdf_only") and address and address != "확인불가" and has_area:
+                    kb_api_searched = True
+                    try:
+                        area_for_kb = str(area).strip() if area else "0"
+                        print(f"[WEBHOOK] KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area_for_kb}, 기재 시세: {property_data.get('kb_price_raw') or '없음'}", file=sys.stderr, flush=True)
+                        logger.info(f"KB 시세 자동 조회 시작 - 주소: {address}, 면적: {area_for_kb}")
+                        
+                        from KB_api.kb_price_api import get_kb_price_from_registry
+                        kb_result = get_kb_price_from_registry(address, area_for_kb, registry_text=message_text)
+                        
+                        if kb_result:
+                            kb_price_num = kb_result.get('kb_price')
+                            if kb_price_num:
+                                kb_price_min_num = kb_result.get('kb_price_min')
+                                kb_raw = f"KB시세: 일반 {int(kb_price_num):,}만원"
+                                if kb_price_min_num:
+                                    kb_raw += f" 하한 {int(kb_price_min_num):,}만원"
+                                property_data["kb_price"] = kb_price_num
+                                property_data["kb_price_raw"] = kb_raw
+                                property_data["price_type"] = "kb"
+                                for alt_key in ("kb_ai_price", "housematch_price", "realestatetech_price"):
+                                    property_data[alt_key] = None
+                                print(f"[WEBHOOK] ✅ KB 시세 조회 성공 (기재 시세 대신 적용): {kb_raw}", file=sys.stderr, flush=True)
+                                logger.info(f"KB 시세 조회 성공: {kb_raw}")
+                            kb_ai_from_api = kb_result.get("kb_ai_price")
+                            # 기재한 탁감가·감정가는 kb_price 칸에 들어 있지만 공식 KB시세가 아니므로 KB AI보다 후순위
+                            kb_field_raw = str(property_data.get("kb_price_raw") or "")
+                            kb_field_is_appraisal = any(k in kb_field_raw for k in ("탁감", "감정가"))
+                            if kb_ai_from_api and (not property_data.get("kb_price") or kb_field_is_appraisal):
+                                # 공식 KB시세가 없는 단지: 기재한 KB AI시세보다 API 값 우선
+                                kb_ai_min_from_api = kb_result.get("kb_ai_price_min")
+                                ai_raw = f"KB AI시세: 일반 {int(kb_ai_from_api):,}만원"
+                                if kb_ai_min_from_api:
+                                    ai_raw += f" 하한 {int(kb_ai_min_from_api):,}만원"
+                                property_data["kb_ai_price"] = kb_ai_from_api
+                                property_data["kb_ai_price_raw"] = ai_raw
+                                if not property_data.get("kb_price"):
+                                    property_data["kb_price_raw"] = ai_raw
                                 property_data["price_type"] = "kb_ai"
-                            if housematch_price is not None and not property_data.get("housematch_price"):
-                                property_data["housematch_price"] = housematch_price
-                                property_data["price_type"] = "housematch"
-                            price_sources_found = [p for p, v in [
-                                ("감정가·탁감가", bank_appraisal_price),
-                                ("KB AI시세", kb_ai_price),
-                                ("하우스머치", housematch_price),
-                                ("부동산테크", realestatetech_price),
-                                ("한국부동산원", korea_realestate_price),
-                            ] if v is not None]
-                            print(f"[WEBHOOK] 적용 가능 시세로 한도 산출 진행: {', '.join(price_sources_found)}", file=sys.stderr, flush=True)
-                            logger.info(f"handle_message - 적용 가능 시세로 한도 산출 진행: {price_sources_found}")
+                                print(f"[WEBHOOK] ✅ KB AI시세 조회 성공: {ai_raw}", file=sys.stderr, flush=True)
+                                logger.info(f"KB AI시세 조회 성공: {ai_raw}")
+                            if kb_result.get('approval_date') is not None:
+                                property_data["approval_date"] = kb_result["approval_date"]
+                            if kb_result.get('years_since_completion') is not None:
+                                property_data["years_since_completion"] = kb_result["years_since_completion"]
+                            if kb_result.get('households') is not None:
+                                property_data["household_count"] = kb_result["households"]
+                            if kb_result.get("complex_type") and not property_data.get("property_type"):
+                                property_data["property_type"] = kb_result["complex_type"]
+                            if not kb_price_num and not kb_ai_from_api:
+                                kb_api_no_result = True
+                                print(f"[WEBHOOK] ⚠️ KB 시세 조회 실패 (결과 없음) → 기재 시세 사용", file=sys.stderr, flush=True)
+                                logger.warning("KB 시세 조회 실패 (결과 없음)")
                         else:
-                            # KB API 검색을 했는지, 실패했는지, 결과가 없었는지 구분
-                            if kb_api_searched:
-                                if kb_api_failed:
-                                    print(f"[WEBHOOK] KB API 검색 실패 (예외 발생)", file=sys.stderr, flush=True)
-                                    logger.warning("KB API 검색 실패 (예외 발생)")
-                                elif kb_api_no_result:
-                                    print(f"[WEBHOOK] KB API 검색 결과 없음", file=sys.stderr, flush=True)
-                                    logger.warning("KB API 검색 결과 없음")
-                            missing_required.append("KB시세")
+                            kb_api_no_result = True
+                            print(f"[WEBHOOK] ⚠️ KB 시세 조회 실패 (결과 없음) → 기재 시세 사용", file=sys.stderr, flush=True)
+                            logger.warning("KB 시세 조회 실패 (결과 없음)")
+                    except Exception as e:
+                        kb_api_failed = True
+                        print(f"[WEBHOOK] ❌ KB 시세 조회 중 오류: {str(e)}", file=sys.stderr, flush=True)
+                        logger.error(f"KB 시세 조회 중 오류: {str(e)}", exc_info=True)
+                
+                # KB시세(API 조회 또는 기재)가 없으면 적용 가능한 대체 시세 추출 (탁감가·KB AI·하우스머치·부동산테크·한국부동산원)
+                if not property_data.get("kb_price"):
+                    special_notes = property_data.get("special_notes", "") or ""
+                    bank_appraisal_price = extract_bank_appraisal_price_from_special_notes(special_notes)
+                    kb_ai_price = property_data.get("kb_ai_price") or extract_kb_ai_price_from_special_notes(
+                        special_notes
+                    ) or extract_kb_ai_price_from_special_notes(message_text)
+                    housematch_price = property_data.get("housematch_price") or extract_housematch_price_from_special_notes(special_notes)
+                    realestatetech_price = property_data.get("realestatetech_price") or extract_realestatetech_price_from_special_notes(special_notes)
+                    korea_realestate_price = extract_korea_realestate_price_from_special_notes(special_notes)
+                    has_alternative_price = any([
+                        bank_appraisal_price is not None,
+                        kb_ai_price is not None,
+                        housematch_price is not None,
+                        realestatetech_price is not None,
+                        korea_realestate_price is not None,
+                    ])
+                    if has_alternative_price:
+                        # 적용 가능한 시세가 하나라도 있으면 한도 산출 진행 (해당 시세를 사용하는 금융사만 결과 나옴)
+                        if kb_ai_price is not None and not property_data.get("kb_ai_price"):
+                            property_data["kb_ai_price"] = kb_ai_price
+                            property_data["price_type"] = "kb_ai"
+                        if housematch_price is not None and not property_data.get("housematch_price"):
+                            property_data["housematch_price"] = housematch_price
+                            property_data["price_type"] = "housematch"
+                        price_sources_found = [p for p, v in [
+                            ("감정가·탁감가", bank_appraisal_price),
+                            ("KB AI시세", kb_ai_price),
+                            ("하우스머치", housematch_price),
+                            ("부동산테크", realestatetech_price),
+                            ("한국부동산원", korea_realestate_price),
+                        ] if v is not None]
+                        print(f"[WEBHOOK] 적용 가능 시세로 한도 산출 진행: {', '.join(price_sources_found)}", file=sys.stderr, flush=True)
+                        logger.info(f"handle_message - 적용 가능 시세로 한도 산출 진행: {price_sources_found}")
+                    else:
+                        # KB API 검색을 했는지, 실패했는지, 결과가 없었는지 구분
+                        if kb_api_searched:
+                            if kb_api_failed:
+                                print(f"[WEBHOOK] KB API 검색 실패 (예외 발생)", file=sys.stderr, flush=True)
+                                logger.warning("KB API 검색 실패 (예외 발생)")
+                            elif kb_api_no_result:
+                                print(f"[WEBHOOK] KB API 검색 결과 없음", file=sys.stderr, flush=True)
+                                logger.warning("KB API 검색 결과 없음")
+                        missing_required.append("KB시세")
                 if not property_data.get("address") or not property_data.get("region"):
                     missing_required.append("주소(시/구 포함)")
                 
@@ -1939,6 +1967,16 @@ async def application(scope, receive, send):
     # 텔레그램 update 형식 검증
     if not isinstance(payload, dict) or "update_id" not in payload:
         return await _send_json(200, {"ok": True, "skipped": "not telegram update"})
+
+    global _processed_update_ids
+    uid = payload.get("update_id")
+    if uid in _processed_update_ids:
+        print(f"[WEBHOOK] Duplicate update_id {uid}, skipping (Telegram retry)", file=sys.stderr, flush=True)
+        logger.info(f"Duplicate update_id {uid}, skipping")
+        return await _send_json(200, {"ok": True, "skipped": "duplicate update_id"})
+    if len(_processed_update_ids) >= _MAX_CACHED_UPDATE_IDS:
+        _processed_update_ids.clear()
+    _processed_update_ids.add(uid)
 
     try:
         from telegram import Update

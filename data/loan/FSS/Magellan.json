@@ -391,10 +391,11 @@
     ]
   },
   "property_type_conditions": {
-    "아파트": {
+    "_comment": "아파트·주상복합 시세 1억 이상. 키는 영문(한글 물건유형은 자동 매핑)",
+    "apartment": {
       "min_kb_price": 10000
     },
-    "주상복합": {
+    "residential_commercial": {
       "min_kb_price": 10000
     }
   },

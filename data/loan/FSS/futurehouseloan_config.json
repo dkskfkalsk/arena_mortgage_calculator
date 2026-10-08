@@ -283,15 +283,16 @@
     ]
   },
   "property_type_conditions": {
-    "아파트": {
+    "_comment": "아파트·주상복합 200세대·시세 2억 이상, 빌라 시세 2억 이상. 키는 영문(한글 물건유형은 자동 매핑)",
+    "apartment": {
       "min_household_count": 200,
       "min_kb_price": 20000
     },
-    "주상복합": {
+    "residential_commercial": {
       "min_household_count": 200,
       "min_kb_price": 20000
     },
-    "빌라": {
+    "villa": {
       "min_kb_price": 20000
     }
   }

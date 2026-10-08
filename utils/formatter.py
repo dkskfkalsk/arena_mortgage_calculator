@@ -553,27 +553,42 @@ def format_all_results(
             or (kb_price_raw and ("KB AI" in str(kb_price_raw) or "kbaise" in str(kb_price_raw).lower().replace(" ", "")))
         )
         
-        # kb_price_raw에 KB AI시세 키워드가 있는지 확인
-        if is_kb_ai_applied:
-            if kb_price:
-                price_str = f"{int(kb_price):,}"
-                appraisal_price_info = f"KB AI시세 일반 {price_str}만원 적용"
+        # 사용자 최초 입력 기준 (금융사 계산 중 kb_price에 대체 시세가 써 넣어졌을 수 있음)
+        snapshot = property_data.get("_price_input_snapshot")
+        input_kb = snapshot.get("kb_price") if snapshot is not None else kb_price
+        input_raw = str((snapshot.get("kb_price_raw") if snapshot is not None else kb_price_raw) or "")
+        input_is_appraisal = any(k in input_raw for k in ("탁감", "감정가"))
+        has_real_kb = bool(input_kb) and not input_is_appraisal
+
+        def _price_text(value, fallback_raw=""):
+            if isinstance(value, (int, float)):
+                return f"{int(value):,}"
+            match = re.search(r'([\d,]+)', str(value or fallback_raw or ""))
+            return match.group(1) if match else None
+
+        if not has_real_kb:
+            # 공식 KB시세가 없으면 대체 시세를 우선순위(부동산테크 > KB AI > 감정가·탁감가) 순으로 표시
+            alt_parts = []
+            if property_data.get("realestatetech_price") is not None:
+                alt_parts.append(f"부동산테크 시세 {int(float(property_data['realestatetech_price'])):,}만원")
+            if is_kb_ai_applied:
+                ai_str = _price_text(property_data.get("kb_ai_price"), input_raw)
+                if ai_str:
+                    alt_parts.append(f"KB AI시세 일반 {ai_str}만원")
+            appraisal_str = None
+            if input_is_appraisal:
+                appraisal_str = _price_text(input_kb, input_raw)
             else:
-                ai_src = property_data.get("kb_ai_price") or kb_price_raw
-                price_match = re.search(r'([\d,]+)', str(ai_src or ""))
-                if price_match:
-                    price_str = price_match.group(1)
-                    appraisal_price_info = f"KB AI시세 일반 {price_str}만원 적용"
-        # kb_price_raw에 탁감가 또는 감정가 키워드가 있는지 확인 (동일 취급)
-        elif kb_price_raw and ("탁감가" in str(kb_price_raw) or "감정가" in str(kb_price_raw)):
-            if kb_price:
-                price_str = f"{int(kb_price):,}"
-                appraisal_price_info = f"감정가·탁감가 {price_str}만원 적용"
-            else:
-                price_match = re.search(r'([\d,]+)', str(kb_price_raw))
-                if price_match:
-                    price_str = price_match.group(1)
-                    appraisal_price_info = f"감정가·탁감가 {price_str}만원 적용"
+                from utils.validators import extract_bank_appraisal_price_from_special_notes
+                appraisal_in_notes = extract_bank_appraisal_price_from_special_notes(
+                    property_data.get("special_notes") or ""
+                )
+                if appraisal_in_notes is not None:
+                    appraisal_str = f"{int(appraisal_in_notes):,}"
+            if appraisal_str:
+                alt_parts.append(f"감정가·탁감가 {appraisal_str}만원")
+            if alt_parts:
+                appraisal_price_info = f"{' / '.join(alt_parts)} 적용"
         # KB시세 (일반/하한) 적용 정보
         elif kb_price_num is not None and kb_price_raw:
             raw_str = str(kb_price_raw)

@@ -96,7 +96,8 @@ class MessageParser:
             "kb_price": None,
             "kb_ai_price": None,  # KB AI시세 (별도 저장, 금융사별 price_sources에서 처리)
             "housematch_price": None,  # 하우스머치 시세 (별도 저장, 금융사별 price_sources에서 처리)
-            "price_type": None,  # 시세 유형: "housematch" | "kb" | "kb_ai" | "탁감가" 등
+            "realestatetech_price": None,  # 부동산테크 시세 (별도 저장, 금융사별 price_sources에서 처리)
+            "price_type": None,  # 시세 유형: "housematch" | "kb" | "kb_ai" | "realestatetech" | "탁감가" 등
             "mortgages": [],
             "special_notes": None,
             "requests": None,
@@ -199,6 +200,8 @@ class MessageParser:
                                     "http" in next_line.lower() or "kbland" in next_line.lower()
                                 ):
                                     break
+                                if self._is_other_key_value_line(next_line):
+                                    break
                                 # 다음 줄이 숫자로 시작하거나 "하한", "상한" 같은 키워드가 있으면 추가
                                 if next_line and (any(keyword in next_line for keyword in ["하한", "상한", "일반"]) or re.search(r'[\d,]+', next_line)):
                                     value += " " + next_line
@@ -257,6 +260,8 @@ class MessageParser:
                     for j in range(1, 3):  # 다음 1-2줄 확인
                         if i + j < len(lines):
                             next_line = lines[i + j].strip()
+                            if self._is_other_key_value_line(next_line):
+                                break
                             if next_line and (any(keyword in next_line for keyword in ["하한", "상한", "일반"]) or re.search(r'[\d,]+', next_line)):
                                 kb_value += " " + next_line
                                 if j == 1:
@@ -790,6 +795,16 @@ class MessageParser:
         
         return data
     
+    @staticmethod
+    def _is_other_key_value_line(line: str) -> bool:
+        """KB시세 다음 줄이 하한·상한이 아닌 별도 항목(감정가·부동산테크·세대수 등)의 '키 : 값' 줄인지"""
+        if not line or ":" not in line:
+            return False
+        key = line.split(":", 1)[0].replace(" ", "").lower()
+        if not key:
+            return False
+        return "kb" not in key and not any(k in key for k in ("하한", "상한", "일반"))
+
     def _parse_key_value(self, line: str) -> tuple:
         """키:값 형식 파싱"""
         if ":" not in line:
@@ -900,6 +915,14 @@ class MessageParser:
                 data["housematch_price"] = validated
                 data["price_type"] = "housematch"
                 print(f"DEBUG: Parsed 하우스머치 시세 - value: {value}, validated: {validated}")
+        
+        elif "부동산테크" in key_clean:
+            # 부동산테크 시세 - 별도 저장 (kb_price에 넣지 않음, 금융사별 price_sources.realestatetech_price에서 처리)
+            validated = validate_kb_price(value)
+            if validated is not None:
+                data["realestatetech_price"] = validated
+                data["price_type"] = "realestatetech"
+                print(f"DEBUG: Parsed 부동산테크 시세 - value: {value}, validated: {validated}")
         
         elif "kbai" in key_clean or ("kb" in key_clean and "ai" in key_clean and "시세" in key_clean):
             # KB AI시세 - 별도 저장 (금융사별 price_sources.kb_ai_price에서 처리)
@@ -1074,6 +1097,8 @@ class MessageParser:
                             if next_line.lower().startswith("http") or "kbland.kr" in next_line.lower():
                                 break
                             if "참고" in next_line and ("http" in next_line.lower() or "kbland" in next_line.lower()):
+                                break
+                            if self._is_other_key_value_line(next_line):
                                 break
                             # 하한, 상한, 일반 키워드가 있거나 숫자가 있으면 추가
                             if any(kw in next_line for kw in ['하한', '상한', '일반']) or re.search(r'[\d,]+', next_line):
