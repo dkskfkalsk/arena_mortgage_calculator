@@ -26,6 +26,8 @@
     "_comment": "무직 최대한도 3천만원. 대환원금이 3천 초과(예: 5천 대환)면 대환 미산출"
   },
   "min_kb_price": 0,
+  "max_age": 69,
+  "_comment_max_age": "차주 만69세까지. 70세부터 취급 불가",
   "hide_credit_grade": true,
   "show_region_grade": false,
   "show_interest_rate_range": true,
@@ -77,7 +79,8 @@
     "대출금리 17~18%",
     "중도상환 수수료 2~3%",
     "근저당 3순위까지 설정 가능",
-    "무직 최대한도 3천만원 (대환원금 3천 초과 시 대환 불가)"
+    "무직 최대한도 3천만원 (대환원금 3천 초과 시 대환 불가)",
+    "만69세까지"
   ],
   "_comment_hide_conditions": "한도 회신 시 conditions 노출 생략 (내용은 유지)",
   "hide_conditions": true
