@@ -2922,6 +2922,21 @@ class BaseCalculator:
                         if rates_by_group:
                             result["business_type"] = "startup" if self._is_startup_business else "regular"
                         results.append(result)
+
+        # 신용점수 없음 전용 분기(애큐온캐피탈, IM SOHO주택론, JB하이론, 한국투자저축)는
+        # 가용이 최소진행 미만이어도 limit_not_calculated 행을 남긴다.
+        # 전부 미산출이면 일반 금융사처럼 목록을 비워 최소진행금액 부족·근저당 LTV 초과 사유가 나오게 한다.
+        # 부족자금 요청은 미산출 행을 유지한다.
+        if (
+            results
+            and not allow_negative_available
+            and all(r.get("limit_not_calculated") for r in results)
+        ):
+            print(
+                f"DEBUG: BaseCalculator.calculate - {self.bank_name}: "
+                f"한도 미산출만 {len(results)}건, 사유 안내를 위해 결과 비움"
+            )
+            results = []
         
         # 결과가 없으면 에러 메시지와 함께 반환 (가용 한도 부족 등)
         if not results:
