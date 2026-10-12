@@ -770,7 +770,7 @@
     "_comment": "시세 소스 사용 여부 설정 (1: 사용, 0: 사용안함). 우선순위: kb_price > kb_ai_price > bank_appraisal_price > realestatetech_price > korea_realestate_price > housematch_price",
     "kb_price": 1,
     "_comment_kb_price": "KB시세",
-    "kb_ai_price": 1,
+    "kb_ai_price": 0,
     "_comment_kb_ai_price": "KB AI시세",
     "bank_appraisal_price": 1,
     "_comment_bank_appraisal_price": "탁감가 (은행감정가)",
