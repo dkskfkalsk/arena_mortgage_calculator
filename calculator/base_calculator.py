@@ -3179,7 +3179,7 @@ class BaseCalculator:
 
         share_label = getattr(self, "_ownership_share_label", "") or ""
         if results and share_label:
-            conditions.append(f"지분 {share_label} 적용")
+            conditions.append(f"지분한도 산출 ({share_label})")
         if results and getattr(self, "_ownership_share_skipped", False):
             conditions.append("차주가 아닌 공유자 명의 선순위는 차감하지 않음")
 

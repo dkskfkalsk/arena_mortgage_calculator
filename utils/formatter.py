@@ -430,8 +430,17 @@ def _format_result_with_label(
             extra_conditions.append("3억 초과 자택사업장 불가 (사업장 소재지의 경우 접수시점엔 자택사업장도 가능. 자서시에는 변경)")
 
     merged_conditions = [*conditions, *extra_conditions]
-    if merged_conditions and has_actual_limit and not bank_result.get("hide_conditions", False):
-        for condition in merged_conditions[:6]:  # 최대 6개만 표시
+    # 지분한도 안내는 상품 조건 6줄 제한과 별도로 항상 남긴다.
+    share_notes = [
+        c for c in merged_conditions
+        if c.startswith("지분한도 산출") or c.startswith("차주가 아닌 공유자")
+    ]
+    regular_conditions = [c for c in merged_conditions if c not in share_notes]
+    if regular_conditions and has_actual_limit and not bank_result.get("hide_conditions", False):
+        for condition in regular_conditions[:6]:  # 최대 6개만 표시
+            lines.append(f"- {condition}")
+    if share_notes and has_actual_limit:
+        for condition in share_notes:
             lines.append(f"- {condition}")
     
     return "\n".join(lines)
