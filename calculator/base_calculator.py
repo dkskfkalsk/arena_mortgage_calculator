@@ -3834,6 +3834,20 @@ class BaseCalculator:
                 print(f"DEBUG: BaseCalculator.calculate - Region {region} is not in target regions: {target_regions}")
                 region_errors.append("취급 대상 지역이 아닙니다")
 
+        # 전국권 상품 중 시 단위 이상만 취급하는 경우 군 소재지를 제외한다.
+        # 예: 충청남도 공주시·천안시서북구는 허용, 충청남도 청양군은 제외.
+        minimum_administrative_level = self.config.get("minimum_administrative_level")
+        if minimum_administrative_level == "city" and re.search(r"군$", region_clean):
+            message = self.config.get(
+                "minimum_administrative_level_error_message",
+                "시단위 이상의 행정구역 소재지만 취급 가능합니다",
+            )
+            print(
+                f"DEBUG: BaseCalculator.calculate - Region {region} is county-level, "
+                f"minimum administrative level is city"
+            )
+            region_errors.append(message)
+
         grade = self.get_region_grade(region)
         print(f"DEBUG: BaseCalculator.calculate - region: {region}, grade: {grade}")
         if grade is None:

@@ -111,6 +111,9 @@
     "대구",
     "세종"
   ],
+  "minimum_administrative_level": "city",
+  "_comment_minimum_administrative_level": "전국 시단위 이상의 행정구역 소재지만 취급. 군 소재지는 취급 불가",
+  "minimum_administrative_level_error_message": "전국 시단위 이상의 행정구역 소재지만 취급 가능합니다",
   "region_grade_prefix_rules": [
     {
       "starts_with": "서울특별시",
