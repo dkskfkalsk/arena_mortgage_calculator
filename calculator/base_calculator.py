@@ -784,6 +784,7 @@ class BaseCalculator:
         self._applied_price_source = None
         self._household_ltv_reduction_meta = None
         self._property_type_ltv_reduction_meta = None
+        self._area_ltv_cap_message = None
         
         # config에 product_type이 있으면 product_type 파라미터가 없을 때 사용 (팀엑스대부 등)
         if product_type is None:
@@ -1096,6 +1097,19 @@ class BaseCalculator:
         if region_errors:
             return self._error_result(region_errors)
 
+        # 감정가·탁감가 급지 제한 (bank_appraisal_max_grade: 이음론 1~3급지만)
+        appraisal_max_grade = self.config.get("bank_appraisal_max_grade")
+        if applied_price_source == "bank_appraisal" and appraisal_max_grade is not None:
+            try:
+                grade_int = int(grade)
+            except (TypeError, ValueError):
+                grade_int = None
+            if grade_int is None or grade_int > int(appraisal_max_grade):
+                log_print(f"DEBUG: BaseCalculator.calculate - 감정가 {grade}급지 > bank_appraisal_max_grade {appraisal_max_grade}, 취급 불가")
+                return self._error_result(
+                    [f"감정가·탁감가는 1~{appraisal_max_grade}급지만 취급 가능합니다 (현재: {grade}급지)"]
+                )
+
         eup_error = self._eupmyeon_restriction_error(property_data.get("address", ""))
         if eup_error:
             return self._error_result([eup_error])
@@ -1216,6 +1230,19 @@ class BaseCalculator:
         
         # 금융사별 validation_rules 체크 (설정 파일에서 정의된 제한 조건)
         self._validate_validation_rules(property_data, validation_errors)
+
+        # 소유권 이전 후 경과개월 제한 (소유권이전일이 없으면 검사하지 않고 산출)
+        min_transfer_months = self.config.get("min_months_since_ownership_transfer")
+        transfer_date_str = str(property_data.get("ownership_transfer_date") or "").strip()
+        if min_transfer_months and transfer_date_str:
+            transfer_date = self._parse_mortgage_date(transfer_date_str)
+            if transfer_date is not None:
+                elapsed = self._months_since(transfer_date)
+                if elapsed < int(min_transfer_months):
+                    log_print(f"DEBUG: BaseCalculator.calculate - 소유권이전 {transfer_date_str} 경과 {elapsed}개월 < {min_transfer_months}개월, 취급 불가")
+                    validation_errors.append(
+                        f"소유권 이전 {min_transfer_months}개월 경과 후 취급 가능합니다 (소유권이전일: {transfer_date_str}, 경과 {elapsed}개월)"
+                    )
 
         # 개인설정 후순위 취급 불가 (금융사별 — allow_physical_collateral_subordinate 시 물상담보 제외)
         if self._is_blocked_by_personal_mortgage(property_data):
@@ -1521,6 +1548,14 @@ class BaseCalculator:
                 if max_ltv is not None and max_ltv > cap_ltv:
                     max_ltv = cap_ltv
                     print(f"DEBUG: BaseCalculator.calculate - 면적 {area}㎡ > {area_limit_config.get('max_area')}㎡, max_ltv 제한: {max_ltv}%")
+                    exceeded_message = area_limit_config.get("exceeded_message")
+                    if exceeded_message:
+                        area_text = f"{area:.2f}".rstrip("0").rstrip(".")
+                        self._area_ltv_cap_message = exceeded_message.format(
+                            area=area_text,
+                            max_area=area_limit_config.get("max_area"),
+                            ltv=cap_ltv,
+                        )
         
         # 기존 근저당권 총액: 대환 제외·후순위 공통으로 선순위 채권최고액 합. 대환 상환액은 refinance_principal(원금)로 별도 차감.
         mortgages = property_data.get("mortgages", [])
@@ -1908,6 +1943,9 @@ class BaseCalculator:
             else:
                 # 선순위인 경우: max_ltv_primary 확인
                 max_ltv_primary = self.config.get("max_ltv_primary")
+                max_ltv_primary_by_grade = self.config.get("max_ltv_primary_by_grade") or {}
+                if grade is not None and str(grade) in max_ltv_primary_by_grade:
+                    max_ltv_primary = max_ltv_primary_by_grade[str(grade)]
                 if max_ltv_primary is not None:
                     # 선순위인 경우: max_ltv_primary와 급지별 제한 중 작은 값 사용
                     if max_ltv is not None:
@@ -2117,7 +2155,7 @@ class BaseCalculator:
                 f"max_ltv={max_ltv}%, gm_steps={self._gm_ltv_steps_override}"
             )
         
-        # 선순위일 때 max_amount_limit_primary 적용 (디에스론: 선순위 5억, 후순위 3억)
+        # 선순위일 때 max_amount_limit_primary 적용
         max_amount_limit_primary = self.config.get("max_amount_limit_primary")
         if max_amount_limit_primary is not None and not self._is_subordinate:
             max_amount_limit = max_amount_limit_primary
@@ -2150,7 +2188,7 @@ class BaseCalculator:
                 f"DEBUG: BaseCalculator.calculate - 직업 최대한도 적용: {max_amount_limit}만원"
             )
         
-        # min_amount_by_grade: 급지별 최소진행금액 (디에스론: 4~5급지 3천만원)
+        # min_amount_by_grade: 급지별 최소진행금액 (이음론: 4~5급지 3천만원)
         effective_min_amount = self.config.get("min_amount")
         min_amount_by_grade = self.config.get("min_amount_by_grade", {})
         if min_amount_by_grade and grade is not None:
@@ -2403,7 +2441,7 @@ class BaseCalculator:
             # fallback인 경우 results 초기화 (필요자금 기준 결과는 무시)
             if fallback_to_ltv_steps:
                 results = []
-            # max_limit_only: 최대 한도만 산출 (DSFNC, 퓨처하우스 제외 data/loan 상품)
+            # max_limit_only: 최대 한도만 산출 (이음에셋대부, 퓨처하우스 제외 data/loan 상품)
             if self.config.get("max_limit_only"):
                 ltv_steps = [int(max_ltv)] if max_ltv is not None and max_ltv > 0 else []
                 print(f"DEBUG: BaseCalculator.calculate - max_limit_only: ltv_steps={ltv_steps}")
@@ -2859,7 +2897,7 @@ class BaseCalculator:
                                 print(f"DEBUG: LTV {ltv} - available_amount <= 0, but allowing due to '부족자금' request")  # 추가
                         
                         # 금리 조회 (82% LTV의 경우 region_grade에 따라 다른 금리 적용)
-                        # hide_credit_grade: 신용등급 무시하고 급지별 단일금리 (디에스론 3급지 80% 등)
+                        # hide_credit_grade: 신용등급 무시하고 급지별 단일금리 (이음론 3급지 80% 등)
                         credit_grade_for_rate = None if self.config.get("hide_credit_grade") else credit_grade
                         rates_by_group = self.config.get("interest_rates_by_region_group_priority_business", {})
                         rate_info = self.get_interest_rate(credit_score, credit_grade_for_rate, ltv, grade)
@@ -3201,6 +3239,10 @@ class BaseCalculator:
         if results and pt_meta.get("applied") and pt_meta.get("message"):
             if pt_meta["message"] not in conditions:
                 conditions.append(pt_meta["message"])
+
+        area_cap_message = getattr(self, "_area_ltv_cap_message", None)
+        if results and area_cap_message and area_cap_message not in conditions:
+            conditions.append(area_cap_message)
 
         share_label = getattr(self, "_ownership_share_label", "") or ""
         if results and share_label:
@@ -3550,7 +3592,7 @@ class BaseCalculator:
                 validation_errors.append(error_msg)
                 return  # 제한 키워드 발견 시 복합 규칙 체크 스킵
         
-        # 3. 근저당 기관명 제한 (DSFNC 등: 가압류·압류 선순위는 취급 불가)
+        # 3. 근저당 기관명 제한 (이음에셋대부 등: 가압류·압류 선순위는 취급 불가)
         mortgage_institution_restricted = validation_rules.get("mortgage_institution_restricted", {})
         if mortgage_institution_restricted:
             keywords = mortgage_institution_restricted.get("keywords", [])
@@ -5780,7 +5822,7 @@ class BaseCalculator:
             else:
                 print(f"DEBUG: get_interest_rate - grade_key {grade_key} not found in grade_rates")  # 추가
         
-        # 신용점수 없을 때: hide_credit_grade + region_grade 있으면 급지별 단일금리 반환 (DSFNC: 2급지 70%→8.4%, 5급지 70%→10.9%)
+        # 신용점수 없을 때: hide_credit_grade + region_grade 있으면 급지별 단일금리 반환 (이음론: 2급지 70%→9.9%, 5급지 70%→10.9%)
         hide_credit_grade = self.config.get("hide_credit_grade", False)
         if hide_credit_grade and region_grade is not None and credit_grade is None:
             grade_key = str(region_grade)
@@ -5796,7 +5838,7 @@ class BaseCalculator:
                     }
         
         # 신용점수/등급이 없으면 최저~최고 금리 범위 반환
-        # 0은 취급 불가(해당 없음)를 의미하므로 제외 (DSFNC 등 단일금리 상품에서 0.00%~10.90% 방지)
+        # 0은 취급 불가(해당 없음)를 의미하므로 제외 (이음에셋대부 등 단일금리 상품에서 0.00%~10.90% 방지)
         all_rates = [v for v in grade_rates.values() if isinstance(v, (int, float)) and v > 0]
         if not all_rates:
             all_rates = [v for v in grade_rates.values() if isinstance(v, (int, float))]
@@ -5984,28 +6026,34 @@ class BaseCalculator:
         if self.config.get("personal_mortgage_subordinate_allowed"):
             return False
         allow_physical = self.config.get("allow_physical_collateral_subordinate", False)
-        return self._has_personal_mortgage(property_data, allow_physical_collateral=allow_physical)
+        allow_refinance = self.config.get("personal_mortgage_refinance_allowed", False)
+        return self._has_personal_mortgage(
+            property_data,
+            allow_physical_collateral=allow_physical,
+            allow_refinance=allow_refinance,
+        )
 
     @staticmethod
     def _has_personal_mortgage(
         property_data: Dict[str, Any],
         allow_physical_collateral: bool = False,
+        allow_refinance: bool = False,
     ) -> bool:
         """
         근저당권 설정 중 개인설정이 있으면 True.
         - 특이사항에 '개인설정' 문구가 있거나
         - 설정내역 중 기관명이 금융기관이 아닌 경우(개인명으로 판단)
         - allow_physical_collateral=True: 근저당권자명에 물상/물상담보 포함 시 개인설정으로 보지 않음
+        - allow_refinance=True: 대환 대상 개인설정은 제외 (특이사항 '개인설정' 문구도 대환 대상 개인설정이 있으면 무시)
         """
         if not property_data:
             return False
-        special_notes = (property_data.get("special_notes") or "").strip()
-        if "개인설정" in special_notes:
-            return True
         # 기관명이 금융기관이 아닌 순위가 하나라도 있으면 개인설정
         # 가압류·압류 등은 법적 담보 표시로 개인설정(개인명 근저당)과 구분 → 후순위/대환 산출 허용
         exclude_keywords = ("신탁", "물상담보", "물상", "전세입자", "전세권", "세입자", "월세입자", "가압류", "압류")
         physical_collateral_keywords = ("물상담보", "물상")
+        has_remaining_personal = False
+        has_refinanced_personal = False
         for m in property_data.get("mortgages") or []:
             institution = (m.get("institution") or "").strip()
             if not institution:
@@ -6017,8 +6065,14 @@ class BaseCalculator:
                 continue
             if allow_physical_collateral and any(kw in institution for kw in physical_collateral_keywords):
                 continue
+            if allow_refinance and m.get("is_refinance"):
+                has_refinanced_personal = True
+                continue
+            has_remaining_personal = True
+        special_notes = (property_data.get("special_notes") or "").strip()
+        if "개인설정" in special_notes and not has_refinanced_personal:
             return True
-        return False
+        return has_remaining_personal
     
     @classmethod
     def _ensure_price_input_snapshot(cls, property_data: Optional[Dict[str, Any]]) -> None:
@@ -6076,8 +6130,8 @@ class BaseCalculator:
         cls._ensure_price_input_snapshot(property_data)
         results = cls._run_calculators(calculators, property_data)
         
-        # DSFNC: 하이론 한도가 디에스론보다 클 때만 둘 다 표시, 아니면 디에스론만
-        results = cls._filter_dsfnc_results(results)
+        # 이음에셋대부: 이음-하이론 한도가 이음론보다 클 때만 둘 다 표시, 아니면 이음론만
+        results = cls._filter_eum_hiroon_results(results)
         
         return results
     
@@ -6131,10 +6185,11 @@ class BaseCalculator:
         return False
 
     @classmethod
-    def _filter_dsfnc_results(cls, results: list) -> list:
-        """DSFNC 디에스론/디에스-하이론: 하이론 한도 > 디에스론 한도일 때만 둘 다 표시, 아니면 디에스론만"""
-        dsfnc_desron = next((r for r in results if r.get("bank_name") in ("DSFNC 디에스론", "디에스론")), None)
-        dsfnc_hiroon = next((r for r in results if r.get("bank_name") in ("DSFNC 하이론", "하이론", "디에스-하이론")), None)
+    def _filter_eum_hiroon_results(cls, results: list) -> list:
+        """이음에셋대부 이음론/이음-하이론: 하이론 한도 > 이음론 한도일 때만 둘 다 표시, 아니면 이음론만"""
+        hiroon_names = ("이음에셋대부 이음-하이론", "이음-하이론")
+        dsfnc_desron = next((r for r in results if r.get("bank_name") in ("이음에셋대부 이음론", "이음론")), None)
+        dsfnc_hiroon = next((r for r in results if r.get("bank_name") in hiroon_names), None)
         if not dsfnc_desron or not dsfnc_hiroon:
             return results
         
@@ -6150,10 +6205,10 @@ class BaseCalculator:
         max_hiroon = _get_max_amount(dsfnc_hiroon)
         
         if max_desron >= max_hiroon:
-            results = [r for r in results if r.get("bank_name") not in ("DSFNC 하이론", "하이론", "디에스-하이론")]
-            print(f"DEBUG: BaseCalculator - DSFNC 디에스론 한도({max_desron}만) >= 하이론({max_hiroon}만), 하이론 제외")
+            results = [r for r in results if r.get("bank_name") not in hiroon_names]
+            print(f"DEBUG: BaseCalculator - 이음론 한도({max_desron}만) >= 이음-하이론({max_hiroon}만), 하이론 제외")
         else:
-            print(f"DEBUG: BaseCalculator - DSFNC 하이론 한도({max_hiroon}만) > 디에스론({max_desron}만), 둘 다 표시")
+            print(f"DEBUG: BaseCalculator - 이음-하이론 한도({max_hiroon}만) > 이음론({max_desron}만), 둘 다 표시")
         return results
     
     @classmethod
@@ -6195,7 +6250,7 @@ class BaseCalculator:
                         if raw_config.get("enabled", True) is False:
                             print(f"⏭️ {subfolder}/{filename} 한도 산출 비활성화 (enabled: false)")
                             continue
-                        # products 배열이 있으면 다중 상품 (DSFNC 등)
+                        # products 배열이 있으면 다중 상품 (이음에셋대부 등)
                         products = raw_config.get("products", [])
                         if products:
                             base_name = raw_config.get("bank_name", "Unknown")
@@ -6222,8 +6277,8 @@ class BaseCalculator:
         cls._ensure_price_input_snapshot(property_data)
         results = cls._run_calculators(calculators, property_data)
         
-        # DSFNC: 하이론 한도가 디에스론보다 클 때만 둘 다 표시, 아니면 디에스론만
-        results = cls._filter_dsfnc_results(results)
+        # 이음에셋대부: 이음-하이론 한도가 이음론보다 클 때만 둘 다 표시, 아니면 이음론만
+        results = cls._filter_eum_hiroon_results(results)
         
         return results
 

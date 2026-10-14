@@ -923,6 +923,10 @@ def get_application(force_new=False):
                 lines.append(f"신용점수 : {caption_info['credit_score']}")
                 lines.append(f"거주여부 : {caption_info['residence']}")
                 lines.append(f"소유현황 : ")
+
+            ownership_transfer_date = (getattr(result, "소유권이전일", "") or "").strip()
+            if ownership_transfer_date:
+                lines.append(f"소유권이전일 : {ownership_transfer_date}")
             
             # 주소 (층수 포함)
             address = result.부동산_주소 or "확인불가"

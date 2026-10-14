@@ -887,6 +887,9 @@ class MessageParser:
         elif "거주여부" in key_clean or ("거주" in key_clean and "비거주" not in key_clean):
             data["residence"] = value
         
+        elif "소유권이전" in key_clean:
+            data["ownership_transfer_date"] = value
+
         elif "소유현황" in key_clean or "소유권" in key_clean:
             data["ownership"] = value
         

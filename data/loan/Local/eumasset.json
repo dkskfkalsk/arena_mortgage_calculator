@@ -1,7 +1,7 @@
 {
-  "_comment": "DSFNC 대부사(로진자산) - 디에스론, 하이론 2개 상품. products 배열의 각 상품별로 계산 수행",
-  "bank_name": "DSFNC",
-  "enabled": false,
+  "_comment": "이음에셋대부 - 이음론, 이음-하이론 2개 상품 (사업자). products 배열의 각 상품별로 계산 수행",
+  "bank_name": "이음에셋대부",
+  "enabled": true,
   "_comment_enabled": "한도 산출 on/off. false면 calculate_all_loans에서 이 금융사 제외",
   "use_principal_for_calculation": false,
   "_comment_use_principal_for_calculation": "기존 근저당 차감 기준. true=원금(amount) 합, false=채권최고액(max_amount) 합·없으면 원금×1.2",
@@ -9,21 +9,23 @@
   "_comment_fractional_share_request_enabled": "요청에 지분조건 있을 때 이 금융사만 최대 LTV 50%·최소 1000만 적용",
   "refinance_all_requested": true,
   "show_product_name_only": true,
-  "_comment_show_product_name_only": "상품명만 표시 (디에스론, 디에스-하이론)",
+  "_comment_show_product_name_only": "상품명만 표시 (이음론, 이음-하이론)",
   "products": [
     {
-      "product_name": "디에스론",
+      "product_name": "이음론",
       "target_regions": [
         "서울",
         "경기",
         "인천",
         "부산",
         "광주",
+        "전남광주통합특별시",
         "대전",
         "울산",
         "대구",
         "세종"
       ],
+      "_comment_target_regions": "전남광주통합특별시: 광주 5개 구만 5급지, 나머지(구 전남)는 9급지",
       "product_type": "business",
       "region_grades": {
         "서울특별시종로구": 1,
@@ -67,22 +69,22 @@
         "경기도부천시오정구": 2,
         "경기도부천시원미구": 2,
         "경기도구리시": 2,
-        "경기도용인시처인구": 2,
-        "경기도용인시기흥구": 2,
+        "경기도용인시처인구": 3,
+        "경기도용인시기흥구": 3,
         "경기도용인시수지구": 2,
         "인천광역시연수구": 3,
         "인천광역시부평구": 3,
         "인천광역시계양구": 3,
-        "경기도고양시덕양구": 3,
-        "경기도고양시일산동구": 3,
-        "경기도고양시일산서구": 3,
+        "경기도고양시덕양구": 4,
+        "경기도고양시일산동구": 4,
+        "경기도고양시일산서구": 4,
         "경기도의정부시": 3,
         "경기도안산시상록구": 3,
         "경기도안산시단원구": 3,
         "경기도남양주시": 3,
         "경기도군포시": 3,
         "경기도의왕시": 3,
-        "경기도김포시": 3,
+        "경기도김포시": 4,
         "경기도화성시": 3,
         "경기도화성시동탄구": 3,
         "경기도화성시만세구": 3,
@@ -90,7 +92,7 @@
         "경기도화성시병점구": 3,
         "경기도시흥시": 3,
         "경기도오산시": 3,
-        "경기도파주시": 3,
+        "경기도파주시": 4,
         "인천광역시중구": 4,
         "인천광역시동구": 4,
         "인천광역시남동구": 4,
@@ -321,6 +323,7 @@
         "인천광역시제물포구송림동": 4,
         "인천광역시제물포구금곡동": 4
       },
+      "_comment_region_grades": "1급지 서울(노원·도봉·강북 제외)·과천·광명·성남분당 / 2급지 노원·도봉·강북·구리·부천·성남(수정·중원)·수원·안양·용인수지·하남 / 3급지 인천(부평·연수·계양)·군포·남양주·시흥·안산·용인(기흥·처인)·의왕·의정부·오산·화성 / 4급지 인천 나머지·고양·광주·김포·동두천·안성·양주·여주·이천·파주·포천·평택 / 5급지 세종·광역시(부산·대구·광주·대전·울산, 군 포함)",
       "max_ltv_by_grade": {
         "1": 85,
         "2": 83,
@@ -329,143 +332,82 @@
         "5": 70,
         "9": 0
       },
-      "_comment_max_ltv": "1급지 85%(10.9%)/70%(8.4%), 2~4급지 83/80/75%(10.9%)/70%(8.4%), 5급지 70%(10.9%). 1~4급지 70% 이하 8.4% 고정",
-      "ltv_steps": [
+      "_comment_max_ltv": "후순위 최대 LTV(10.9%) 1급지 85 / 2급지 83 / 3급지 80 / 4급지 75 / 5급지 70",
+      "max_ltv_primary": 60,
+      "max_ltv_primary_by_grade": {
+        "5": 50
+      },
+      "_comment_max_ltv_primary": "선순위(전액 대환 포함) 9.9% — 1~4급지 60%, 5급지 50%",
+      "ltv_steps_primary": [
+        60
+      ],
+      "ltv_steps_subordinate": [
         85,
         83,
         80,
         75,
-        70
+        70,
+        60
       ],
-      "_comment_ltv_steps": "1급지 85/70, 2급지 83/70, 3급지 80/70, 4급지 75/70, 5급지 70. 70% 이하는 8.4% 고정",
+      "_comment_ltv_steps": "후순위 9.9% 구간: 1~3급지 70%까지, 4급지 60%까지, 5급지 없음. 그 위는 10.9%",
       "primary_interest_rates_by_ltv": {
+        "50": {
+          "1": 9.9,
+          "2": 9.9,
+          "3": 9.9,
+          "4": 9.9,
+          "5": 9.9
+        },
         "60": {
-          "1": 8.4,
-          "2": 8.4,
-          "3": 8.4,
-          "4": 8.4,
-          "5": 8.4,
-          "6": 8.4,
-          "7": 8.4
-        },
-        "65": {
-          "1": 8.4,
-          "2": 8.4,
-          "3": 8.4,
-          "4": 8.4,
-          "5": 8.4,
-          "6": 8.4,
-          "7": 8.4
-        },
-        "70": {
-          "1": 8.4,
-          "2": 8.4,
-          "3": 8.4,
-          "4": 8.4,
-          "5": 10.9,
-          "6": 8.4,
-          "7": 8.4
-        },
-        "75": {
-          "1": 10.9,
-          "2": 10.9,
-          "3": 10.9,
-          "4": 10.9,
-          "5": 0,
-          "6": 10.9,
-          "7": 10.9
-        },
-        "80": {
-          "1": 10.9,
-          "2": 10.9,
-          "3": 10.9,
-          "4": 0,
-          "5": 0,
-          "6": 10.9,
-          "7": 10.9
-        },
-        "83": {
-          "1": 10.9,
-          "2": 10.9,
-          "3": 0,
-          "4": 0,
-          "5": 0,
-          "6": 10.9,
-          "7": 10.9
-        },
-        "85": {
-          "1": 10.9,
-          "2": 0,
-          "3": 0,
-          "4": 0,
-          "5": 0,
-          "6": 10.9,
-          "7": 10.9
+          "1": 9.9,
+          "2": 9.9,
+          "3": 9.9,
+          "4": 9.9,
+          "5": 0
         }
       },
       "subordinate_interest_rates_by_ltv": {
         "60": {
-          "1": 8.4,
-          "2": 8.4,
-          "3": 8.4,
-          "4": 8.4,
-          "5": 8.4,
-          "6": 8.4,
-          "7": 8.4
-        },
-        "65": {
-          "1": 8.4,
-          "2": 8.4,
-          "3": 8.4,
-          "4": 8.4,
-          "5": 8.4,
-          "6": 8.4,
-          "7": 8.4
+          "1": 9.9,
+          "2": 9.9,
+          "3": 9.9,
+          "4": 9.9,
+          "5": 10.9
         },
         "70": {
-          "1": 8.4,
-          "2": 8.4,
-          "3": 8.4,
-          "4": 8.4,
-          "5": 10.9,
-          "6": 8.4,
-          "7": 8.4
+          "1": 9.9,
+          "2": 9.9,
+          "3": 9.9,
+          "4": 10.9,
+          "5": 10.9
         },
         "75": {
           "1": 10.9,
           "2": 10.9,
           "3": 10.9,
           "4": 10.9,
-          "5": 0,
-          "6": 10.9,
-          "7": 10.9
+          "5": 0
         },
         "80": {
           "1": 10.9,
           "2": 10.9,
           "3": 10.9,
           "4": 0,
-          "5": 0,
-          "6": 10.9,
-          "7": 10.9
+          "5": 0
         },
         "83": {
           "1": 10.9,
           "2": 10.9,
           "3": 0,
           "4": 0,
-          "5": 0,
-          "6": 10.9,
-          "7": 10.9
+          "5": 0
         },
         "85": {
           "1": 10.9,
           "2": 0,
           "3": 0,
           "4": 0,
-          "5": 0,
-          "6": 10.9,
-          "7": 10.9
+          "5": 0
         }
       },
       "credit_score_to_grade": {
@@ -480,7 +422,7 @@
       },
       "max_credit_grade": 7,
       "hide_credit_grade": true,
-      "_comment_hide_credit_grade": "신용등급 구분 없이 산출",
+      "_comment_hide_credit_grade": "신용등급 구분 없이 급지별 단일금리 (금리표 안쪽 키 = 급지)",
       "show_region_grade": true,
       "_comment_show_region_grade": "헤더에 N급지 명시",
       "min_amount": 1000,
@@ -488,30 +430,32 @@
         "4": 3000,
         "5": 3000
       },
-      "_comment_min_amount": "최소 1천만원, 4~5급지는 최소진행금액 3천만원",
-      "max_ltv_primary": 60,
-      "_comment_max_ltv_primary": "선순위 최대 LTV 60% 고정 (급지 무관)",
+      "_comment_min_amount": "최소 1천만원, 4~5급지는 최소 3천만원",
       "max_amount_limit": 30000,
-      "max_amount_limit_primary": 30000,
-      "_comment_max_amount": "최대한도 3억, 선순위 최대 3억",
+      "_comment_max_amount": "최대한도 3억 (선·후순위 동일)",
       "max_amount_limit_applies_to_total": true,
       "_comment_max_amount_limit_applies_to_total": "한도가 총 대환금액(대환원금+가용) 상한. 대환원금이 한도 초과 시 한도 미산출",
       "min_kb_price": 20000,
+      "_comment_min_kb_price": "시세 2억 이상",
       "lower_bound_price": {
         "enabled": true,
         "apartment": {
           "rules": [
             {
-              "total_floors_min": 7,
+              "total_floors_min": 6,
               "lower_bound_floors": [
                 1,
-                2
+                2,
+                3
               ]
             },
             {
-              "total_floors_max": 6,
+              "total_floors_min": 5,
+              "total_floors_max": 5,
               "lower_bound_floors": [
-                1
+                1,
+                2,
+                5
               ]
             }
           ]
@@ -519,21 +463,25 @@
         "residential_commercial": {
           "rules": [
             {
-              "total_floors_min": 7,
+              "total_floors_min": 6,
               "lower_bound_floors": [
                 1,
-                2
+                2,
+                3
               ]
             },
             {
-              "total_floors_max": 6,
+              "total_floors_min": 5,
+              "total_floors_max": 5,
               "lower_bound_floors": [
-                1
+                1,
+                2,
+                5
               ]
             }
           ]
         },
-        "description": "6층 이하 1층, 7층 이상 1~2층 하한가"
+        "description": "총 6층 이상 1~3층, 최고 5층 1·2·5층 하한가 (4층 이하는 하한가 미적용)"
       },
       "price_sources": {
         "kb_price": 1,
@@ -541,14 +489,16 @@
         "bank_appraisal_price": 1,
         "realestatetech_price": 1,
         "korea_realestate_price": 0,
-        "housematch_price": 1
+        "housematch_price": 0
       },
+      "bank_appraisal_max_grade": 3,
+      "_comment_bank_appraisal_max_grade": "감정가·탁감가는 1~3급지만 취급",
       "business_property_types": {
         "apartment": 1,
         "apartment_no_land_registry": 1,
         "residential_commercial": 1,
         "villa": 0,
-        "officetel": 1,
+        "officetel": 0,
         "detached_house": 0,
         "multi_family_house": 0
       },
@@ -561,19 +511,39 @@
         },
         "residential_commercial": {
           "min_household_count": 100
-        },
-        "officetel": {
-          "min_household_count": 100
         }
       },
-      "max_subordinate_grade": 3,
-      "_comment_max_subordinate_grade": "세입자 후순위 1~3급지까지 가능",
+      "_comment_property_types": "아파트·주상복합만, 100세대 이상",
       "tenant_subordinate_allowed": false,
-      "_comment_tenant_subordinate_allowed": "세입자 있는 후순위 취급 on/off (false=취급 불가, true=허용)",
+      "_comment_tenant_subordinate_allowed": "세입자 있는 후순위 취급 불가",
+      "fractional_share_allowed": false,
+      "_comment_fractional_share_allowed": "지분대출 취급 불가",
+      "corporate_business_restriction": {
+        "enabled": false,
+        "keywords": [
+          "법인사업자"
+        ],
+        "comment": "법인사업자 취급 불가"
+      },
+      "allow_physical_collateral_subordinate": true,
+      "_comment_allow_physical_collateral_subordinate": "물상담보 근저당은 개인설정으로 보지 않음",
+      "personal_mortgage_refinance_allowed": true,
+      "_comment_personal_mortgage_refinance_allowed": "개인설정 근저당 대환 가능 (대환 안 하는 개인설정 후순위는 불가)",
+      "min_months_since_ownership_transfer": 3,
+      "_comment_min_months_since_ownership_transfer": "소유권 이전 3개월 경과 후 취급. 소유권이전일 미기재 시 검사 없이 산출",
       "max_age": 70,
-      "_comment_max_age": "차주 및 담보제공자 만70세까지",
+      "_comment_max_age": "소유자·담보제공자 만 70세까지",
+      "caption_rules": [
+        {
+          "keywords": [
+            "대지권미등기",
+            "대지권 미등기",
+            "별도등기"
+          ],
+          "message": "※ 대지권 미등기·토지 별도등기는 5년 이내 신축 건물만 취급 가능"
+        }
+      ],
       "conditions": [
-        "2년 계약- 1년 후 금리 2%인상조건",
         "사업자상품(즉발가능)"
       ],
       "validation_rules": {
@@ -590,22 +560,23 @@
             "지분대출",
             "전세퇴거자금",
             "대부후순위",
-            "개인설정후순위"
+            "개인설정후순위",
+            "무상거주"
           ],
           "error_message": "특이사항/요청사항에 '{keywords}'가 포함되어 취급 불가합니다"
         },
-        "_comment_mortgage_institution_restricted": "DSFNC만 가압류·압류 선순위 대환 불가 (그 외 대부상품은 전역 개인설정 제외로 산출)",
+        "_comment_mortgage_institution_restricted": "가압류·압류 선순위 대환 불가",
         "mortgage_institution_restricted": {
           "keywords": [
             "가압류",
             "압류"
           ],
-          "error_message": "가압류·압류 선순위는 디에스론·디에스-하이론 취급 불가입니다"
+          "error_message": "가압류·압류 선순위는 이음론·이음-하이론 취급 불가입니다"
         }
       }
     },
     {
-      "product_name": "디에스-하이론",
+      "product_name": "이음-하이론",
       "target_regions": [
         "서울",
         "경기",
@@ -654,22 +625,22 @@
         "경기도부천시오정구": 2,
         "경기도부천시원미구": 2,
         "경기도구리시": 2,
-        "경기도용인시처인구": 2,
-        "경기도용인시기흥구": 2,
+        "경기도용인시처인구": 3,
+        "경기도용인시기흥구": 3,
         "경기도용인시수지구": 2,
         "인천광역시연수구": 3,
         "인천광역시부평구": 3,
         "인천광역시계양구": 3,
-        "경기도고양시덕양구": 3,
-        "경기도고양시일산동구": 3,
-        "경기도고양시일산서구": 3,
+        "경기도고양시덕양구": 4,
+        "경기도고양시일산동구": 4,
+        "경기도고양시일산서구": 4,
         "경기도의정부시": 3,
         "경기도안산시상록구": 3,
         "경기도안산시단원구": 3,
         "경기도남양주시": 3,
         "경기도군포시": 3,
         "경기도의왕시": 3,
-        "경기도김포시": 3,
+        "경기도김포시": 4,
         "경기도화성시": 3,
         "경기도화성시동탄구": 3,
         "경기도화성시만세구": 3,
@@ -677,7 +648,7 @@
         "경기도화성시병점구": 3,
         "경기도시흥시": 3,
         "경기도오산시": 3,
-        "경기도파주시": 3,
+        "경기도파주시": 4,
         "인천광역시중구": 4,
         "인천광역시동구": 4,
         "인천광역시남동구": 4,
@@ -705,28 +676,21 @@
         "인천광역시제물포구송림동": 4,
         "인천광역시제물포구금곡동": 4
       },
+      "_comment_region_grades": "급지는 이음론과 동일. 4·5급지 취급 불가",
       "max_ltv_by_grade": {
         "1": 90,
         "2": 90,
         "3": 90,
-        "4": 90,
-        "5": 0,
+        "4": 0,
         "9": 0
       },
-      "_comment_hiroon_ltv": "1~2급지 LTV90% 한도5천만원, 3~4급지 LTV90% 한도3천만원, 5급지 취급불가. 전용면적 85㎡ 초과시 LTV85%",
-      "max_amount_limit_by_grade": {
-        "1": 5000,
-        "2": 5000,
-        "3": 3000,
-        "4": 3000
-      },
-      "max_amount_limit_applies_to_total": true,
-      "_comment_max_amount_limit_applies_to_total": "한도가 총 대환금액(대환원금+가용) 상한. 대환원금이 한도 초과 시 한도 미산출",
+      "_comment_hiroon_ltv": "1~3급지 LTV 90% (전용 85㎡ 초과 시 85%), 4·5급지 취급 불가",
       "area_limit": {
         "enabled": true,
         "max_area": 85,
         "max_ltv_when_exceeded": 85,
-        "_comment": "전용면적 85㎡ 초과시 최대 LTV 85%"
+        "exceeded_message": "※ 전용면적 {area}㎡ ({max_area}㎡ 초과)로 LTV {ltv}% 적용",
+        "_comment": "전용면적 85㎡ 초과 시 최대 LTV 85% + 사유 안내"
       },
       "ltv_steps": [
         90,
@@ -739,134 +703,108 @@
       ],
       "primary_interest_rates_by_ltv": {
         "60": {
-          "1": 18,
-          "2": 18,
-          "3": 18,
-          "4": 18,
-          "5": 0,
-          "6": 18,
-          "7": 18
+          "1": 16.5,
+          "2": 16.5,
+          "3": 16.5,
+          "4": 0,
+          "5": 0
         },
         "65": {
-          "1": 18,
-          "2": 18,
-          "3": 18,
-          "4": 18,
-          "5": 0,
-          "6": 18,
-          "7": 18
+          "1": 16.5,
+          "2": 16.5,
+          "3": 16.5,
+          "4": 0,
+          "5": 0
         },
         "70": {
-          "1": 18,
-          "2": 18,
-          "3": 18,
-          "4": 18,
-          "5": 0,
-          "6": 18,
-          "7": 18
+          "1": 16.5,
+          "2": 16.5,
+          "3": 16.5,
+          "4": 0,
+          "5": 0
         },
         "75": {
-          "1": 18,
-          "2": 18,
-          "3": 18,
-          "4": 18,
-          "5": 0,
-          "6": 18,
-          "7": 18
+          "1": 16.5,
+          "2": 16.5,
+          "3": 16.5,
+          "4": 0,
+          "5": 0
         },
         "80": {
-          "1": 18,
-          "2": 18,
-          "3": 18,
-          "4": 18,
-          "5": 0,
-          "6": 18,
-          "7": 18
+          "1": 16.5,
+          "2": 16.5,
+          "3": 16.5,
+          "4": 0,
+          "5": 0
         },
         "85": {
-          "1": 18,
-          "2": 18,
-          "3": 18,
-          "4": 18,
-          "5": 0,
-          "6": 18,
-          "7": 18
+          "1": 16.5,
+          "2": 16.5,
+          "3": 16.5,
+          "4": 0,
+          "5": 0
         },
         "90": {
-          "1": 18,
-          "2": 18,
-          "3": 18,
-          "4": 18,
-          "5": 0,
-          "6": 18,
-          "7": 18
+          "1": 16.5,
+          "2": 16.5,
+          "3": 16.5,
+          "4": 0,
+          "5": 0
         }
       },
       "subordinate_interest_rates_by_ltv": {
         "60": {
-          "1": 18,
-          "2": 18,
-          "3": 18,
-          "4": 18,
-          "5": 0,
-          "6": 18,
-          "7": 18
+          "1": 16.5,
+          "2": 16.5,
+          "3": 16.5,
+          "4": 0,
+          "5": 0
         },
         "65": {
-          "1": 18,
-          "2": 18,
-          "3": 18,
-          "4": 18,
-          "5": 0,
-          "6": 18,
-          "7": 18
+          "1": 16.5,
+          "2": 16.5,
+          "3": 16.5,
+          "4": 0,
+          "5": 0
         },
         "70": {
-          "1": 18,
-          "2": 18,
-          "3": 18,
-          "4": 18,
-          "5": 0,
-          "6": 18,
-          "7": 18
+          "1": 16.5,
+          "2": 16.5,
+          "3": 16.5,
+          "4": 0,
+          "5": 0
         },
         "75": {
-          "1": 18,
-          "2": 18,
-          "3": 18,
-          "4": 18,
-          "5": 0,
-          "6": 18,
-          "7": 18
+          "1": 16.5,
+          "2": 16.5,
+          "3": 16.5,
+          "4": 0,
+          "5": 0
         },
         "80": {
-          "1": 18,
-          "2": 18,
-          "3": 18,
-          "4": 18,
-          "5": 0,
-          "6": 18,
-          "7": 18
+          "1": 16.5,
+          "2": 16.5,
+          "3": 16.5,
+          "4": 0,
+          "5": 0
         },
         "85": {
-          "1": 18,
-          "2": 18,
-          "3": 18,
-          "4": 18,
-          "5": 0,
-          "6": 18,
-          "7": 18
+          "1": 16.5,
+          "2": 16.5,
+          "3": 16.5,
+          "4": 0,
+          "5": 0
         },
         "90": {
-          "1": 18,
-          "2": 18,
-          "3": 18,
-          "4": 18,
-          "5": 0,
-          "6": 18,
-          "7": 18
+          "1": 16.5,
+          "2": 16.5,
+          "3": 16.5,
+          "4": 0,
+          "5": 0
         }
       },
+      "_comment_interest_rate": "금리 16.5% 고정",
+      "_comment_prepayment_fee": "중도상환수수료 2% (참고용, 계산·표시 미구현)",
       "credit_score_to_grade": {
         "915-1000": 1,
         "875-914": 2,
@@ -879,24 +817,76 @@
       },
       "max_credit_grade": 7,
       "hide_credit_grade": true,
+      "_comment_hide_credit_grade": "신용등급 구분 없이 급지별 단일금리 (금리표 안쪽 키 = 급지)",
       "show_region_grade": true,
-      "min_amount": 3000,
-      "min_kb_price": 20000,
+      "_comment_show_region_grade": "헤더에 N급지 명시",
+      "min_amount": 1000,
       "max_amount_limit": 5000,
+      "_comment_max_amount": "한도 5천만원 고정 (급지 무관)",
+      "max_amount_limit_applies_to_total": true,
+      "_comment_max_amount_limit_applies_to_total": "한도가 총 대환금액(대환원금+가용) 상한. 대환원금이 한도 초과 시 한도 미산출",
+      "min_kb_price": 20000,
+      "lower_bound_price": {
+        "enabled": true,
+        "apartment": {
+          "rules": [
+            {
+              "total_floors_min": 6,
+              "lower_bound_floors": [
+                1,
+                2,
+                3
+              ]
+            },
+            {
+              "total_floors_min": 5,
+              "total_floors_max": 5,
+              "lower_bound_floors": [
+                1,
+                2,
+                5
+              ]
+            }
+          ]
+        },
+        "residential_commercial": {
+          "rules": [
+            {
+              "total_floors_min": 6,
+              "lower_bound_floors": [
+                1,
+                2,
+                3
+              ]
+            },
+            {
+              "total_floors_min": 5,
+              "total_floors_max": 5,
+              "lower_bound_floors": [
+                1,
+                2,
+                5
+              ]
+            }
+          ]
+        },
+        "description": "총 6층 이상 1~3층, 최고 5층 1·2·5층 하한가 (4층 이하는 하한가 미적용)"
+      },
       "price_sources": {
         "kb_price": 1,
         "kb_ai_price": 0,
-        "bank_appraisal_price": 1,
+        "bank_appraisal_price": 0,
         "realestatetech_price": 1,
         "korea_realestate_price": 0,
-        "housematch_price": 1
+        "housematch_price": 0
       },
+      "_comment_price_sources": "하이론은 감정가 불가 (KB·부동산테크만)",
       "business_property_types": {
         "apartment": 1,
         "apartment_no_land_registry": 1,
         "residential_commercial": 1,
         "villa": 0,
-        "officetel": 1,
+        "officetel": 0,
         "detached_house": 0,
         "multi_family_house": 0
       },
@@ -909,17 +899,39 @@
         },
         "residential_commercial": {
           "min_household_count": 100
-        },
-        "officetel": {
-          "min_household_count": 100
         }
       },
-      "max_subordinate_grade": 3,
       "tenant_subordinate_allowed": false,
-      "_comment_tenant_subordinate_allowed": "세입자 있는 후순위 취급 on/off (false=취급 불가, true=허용)",
+      "_comment_tenant_subordinate_allowed": "세입자 있는 후순위 취급 불가",
+      "fractional_share_allowed": false,
+      "_comment_fractional_share_allowed": "지분대출 취급 불가",
+      "corporate_business_restriction": {
+        "enabled": false,
+        "keywords": [
+          "법인사업자"
+        ],
+        "comment": "법인사업자 취급 불가"
+      },
+      "allow_physical_collateral_subordinate": true,
+      "_comment_allow_physical_collateral_subordinate": "물상담보 근저당은 개인설정으로 보지 않음",
+      "personal_mortgage_refinance_allowed": true,
+      "_comment_personal_mortgage_refinance_allowed": "개인설정 근저당 대환 가능 (대환 안 하는 개인설정 후순위는 불가)",
+      "min_months_since_ownership_transfer": 3,
+      "_comment_min_months_since_ownership_transfer": "소유권 이전 3개월 경과 후 취급. 소유권이전일 미기재 시 검사 없이 산출",
       "max_age": 70,
+      "_comment_max_age": "소유자·담보제공자 만 70세까지",
+      "caption_rules": [
+        {
+          "keywords": [
+            "대지권미등기",
+            "대지권 미등기",
+            "별도등기"
+          ],
+          "message": "※ 대지권 미등기·토지 별도등기는 5년 이내 신축 건물만 취급 가능"
+        }
+      ],
       "conditions": [
-        "디에스론과 동일 조건. 한도: 1~2급지 5천만원, 3~4급지 3천만원. 전용면적 85㎡ 초과시 LTV85%"
+        "사업자상품(즉발가능)"
       ],
       "validation_rules": {
         "enabled": true,
@@ -935,16 +947,18 @@
             "지분대출",
             "전세퇴거자금",
             "대부후순위",
-            "개인설정후순위"
+            "개인설정후순위",
+            "무상거주"
           ],
           "error_message": "특이사항/요청사항에 '{keywords}'가 포함되어 취급 불가합니다"
         },
+        "_comment_mortgage_institution_restricted": "가압류·압류 선순위 대환 불가",
         "mortgage_institution_restricted": {
           "keywords": [
             "가압류",
             "압류"
           ],
-          "error_message": "가압류·압류 선순위는 디에스론·디에스-하이론 취급 불가입니다"
+          "error_message": "가압류·압류 선순위는 이음론·이음-하이론 취급 불가입니다"
         }
       }
     }
