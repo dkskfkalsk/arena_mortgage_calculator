@@ -55,6 +55,7 @@ class OwnerInfo:
     생년월일: str
     주소: str
     지분: str = "단독소유"
+    성별코드: str = ""  # 주민번호 뒷자리 첫 숫자. 마스킹이면 빈 문자열
 
 
 @dataclass
@@ -757,6 +758,11 @@ class RegistryParser:
 
     def _extract_land_category(self) -> str:
         """토지 등기 표제·요약의 지목. 임야·대·전·답 등."""
+        # 집합건물·건물 등기의 대지권/공동담보목록에도 토지와 지목이 나온다.
+        # 본 등기가 토지일 때만 지목을 추출해야 해당 참조 토지를 현재 물건으로 오인하지 않는다.
+        if self._extract_primary_registry_kind() != "토지":
+            return ""
+
         categories = (
             "공장용지", "창고용지", "학교용지", "주유소용지", "목장용지", "종교용지",
             "체육용지", "수도용지", "철도용지", "과수원", "잡종지", "주차장", "유원지",
@@ -782,19 +788,65 @@ class RegistryParser:
                 last = token
         return last
 
+    def _extract_primary_registry_kind(self) -> str:
+        """
+        본 등기의 표제 유형(집합건물·토지·건물).
+
+        공동담보목록에는 현재 물건과 무관한 ``[토지]``·``[건물]``이 반복되므로
+        문서에서 가장 먼저 나타나는 등기 표제만 본 물건 유형으로 사용한다.
+        """
+        candidates = []
+        for kind in ("집합건물", "토지", "건물"):
+            patterns = (
+                rf"-\s*{kind}\s*-",
+                rf"\[\s*{kind}\s*\]",
+            )
+            positions = [
+                match.start()
+                for pattern in patterns
+                for match in [re.search(pattern, self.text)]
+                if match
+            ]
+            if positions:
+                candidates.append((min(positions), kind))
+        if not candidates:
+            return ""
+        return min(candidates, key=lambda item: item[0])[1]
+
     def _extract_property_kind(self, land_category: str) -> str:
         """캡션에 구분이 없을 때 등기 표제에서 토지·임야·단독주택을 추정."""
-        head = self.text[:2500]
-        if "[토지]" in head or "- 토지 -" in head[:800]:
+        primary_kind = self._extract_primary_registry_kind()
+        # 물건 용도는 표제부에서만 읽는다. 갑·을구와 공동담보목록에 적힌
+        # 다른 물건의 용도가 현재 물건 구분에 섞이지 않도록 첫 권리 섹션 전에 자른다.
+        property_header = re.split(
+            r'【\s*(?:갑\s*구|을\s*구|공동담보목록)',
+            self.text,
+            maxsplit=1,
+        )[0][:5000]
+
+        if primary_kind == "집합건물":
+            # 집합건물은 표제부의 실제 건물 용도를 우선한다. 판별되지 않으면
+            # 빈 값으로 두어 KB 조회 결과의 단지 유형을 사용한다.
+            if "다세대" in property_header or "연립주택" in property_header:
+                return "연립/다세대"
+            if "오피스텔" in property_header:
+                return "오피스텔"
+            if "주상복합" in property_header:
+                return "주상복합"
+            if "아파트" in property_header:
+                return "아파트"
+            return ""
+
+        if primary_kind == "토지":
             if land_category == "임야":
                 return "임야"
             return "토지"
-        if "- 건물 -" in head[:800]:
-            if "다가구" in head:
+        if primary_kind == "건물":
+            if "다가구" in property_header:
                 return "다가구주택"
-            if "다중주택" in head:
+            if "다중주택" in property_header:
                 return "다중주택"
-            if "단독주택" in head or re.search(r'주택', head):
+            if "단독주택" in property_header or re.search(r'주택', property_header):
                 return "단독주택"
         return ""
 
@@ -847,22 +899,18 @@ class RegistryParser:
                     end = min(len(search_text), match.end() + 200)
                     context = search_text[start:end]
                     
-                    resident_match = re.search(r'(\d{6})-[\d\*]+', context)
-                    if resident_match:
-                        resident_num = resident_match.group(1)
-                        if len(resident_num) == 6 and resident_num.isdigit():
-                            try:
-                                mm = int(resident_num[2:4])
-                                dd = int(resident_num[4:6])
-                                if 1 <= mm <= 12 and 1 <= dd <= 31:
-                                    num, den = self._fraction_after_owner(search_text, match.end())
-                                    owner_matches.append((name, resident_num, num, den))
-                                    logger.info(
-                                        f"✅ 소유자 추출 성공: {name} (주민번호: {resident_num}-*******) "
-                                        f"지분={self._format_share(num, den)}"
-                                    )
-                            except Exception as e:
-                                logger.debug(f"⚠️ 주민번호 검증 실패: {e}")
+                    resident = self._resident_parts(context)
+                    if resident:
+                        resident_num, gender = resident
+                        try:
+                            num, den = self._fraction_after_owner(search_text, match.end())
+                            owner_matches.append((name, resident_num, gender, num, den))
+                            logger.info(
+                                f"✅ 소유자 추출 성공: {name} (주민번호: {resident_num}-*******) "
+                                f"지분={self._format_share(num, den)}"
+                            )
+                        except Exception as e:
+                            logger.debug(f"⚠️ 주민번호 검증 실패: {e}")
                     else:
                         logger.debug(f"⚠️ '{name}' 근처에서 주민번호를 찾을 수 없음")
                 else:
@@ -879,21 +927,18 @@ class RegistryParser:
                         start = max(0, match.start() - 200)
                         end = min(len(search_text), match.end() + 200)
                         context = search_text[start:end]
-                        resident_match = re.search(r'(\d{6})-[\d\*]+', context)
-                        if resident_match:
-                            resident_num = resident_match.group(1)
-                            if len(resident_num) == 6 and resident_num.isdigit():
-                                try:
-                                    mm, dd = int(resident_num[2:4]), int(resident_num[4:6])
-                                    if 1 <= mm <= 12 and 1 <= dd <= 31:
-                                        num, den = self._fraction_after_owner(search_text, match.end())
-                                        owner_matches.append((name, resident_num, num, den))
-                                        logger.info(
-                                            f"✅ 소유자 추출 성공(전체): {name} (주민번호: {resident_num}-*******) "
-                                            f"지분={self._format_share(num, den)}"
-                                        )
-                                except Exception:
-                                    pass
+                        resident = self._resident_parts(context)
+                        if resident:
+                            resident_num, gender = resident
+                            try:
+                                num, den = self._fraction_after_owner(search_text, match.end())
+                                owner_matches.append((name, resident_num, gender, num, den))
+                                logger.info(
+                                    f"✅ 소유자 추출 성공(전체): {name} (주민번호: {resident_num}-*******) "
+                                    f"지분={self._format_share(num, den)}"
+                                )
+                            except Exception:
+                                pass
                     if owner_matches:
                         break
                 if owner_matches:
@@ -903,8 +948,8 @@ class RegistryParser:
         owners = []
         buckets = {}
         order = []
-        for name, resident_num, num, den in owner_matches:
-            key = (name, resident_num)
+        for name, resident_num, gender, num, den in owner_matches:
+            key = (name, resident_num, gender)
             if key not in buckets:
                 buckets[key] = [num, den]
                 order.append(key)
@@ -912,9 +957,9 @@ class RegistryParser:
                 buckets[key][0], buckets[key][1] = self._add_fraction(
                     buckets[key][0], buckets[key][1], num, den
                 )
-        for name, resident_num in order:
-            num, den = buckets[(name, resident_num)]
-            birth = self._convert_birth_date(resident_num)
+        for name, resident_num, gender in order:
+            num, den = buckets[(name, resident_num, gender)]
+            birth = self._convert_birth_date(resident_num, gender)
             share = self._format_share(num, den)
             if share == "1/1" and len(order) == 1:
                 share = "단독소유"
@@ -926,6 +971,7 @@ class RegistryParser:
                 생년월일=birth,
                 주소="",
                 지분=share,
+                성별코드=gender,
             ))
         unique_owners = owners
         
@@ -958,21 +1004,44 @@ class RegistryParser:
         
         return False
     
-    def _convert_birth_date(self, yymmdd: str) -> str:
-        """주민번호 앞자리를 생년월일로 변환"""
+    def _resident_parts(self, context: str):
+        """주민번호 앞 6자리와, 마스킹되지 않은 뒷자리 첫 숫자."""
+        match = re.search(r"(\d{6})-(\d|\*)", context)
+        if not match:
+            return None
+        yymmdd, tail = match.group(1), match.group(2)
+        try:
+            mm, dd = int(yymmdd[2:4]), int(yymmdd[4:6])
+        except ValueError:
+            return None
+        if not (1 <= mm <= 12 and 1 <= dd <= 31):
+            return None
+        gender = tail if tail.isdigit() else ""
+        if not gender:
+            digit = re.search(rf"{re.escape(yymmdd)}-(\d)", self.text)
+            if digit:
+                gender = digit.group(1)
+        return yymmdd, gender
+
+    def _convert_birth_date(self, yymmdd: str, gender: str = "") -> str:
+        """주민번호 앞자리를 생년월일로 변환. 성별코드가 있으면 세기를 그 숫자로 정한다."""
         if len(yymmdd) != 6:
             return yymmdd
-        
+
         yy = int(yymmdd[:2])
         mm = yymmdd[2:4]
         dd = yymmdd[4:6]
-        
-        # 1900년대 vs 2000년대 판단
-        if yy >= 0 and yy <= 26:  # 2000~2026년생
-            year = 2000 + yy
-        else:  # 1927~1999년생
+        if gender in ("1", "2", "5", "6"):
             year = 1900 + yy
-        
+        elif gender in ("3", "4", "7", "8"):
+            year = 2000 + yy
+        elif gender in ("9", "0"):
+            year = 1800 + yy
+        elif 0 <= yy <= 26:
+            year = 2000 + yy
+        else:
+            year = 1900 + yy
+
         return f"{year}.{mm}.{dd}"
     
     def _extract_ownership_transfer_date(self) -> str:
@@ -1759,6 +1828,40 @@ class RegistryParser:
 _NO_LAND_REGISTRY_PROPERTY_TYPES = (
     "주상복합", "아파트", "오피스텔", "연립/다세대", "다세대", "연립", "빌라",
 )
+
+
+def format_owner_identity(owner: OwnerInfo) -> str:
+    """성명 줄 표기. 예: 김태영 831207-1 / 만 42세. 성별코드가 없으면 대시를 생략한다."""
+    resident = owner.주민번호 or ""
+    match = re.match(r"(\d{6})", resident)
+    yymmdd = match.group(1) if match else ""
+    gender = (getattr(owner, "성별코드", "") or "").strip()
+    id_part = f"{yymmdd}-{gender}" if yymmdd and gender else yymmdd
+    age = _man_age_from_birth(owner.생년월일)
+    if id_part and age is not None:
+        return f"{owner.성명} {id_part} / 만 {age}세"
+    if id_part:
+        return f"{owner.성명} {id_part}"
+    if age is not None:
+        return f"{owner.성명} ({age})"
+    return owner.성명
+
+
+def _man_age_from_birth(birth: str):
+    """YYYY.MM.DD 기준 한국 날짜의 만 나이."""
+    parts = (birth or "").split(".")
+    if len(parts) < 3 or not all(part.isdigit() for part in parts[:3]):
+        return None
+    try:
+        from datetime import datetime, timedelta, timezone
+        birth_date = datetime(int(parts[0]), int(parts[1]), int(parts[2])).date()
+        today = datetime.now(timezone(timedelta(hours=9))).date()
+    except (TypeError, ValueError):
+        return None
+    age = today.year - birth_date.year
+    if (today.month, today.day) < (birth_date.month, birth_date.day):
+        age -= 1
+    return age
 
 
 def format_ownership_share_note(owners: List[OwnerInfo]) -> str:

@@ -83,6 +83,7 @@ class MessageParser:
         data = {
             "name": None,
             "age": None,
+            "birth_year": None,
             "occupation": None,
             "credit_score": None,
             "credit_score_raw": None,  # 원본 신용점수/등급 문자열 (MG캐피탈 등급 파싱용)
@@ -145,6 +146,7 @@ class MessageParser:
                         current_year = datetime.now().year
                         yy = int(yymmdd[:2])
                         birth_year = 2000 + yy if yy <= (current_year % 100) else 1900 + yy
+                        data["birth_year"] = birth_year
                         data["age"] = current_year - birth_year
                     except Exception:
                         pass
@@ -214,6 +216,16 @@ class MessageParser:
                         print(f"DEBUG: Setting KB price from key-value: {value}")
                         self._set_field(data, key, value)
                     else:
+                        if "성명" in key.replace(" ", "") or "이름" in key.replace(" ", ""):
+                            while i + 1 < len(lines):
+                                next_name = lines[i + 1].strip()
+                                if not re.match(
+                                    r'^[가-힣]{2,5}\s+\d{6}(?:-\d)?\s*/\s*만\s*\d+\s*세(?:\s*\([^)]*\))?\s*$',
+                                    next_name,
+                                ):
+                                    break
+                                value += "\n" + next_name
+                                i += 1
                         self._set_field(data, key, value)
             elif current_section != "mortgages":
                 # 콜론 없는 간단 패턴 처리 (면적/세대수/층수/주소)
@@ -819,19 +831,48 @@ class MessageParser:
         
         return key, value
     
+    def _birth_year_from_yymmdd(self, yymmdd: str, gender: str = None) -> int:
+        """주민번호 앞 6자리와 성별코드로 출생연도. 성별코드가 없으면 현재 연도 기준으로 세기를 가른다."""
+        yy = int(yymmdd[:2])
+        if gender in ("1", "2", "5", "6"):
+            return 1900 + yy
+        if gender in ("3", "4", "7", "8"):
+            return 2000 + yy
+        if gender in ("9", "0"):
+            return 1800 + yy
+        from datetime import datetime
+        return 2000 + yy if yy <= (datetime.now().year % 100) else 1900 + yy
+
     def _set_field(self, data: Dict[str, Any], key: str, value: str):
         """필드 설정"""
         # 키에서 공백 제거하여 비교 (더 안정적인 매칭)
         key_clean = key.replace(" ", "").lower()
         
         if "성명" in key_clean or "이름" in key_clean:
-            # 성명에서 연령 추출 (예: "정종민 (68)")
-            match = re.search(r"\((\d+)\)", value)
-            if match:
-                data["age"] = int(match.group(1))
-                data["name"] = value.split("(")[0].strip()
-            else:
+            # 등기부 회신: "김태영 831207-1 / 만 42세". 공동명의는 같은 형식을 쉼표로 반복.
+            identities = list(re.finditer(
+                r"([가-힣]{2,5})\s+(\d{6})(?:-(\d))?\s*/\s*만\s*(\d+)\s*세",
+                value,
+            ))
+            if identities:
+                chosen = identities[0]
+                borrower_match = re.search(r"([가-힣]{2,5})\s*\(\s*차", value)
+                if borrower_match:
+                    for found in identities:
+                        if found.group(1) == borrower_match.group(1):
+                            chosen = found
+                            break
+                data["age"] = int(chosen.group(4))
+                data["birth_year"] = self._birth_year_from_yymmdd(chosen.group(2), chosen.group(3))
                 data["name"] = value
+            else:
+                # 성명에서 연령 추출 (예: "정종민 (68)")
+                match = re.search(r"\((\d+)\)", value)
+                if match:
+                    data["age"] = int(match.group(1))
+                    data["name"] = value.split("(")[0].strip()
+                else:
+                    data["name"] = value
             # 담보제공건 인식: "홍길동(차), 김철수(담)" 형식
             if "(담)" in value or "(담보)" in value:
                 data["collateral_provider"] = True

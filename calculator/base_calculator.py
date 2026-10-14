@@ -1222,9 +1222,34 @@ class BaseCalculator:
             log_print(f"DEBUG: BaseCalculator.calculate - {self.bank_name} 개인설정 후순위 취급 불가")
             validation_errors.append("개인설정 후순위는 취급 불가")
         
+        # 고객 출생연도 검증 (min_birth_year: 그 해 미만은 취급 불가). 연도가 있으면 만나이 조건은 건너뛴다.
+        min_birth_year = self.config.get("min_birth_year")
+        birth_year_checked = False
+        if min_birth_year is not None and property_data.get("birth_year") is not None:
+            try:
+                birth_year_int = int(property_data.get("birth_year"))
+                min_birth_year_int = int(min_birth_year)
+                birth_year_checked = True
+                if birth_year_int < min_birth_year_int:
+                    log_print(
+                        f"DEBUG: BaseCalculator.calculate - 출생연도 {birth_year_int} < "
+                        f"min_birth_year {min_birth_year_int}, 취급 불가"
+                    )
+                    birth_error = self.config.get("min_birth_year_error_message")
+                    if birth_error:
+                        validation_errors.append(
+                            birth_error.format(birth_year=birth_year_int, min_birth_year=min_birth_year_int)
+                        )
+                    else:
+                        validation_errors.append(
+                            f"{min_birth_year_int}년생부터 취급 가능합니다 (현재 {birth_year_int}년생)"
+                        )
+            except (ValueError, TypeError):
+                birth_year_checked = False
+
         # 고객 나이 검증 (max_age: 초과 시 취급 불가)
         max_age = self.config.get("max_age")
-        if max_age is not None:
+        if max_age is not None and not birth_year_checked:
             age = property_data.get("age")
             if age is not None:
                 try:

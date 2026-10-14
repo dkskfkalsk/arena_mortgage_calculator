@@ -26,8 +26,11 @@
     "_comment": "무직 최대한도 3천만원. 대환원금이 3천 초과(예: 5천 대환)면 대환 미산출"
   },
   "min_kb_price": 0,
+  "min_birth_year": 1958,
+  "_comment_min_birth_year": "1958년생부터 취급. 1957년생 이하는 불가. 출생연도가 없으면 max_age로 본다",
+  "min_birth_year_error_message": "1957년생부터 취급 불가입니다 (현재 {birth_year}년생)",
   "max_age": 69,
-  "_comment_max_age": "차주 만69세까지. 70세부터 취급 불가",
+  "_comment_max_age": "출생연도가 없는 기존 문구(이름 (69))용. 만69세까지, 70세부터 취급 불가",
   "hide_credit_grade": true,
   "show_region_grade": false,
   "show_interest_rate_range": true,
@@ -80,7 +83,7 @@
     "중도상환 수수료 2~3%",
     "근저당 3순위까지 설정 가능",
     "무직 최대한도 3천만원 (대환원금 3천 초과 시 대환 불가)",
-    "만69세까지"
+    "1957년생부터 취급 불가 (출생연도 없으면 만69세까지)"
   ],
   "_comment_hide_conditions": "한도 회신 시 conditions 노출 생략 (내용은 유지)",
   "hide_conditions": true

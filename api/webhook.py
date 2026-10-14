@@ -873,59 +873,21 @@ def get_application(force_new=False):
                     lines.append(f"소유현황 : 신탁")
             elif result.소유자목록:
                 owners = result.소유자목록
+                from parsers.registry_parser import format_owner_identity
+                owner_labels = [format_owner_identity(owner) for owner in owners]
                 
-                # 첫 번째 소유자의 나이 계산 (만나이, 한국 시간 기준)
-                age = ""
-                if owners[0].생년월일:
-                    try:
-                        from datetime import datetime
-                        try:
-                            from zoneinfo import ZoneInfo
-                        except ImportError:
-                            # Python 3.8 이하의 경우
-                            from pytz import timezone
-                            ZoneInfo = lambda tz: timezone(tz)
-                        
-                        # 생년월일 형식: "YYYY.MM.DD"
-                        birth_parts = owners[0].생년월일.split('.')
-                        birth_year = int(birth_parts[0])
-                        birth_month = int(birth_parts[1]) if len(birth_parts) > 1 else 1
-                        birth_day = int(birth_parts[2]) if len(birth_parts) > 2 else 1
-                        
-                        # 한국 시간대(Asia/Seoul, UTC+9) 기준으로 현재 날짜 가져오기
-                        korea_tz = ZoneInfo('Asia/Seoul')
-                        today = datetime.now(korea_tz).date()
-                        birth_date = datetime(birth_year, birth_month, birth_day, tzinfo=korea_tz).date()
-                        
-                        # 만나이 계산: 생일이 지났는지 확인
-                        calculated_age = today.year - birth_year
-                        if (today.month, today.day) < (birth_month, birth_day):
-                            calculated_age -= 1
-                        
-                        age = f"({calculated_age})"  # 만 나이
-                    except:
-                        age = ""
-                
-                # 차주/담보제공자 구분이 있는 경우
+                # 차주/담보제공자 구분이 있는 경우. 등기 소유자는 한 사람당 한 줄.
                 if borrower and collateral_provider:
-                    # 담보제공자 나이 (등기부 소유자 = 담보제공자)
-                    name_display = f"{borrower}(차), {collateral_provider}(담) {age}"
+                    matched = next((owner for owner in owners if owner.성명 == collateral_provider), None)
+                    collateral_label = format_owner_identity(matched) if matched else collateral_provider
+                    name_lines = [f"{borrower}(차)", f"{collateral_label}(담)"]
                 elif borrower:
-                    # 차주만 있는 경우 (담보제공자는 등기부 소유자)
-                    if len(owners) == 1:
-                        name_display = f"{borrower}(차), {owners[0].성명}(담) {age}"
-                    else:
-                        owner_names = ", ".join([o.성명 for o in owners])
-                        name_display = f"{borrower}(차), {owner_names}(담) {age}"
+                    name_lines = [f"{borrower}(차)"] + [f"{label}(담)" for label in owner_labels]
                 else:
-                    # 일반적인 경우 (등기부 소유자가 차주)
-                    if len(owners) == 1:
-                        name_display = f"{owners[0].성명} {age}"
-                    else:
-                        owner_names = ", ".join([o.성명 for o in owners])
-                        name_display = f"{owner_names} {age}"
+                    name_lines = owner_labels
                 
-                lines.append(f"성   명 : {name_display}")
+                lines.append(f"성   명 : {name_lines[0]}")
+                lines.extend(name_lines[1:])
                 lines.append(f"직   업 : {caption_info['job']}")
                 lines.append(f"신용점수 : {caption_info['credit_score']}")
                 lines.append(f"거주여부 : {caption_info['residence']}")
