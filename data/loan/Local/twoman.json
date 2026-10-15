@@ -59,7 +59,7 @@
   "max_ltv_by_grade": {
     "1": 65,
     "2": 65,
-    "3": 60,
+    "3": 65,
     "9": 0
   },
   "max_limit_only": true,
