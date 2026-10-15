@@ -1,5 +1,5 @@
 {
-  "_comment": "드림에셋대부 가계. 전국. 선순위는 채권최고액. 강남·서초 아파트 LTV 85%, 그 외 아파트 80%, 빌라·오피스텔·단독·토지 65%. 임야 불가. 공동소유는 차주 지분만 (시세×LTV×지분)−차주 명의 선순위.",
+  "_comment": "드림에셋대부 가계. 전국. 선순위는 채권최고액. 아파트는 1급지 300세대 이상 80%, 그 외 70%. 오피스텔은 1급지 65%·그 외 60%, 빌라·단독·다가구·토지 60%. 임야 불가. 공동소유는 차주 지분만 (시세×LTV×지분)−차주 명의 선순위.",
   "bank_name": "드림에셋대부",
   "enabled": true,
   "use_principal_for_calculation": false,
@@ -35,13 +35,14 @@
   "hide_credit_grade": true,
   "show_region_grade": false,
   "show_interest_rate_range": true,
+  "_comment_region_grade_prefix_rules": "1=강남·서초, 2=서울 나머지·경기·인천, 3=그 외",
   "region_grade_prefix_rules": [
-    { "starts_with": "서울특별시강남구", "grade": "G" },
-    { "starts_with": "서울특별시서초구", "grade": "G" },
-    { "starts_with": "서울특별시", "grade": "M" },
-    { "starts_with": "경기도", "grade": "M" },
-    { "starts_with": "인천광역시", "grade": "M" },
-    { "starts_with": "", "grade": "P" }
+    { "starts_with": "서울특별시강남구", "grade": "1" },
+    { "starts_with": "서울특별시서초구", "grade": "1" },
+    { "starts_with": "서울특별시", "grade": "2" },
+    { "starts_with": "경기도", "grade": "2" },
+    { "starts_with": "인천광역시", "grade": "2" },
+    { "starts_with": "", "grade": "3" }
   ],
   "validation_rules": {
     "enabled": true,
@@ -67,15 +68,21 @@
         "forest": 0
       },
       "max_ltv_by_grade": {
-        "G": 85,
-        "M": 80,
-        "P": 80
+        "1": 70,
+        "2": 70,
+        "3": 70
       },
+      "ltv_when_household_gte": {
+        "region_grades": ["1"],
+        "household_gte": 300,
+        "ltv": 80
+      },
+      "_comment_ltv_when_household_gte": "1급지 아파트 300세대 이상만 80%. 세대수 없거나 300 미만, 2·3급지는 70%",
       "interest_rate_range_by_profile": [
         {
           "match": {
             "property_type_keys": ["apartment", "apartment_no_land_registry"],
-            "region_grades": ["G", "M"],
+            "region_grades": ["1", "2"],
             "household_gte": 200,
             "price_sources": ["kb"]
           },
@@ -84,21 +91,21 @@
         {
           "match": {
             "property_type_keys": ["apartment", "apartment_no_land_registry"],
-            "region_grades": ["G", "M", "P"]
+            "region_grades": ["1", "2", "3"]
           },
           "range": [14.4, 16.8]
         }
       ],
       "primary_interest_rates_by_ltv": {
-        "85": { "1": 13.2 },
-        "80": { "1": 14.4 }
+        "80": { "1": 13.2 },
+        "70": { "1": 14.4 }
       },
       "conditions": [
         "가계자금",
         "전국 당일 진행 가능",
         "공실, 증여, 상속건 취급 가능",
         "*세입자 미동의 시 진행 불가",
-        "아파트 LTV: 강남·서초 85%, 그 외 80%",
+        "아파트 LTV: 1급지 300세대 이상 80%, 그 외 70%",
         "금리: 수도권 KB시세·200세대 이상 13.2~17%, 그 외 14.4~16.8%"
       ]
     },
@@ -117,24 +124,24 @@
         "forest": 0
       },
       "max_ltv_by_grade": {
-        "G": 65,
-        "M": 65,
-        "P": 65
+        "1": 60,
+        "2": 60,
+        "3": 60
       },
       "interest_rate_range_by_profile": [
         {
-          "match": { "property_type_keys": ["villa"], "region_grades": ["G", "M", "P"] },
+          "match": { "property_type_keys": ["villa"], "region_grades": ["1", "2", "3"] },
           "range": [13, 18]
         }
       ],
       "primary_interest_rates_by_ltv": {
-        "65": { "1": 13 }
+        "60": { "1": 13 }
       },
       "conditions": [
         "가계자금",
         "전국 당일 진행 가능",
         "*월세세입자 미동의 시 진행 불가",
-        "빌라 LTV 65%",
+        "빌라 LTV 60%",
         "금리 13~18%"
       ]
     },
@@ -153,25 +160,26 @@
         "forest": 0
       },
       "max_ltv_by_grade": {
-        "G": 65,
-        "M": 65,
-        "P": 65
+        "1": 65,
+        "2": 60,
+        "3": 60
       },
       "interest_rate_range_by_profile": [
         {
-          "match": { "property_type_keys": ["officetel"], "region_grades": ["G", "M", "P"] },
+          "match": { "property_type_keys": ["officetel"], "region_grades": ["1", "2", "3"] },
           "range": [13, 18]
         }
       ],
       "primary_interest_rates_by_ltv": {
-        "65": { "1": 13 }
+        "65": { "1": 13 },
+        "60": { "1": 13 }
       },
       "conditions": [
         "가계자금",
         "전국 당일 진행 가능",
         "공실, 증여, 상속건 취급 가능",
         "*세입자 미동의 시 진행 불가",
-        "오피스텔 LTV 65%",
+        "오피스텔 LTV: 1급지 65%, 그 외 60%",
         "금리 13~18%"
       ]
     },
@@ -190,28 +198,28 @@
         "forest": 1
       },
       "max_ltv_by_grade": {
-        "G": 65,
-        "M": 65,
-        "P": 65
+        "1": 60,
+        "2": 60,
+        "3": 60
       },
       "interest_rate_range_by_profile": [
         {
           "match": {
             "property_type_keys": ["detached_house", "multi_family_house", "land", "forest"],
-            "region_grades": ["G", "M", "P"]
+            "region_grades": ["1", "2", "3"]
           },
           "range": [15.6, 16.8]
         }
       ],
       "primary_interest_rates_by_ltv": {
-        "65": { "1": 15.6 }
+        "60": { "1": 15.6 }
       },
       "conditions": [
         "가계자금",
         "전국 당일 진행 가능",
         "공실, 증여, 상속건 취급 가능",
         "*세입자 미동의 시 진행 불가",
-        "단독주택·다가구·토지 LTV 65% (임야 불가)",
+        "단독주택·다가구·토지 LTV 60% (임야 불가)",
         "금리 15.6~16.8%"
       ]
     }

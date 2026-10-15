@@ -1954,6 +1954,8 @@ class BaseCalculator:
                         max_ltv = max_ltv_primary
                     print(f"DEBUG: BaseCalculator.calculate - 선순위 대출, max_ltv_primary 적용: {max_ltv_primary}%, 기존 max_ltv(급지별): {original_max_ltv}%, 최종 max_ltv: {max_ltv}%")
 
+        # 세대수 충족 시 LTV 상향 (드림에셋 아파트: 1급지 300세대 이상만 80%)
+        max_ltv = self._apply_household_ltv_upgrade(max_ltv, grade, property_data)
         # 세대수 기반 LTV 차감 (솔브레인저축은행 등: 100세대 미만 LTV 5%p)
         max_ltv, self._household_ltv_reduction_meta = self._apply_household_ltv_reduction(
             max_ltv, property_data
@@ -4626,6 +4628,40 @@ class BaseCalculator:
                 f"{final_amount} -> {capped}만원"
             )
         return capped, capped
+
+    def _apply_household_ltv_upgrade(
+        self,
+        max_ltv: Optional[float],
+        grade: Optional[Union[int, str]],
+        property_data: Optional[Dict[str, Any]],
+    ) -> Optional[float]:
+        """
+        세대수·급지 조건을 만족하면 최대 LTV를 올린다.
+        config: ltv_when_household_gte = {region_grades, household_gte, ltv}
+        세대수가 없거나 기준 미만이면 급지별 LTV를 유지한다.
+        """
+        cfg = self.config.get("ltv_when_household_gte") or {}
+        if not cfg or max_ltv is None or property_data is None:
+            return max_ltv
+        target = cfg.get("ltv")
+        threshold = cfg.get("household_gte")
+        if target is None or threshold is None:
+            return max_ltv
+        allowed = [str(item) for item in (cfg.get("region_grades") or [])]
+        if allowed and str(grade) not in allowed:
+            return max_ltv
+        household_count = property_data.get("household_count")
+        try:
+            if household_count is None or int(household_count) < int(threshold):
+                return max_ltv
+            upgraded = float(target)
+        except (TypeError, ValueError):
+            return max_ltv
+        print(
+            f"DEBUG: _apply_household_ltv_upgrade - {self.bank_name}: "
+            f"급지 {grade}, 세대수 {household_count} >= {threshold}, LTV {max_ltv}% → {upgraded}%"
+        )
+        return upgraded
 
     def _apply_household_ltv_reduction(
         self,
