@@ -1034,15 +1034,69 @@ def _kb_data_api_get(path: str, params: Optional[Dict[str, Any]] = None) -> Opti
 
 
 def _extract_road_name_and_number(address: str) -> Optional[Tuple[str, str]]:
-    """도로명+건물번호 추출 (예: 언주로 105, 선릉로18길 12)."""
+    """도로명+건물번호 추출 (언주로 105, 선릉로18길 12, 능해길46번길 51, 지세포1길 27)."""
     if not address:
         return None
     m = re.search(
-        r"([가-힣]+(?:로|길)(?:\d+길)?)\s*(\d+(?:-\d+)?)",
+        r"([가-힣]{2,}(?:\d+)?(?:로|길)\d*번?길|[가-힣]{2,}(?:\d+)?(?:로|길))\s*(\d+(?:-\d+)?)",
         address,
     )
     if m:
         return m.group(1), m.group(2)
+    return None
+
+
+def extract_registry_road_address(text: Optional[str]) -> Optional[str]:
+    """등기부 [도로명주소] 칸. 여러 번 나오면 뒤쪽(전유부분)을 쓴다."""
+    if not text or "도로명주소" not in text:
+        return None
+    found: List[str] = []
+    for mark in re.finditer(r"\[도로명주소\]", text):
+        chunk = text[mark.end():mark.end() + 220]
+        chunk = re.split(r"\[|【|도면편철|등기원인|건물내역", chunk, maxsplit=1)[0]
+        chunk = re.sub(r"\s+", " ", chunk).strip(" :")
+        if _extract_road_name_and_number(chunk):
+            found.append(chunk)
+    return found[-1] if found else None
+
+
+def _road_address_matches(target: str, api_address: str) -> bool:
+    """도로명과 그 바로 뒤 건물번호가 같으면 True. 51이 151에 붙는 오매칭은 제외."""
+    road = _extract_road_name_and_number(target)
+    if not road or not api_address:
+        return False
+    road_name, road_num = road
+    norm_api = re.sub(r"\s+", "", api_address)
+    norm_name = re.sub(r"\s+", "", road_name)
+    idx = norm_api.find(norm_name)
+    if idx < 0:
+        return False
+    tail = norm_api[idx + len(norm_name):]
+    return bool(re.match(rf"{re.escape(road_num)}(?:$|[^0-9-])", tail))
+
+
+def _select_complex_by_road_address(
+    complexes: List[Dict[str, Any]],
+    road_address: str,
+    area: Optional[float] = None,
+) -> Optional[Dict[str, Any]]:
+    """KB 단지 도로명주소가 등기부 도로명·건물번호와 같은 1건."""
+    if not road_address:
+        return None
+    hits = []
+    for complex_item in complexes:
+        blobs = (
+            complex_item.get("도로명주소") or "",
+            complex_item.get("주소") or "",
+        )
+        if any(_road_address_matches(road_address, blob) for blob in blobs if blob):
+            hits.append(complex_item)
+    if len(hits) == 1:
+        return hits[0]
+    if area and area > 0:
+        area_hits = [c for c in hits if _complex_has_exact_area(c, area) is True]
+        if len(area_hits) == 1:
+            return area_hits[0]
     return None
 
 
@@ -1057,6 +1111,32 @@ def _score_road_address_match(address: str, api_address: str) -> float:
     if norm_road in norm_api and road_num in norm_api:
         return 1.0
     return 0.0
+
+
+def _same_bonbun_complexes(
+    complexes: List[Dict[str, Any]],
+    dong_name: str,
+    lot_number: str,
+) -> List[Dict[str, Any]]:
+    """
+    등기 '565-93외 1필지'처럼 여러 필지인 건물은 KB가 대표지번(565-95)만 둔다.
+    같은 동에서 본번(하이픈 앞)이 같은 단지를 모은다. 부번이 같으면 제외한다.
+    """
+    bonbun = (lot_number or "").split("-", 1)[0]
+    if not dong_name or not bonbun.isdigit():
+        return []
+    hits: List[Dict[str, Any]] = []
+    for complex_item in complexes:
+        api_addr = (complex_item.get("주소") or "").strip()
+        if dong_name not in api_addr:
+            continue
+        api_lot = _extract_lot_number_from_address(api_addr)
+        if not api_lot or api_lot == lot_number:
+            continue
+        if api_lot.split("-", 1)[0] != bonbun:
+            continue
+        hits.append(complex_item)
+    return hits
 
 
 def _select_complex_by_dong_and_lot(
@@ -2627,6 +2707,7 @@ class KBPriceAPI:
         address: str,
         complex_name: Optional[str],
         area: Optional[float] = None,
+        road_address: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """fastPriceInfo/hscm 목록에서 등기 주소·단지명으로 단지를 고른다. 못 찾으면 None."""
         if not complexes:
@@ -2869,11 +2950,58 @@ class KBPriceAPI:
                     print(f"[OK] 동+번지 매칭: {dong_name} {lot_number} → {complex.get('단지명', '')}")
                     break
 
+        # 외 N필지: 등기 지번과 KB 대표지번의 부번이 다르다 (565-93외 1필지 ↔ 565-95).
+        # 같은 동·같은 본번이 1건일 때만 확정한다. 여러 건이면 전용면적이 맞는 1건만.
+        if (
+            not selected_complex
+            and not complex_name
+            and dong_name
+            and lot_number
+            and re.search(r"외\s*\d+\s*필지", address or "")
+        ):
+            bonbun_hits = _same_bonbun_complexes(complexes, dong_name, lot_number)
+            picked = None
+            if len(bonbun_hits) == 1:
+                picked = bonbun_hits[0]
+            elif area and area > 0:
+                area_hits = [
+                    c for c in bonbun_hits
+                    if _complex_has_exact_area(c, area) is True
+                ]
+                if len(area_hits) == 1:
+                    picked = area_hits[0]
+            if picked:
+                selected_complex = picked
+                logger.info(
+                    "✅ 외필지 본번 매칭: %s (등기 %s %s → KB %s)",
+                    picked.get("단지명"),
+                    dong_name,
+                    lot_number,
+                    (picked.get("주소") or "").strip(),
+                )
+                print(
+                    f"[OK] 외필지 본번 매칭: {picked.get('단지명')} "
+                    f"(등기 {dong_name} {lot_number})"
+                )
+
+        # 지번으로 확정 못 하면 등기부 [도로명주소]로 조회 (능해길46번길 51 → 삼익).
+        if not selected_complex and road_address:
+            road_hit = _select_complex_by_road_address(complexes, road_address, area)
+            if road_hit:
+                selected_complex = road_hit
+                logger.info(
+                    "✅ 도로명 매칭: %s (%s)",
+                    road_hit.get("단지명"),
+                    (road_hit.get("도로명주소") or road_hit.get("주소") or "").strip(),
+                )
+                print(f"[OK] 도로명 매칭: {road_hit.get('단지명')} ({road_address})")
+
         return selected_complex
 
     def get_kb_price(self, address: str, area: float, 
                      complex_name: Optional[str] = None,
-                     force_officetel: bool = False) -> Optional[Dict[str, Any]]:
+                     force_officetel: bool = False,
+                     road_address: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         주소와 면적을 기반으로 KB 시세 조회 (메인 함수)
         
@@ -2940,7 +3068,9 @@ class KBPriceAPI:
 
         # 3. 단지 선택. hscmList는 fastPriceInfo로 못 찾을 때만 붙인다.
         logger.debug("3단계: 단지 선택")
-        selected_complex = self._select_complex_from_list(complexes, address, complex_name, area=area)
+        selected_complex = self._select_complex_from_list(
+            complexes, address, complex_name, area=area, road_address=road_address
+        )
         if not selected_complex:
             seen_ids = {
                 c.get("단지기본일련번호")
@@ -2951,7 +3081,9 @@ class KBPriceAPI:
             if hscm_added:
                 print(f"[OK] hscmList 병합(매칭 실패 후): +{hscm_added}개 → 총 {len(complexes)}개")
                 logger.info("hscmList 병합(매칭 실패 후): +%d개 (총 %d개)", hscm_added, len(complexes))
-                selected_complex = self._select_complex_from_list(complexes, address, complex_name, area=area)
+                selected_complex = self._select_complex_from_list(
+                    complexes, address, complex_name, area=area, road_address=road_address
+                )
             elif not complexes:
                 logger.error("❌ 단지 목록을 찾을 수 없음")
                 print("[X] 단지 목록을 찾을 수 없음")
@@ -3453,8 +3585,16 @@ def get_kb_price_from_registry(address: str, area: str, registry_text: Optional[
         if villa and (villa.get("kb_ai_price") or villa.get("complex_id")):
             return villa
 
+    road_address = extract_registry_road_address(registry_text)
+    if road_address:
+        logger.info("   등기부 도로명주소: %s", road_address)
+        print(f"[KB] 등기부 도로명주소: {road_address}")
     result = api.get_kb_price(
-        address, area_float, complex_name=complex_name, force_officetel=force_officetel
+        address,
+        area_float,
+        complex_name=complex_name,
+        force_officetel=force_officetel,
+        road_address=road_address,
     )
     if result and result.get("kb_price"):
         return result
