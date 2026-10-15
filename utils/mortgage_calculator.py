@@ -76,9 +76,13 @@ def classify_financial_institution(name: str) -> str:
         name: 금융사 이름 (근저당권자)
     
     Returns:
-        금융사 유형 ('조합', '은행', '저축은행', '캐피탈', '대부', '보험', '전세권', '공공기관', '기타')
+        금융사 유형 ('조합', '은행', '저축은행', '캐피탈', '대부', '보험', '전세권', '국세', '공공기관', '기타')
     """
     name = name.strip()
+
+    # 등기부 국세 근저당. 권리자가 '국' 한 글자이거나 '국세'. 채권최고액=원금.
+    if re.sub(r"\s+", "", name) in ("국", "국세"):
+        return "국세"
     
     # 공공기관 체크 (주택담보대출 수행 기관 - 후순위 취급 가능)
     # - 지정 키워드: 한국토지주택공사, 주택도시보증공사, 서울주택도시공사 등
@@ -142,6 +146,7 @@ def get_ratio_range(institution_type: str) -> Tuple[int, int]:
         '대부': (130, 170),
         '보험': (110, 130),
         '전세권': (100, 100),
+        '국세': (100, 100),  # 국세 근저당은 채권최고액=원금
         '공공기관': (110, 130),  # LH, 주택도시보증공사 등 - 은행과 유사
         '기타': (100, 100),  # 기타는 채권최고액=원금
     }
@@ -166,6 +171,7 @@ def get_default_ratio(institution_type: str) -> int:
         '대부': 150,
         '보험': 120,
         '전세권': 100,
+        '국세': 100,
         '공공기관': 110,
         '기타': 100,
     }
@@ -191,6 +197,10 @@ def calculate_principal(
         - 적용된_비율: 사용된 비율 (%)
         - 깔끔한_금액_여부: True이면 만원 단위로 깔끔하게 떨어짐
     """
+    # 국세 근저당은 채권최고액과 원금이 같다. 원 단위가 십만원으로 안 떨어져도 확인 대상으로 보지 않는다.
+    if classify_financial_institution(institution_name) == "국세":
+        return max_claim_amount, 100, True
+
     # 수동 비율이 지정된 경우
     if manual_ratio:
         principal = int(max_claim_amount * 100 / manual_ratio)

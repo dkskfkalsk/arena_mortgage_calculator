@@ -236,6 +236,9 @@ def _normalize_creditor_name(raw: str) -> str:
     name = re.split(r"\n\s*\d+|\n\s*[가-힣]+\s*근저당권", name)[0]
     name = re.split(r"\d{6}-\d+", name)[0]
     name = re.sub(r"\s+", "", name).strip(" ,·.&-")
+    # 등기부 국세 근저당은 권리자가 '국' 한 글자로 찍힌다.
+    if name == "국":
+        return "국세"
     if len(name) < 2 or name.isdigit():
         return ""
     return name
@@ -392,6 +395,37 @@ class RegistryParser:
         match = self._EXCLUSIVE_BUILDING_SECTION_RE.search(text)
         return match.group(1) if match else ""
 
+    def _bare_exclusive_area(self, section: str) -> str:
+        """전유부분 칸에 ㎡ 없이 면적 숫자만 있는 경우. 예: 도면편철장 다음 줄 '128.118'."""
+        if not section:
+            return ""
+
+        def as_area(num: str) -> str:
+            try:
+                value = float(num)
+            except ValueError:
+                return ""
+            if 10 <= value <= 300:
+                return f"{num}㎡"
+            return ""
+
+        after_sheet = re.search(
+            r'도면편철장[^\n]*\n\s*(\d+\.?\d*)\s*(?:\n|$)',
+            section,
+        )
+        if after_sheet:
+            found = as_area(after_sheet.group(1))
+            if found:
+                return found
+
+        after_unit = re.search(
+            rf'{self._UNIT_HO_RE}[\s\S]{{0,200}}?(?:^|\n)\s*(\d+\.?\d*)\s*(?:\n|$)',
+            section,
+        )
+        if after_unit:
+            return as_area(after_unit.group(1))
+        return ""
+
     def _extract_area(self) -> str:
         """면적 추출 (전용면적) - 표제부 '전유부분의 건물의 표시'에 기재된 면적 사용"""
         # 줄바꿈으로 쪼개진 소수(예: 84\\n.8799㎡)를 먼저 복원
@@ -430,6 +464,9 @@ class RegistryParser:
             if non_floor_areas:
                 non_floor_areas.sort(key=lambda x: x[0], reverse=True)
                 return f"{non_floor_areas[0][1]}㎡"
+            bare_area = self._bare_exclusive_area(building_section)
+            if bare_area:
+                return bare_area
 
         # 2순위: "제N층 제N호" 직후 150자 이내 첫 XX㎡ (층별 면적 "N층 XX㎡" 제외)
         for m in re.finditer(rf'제\s*\d+층[\s\S]{{0,80}}?{self._UNIT_HO_RE}', text):
@@ -557,6 +594,9 @@ class RegistryParser:
                 # 전유부분 블록에서는 전용면적 1개가 보통이므로 가장 큰 값 사용 (층별 제외 후)
                 non_floor_areas.sort(key=lambda x: x[0], reverse=True)
                 return f"{non_floor_areas[0][1]}㎡"
+            bare_area = self._bare_exclusive_area(building_section)
+            if bare_area:
+                return bare_area
 
         # 1. (전 1) 63.81㎡ 형태: 전유 1호기 전용면적 명시 (동문아파트 등)
         # 이기 등기에서는 '(전 1)' 다음 줄에 호수, 그 다음 줄에 면적이 오는 경우가 있다.
