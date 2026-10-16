@@ -988,6 +988,45 @@ def _move_official_price_to_kb_ai(result: Dict[str, Any]) -> None:
     print(f"[!] 50세대 미만 단지 → KB AI시세로 표시: {price_num:,.0f}만원")
 
 
+def _discard_kb_prices_without_source_url(result: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """
+    kbland 참고 링크(source_url / complex_id)가 없으면 KB시세·KB AI시세를 쓰지 않는다.
+
+    빌라 빠른시세 API만으로 금액이 나와도 단지 페이지 링크가 없으면
+    주소 검색으로 검증할 수 없으므로 산출에서 제외한다.
+    """
+    if not result:
+        return result
+    has_price = result.get("kb_price") is not None or result.get("kb_ai_price") is not None
+    if not has_price:
+        return result
+    source_url = (result.get("source_url") or "").strip()
+    complex_id = result.get("complex_id")
+    has_link = bool(source_url) or (
+        complex_id is not None and str(complex_id).strip() not in ("", "None")
+    )
+    if has_link:
+        return result
+
+    discarded = []
+    if result.get("kb_price") is not None:
+        discarded.append(f"KB시세 {result['kb_price']:,.0f}만원")
+    if result.get("kb_ai_price") is not None:
+        discarded.append(f"KB AI시세 {result['kb_ai_price']:,.0f}만원")
+    result["kb_price"] = None
+    result["kb_price_min"] = None
+    result["kb_price_raw"] = None
+    result["kb_price_min_raw"] = None
+    result["kb_ai_price"] = None
+    result["kb_ai_price_min"] = None
+    result["kb_ai_price_max"] = None
+    result["price_discarded_no_link"] = True
+    msg = ", ".join(discarded) if discarded else "시세"
+    logger.info("참고 링크 불가 → %s 미사용 (complex_id/source_url 없음)", msg)
+    print(f"[!] 참고 링크 불가 → {msg} 미사용")
+    return result
+
+
 _KBLAND_VILLA_TYPE_CODE = "08"  # 매물종별구분 08 = 연립/다세대
 
 
@@ -2517,7 +2556,7 @@ class KBPriceAPI:
                 result.get("complex_type"),
             )
 
-        return result
+        return _discard_kb_prices_without_source_url(result)
 
     def get_rcns_info(self, complex_id: str) -> Optional[Dict[str, Any]]:
         """단지 재건축/정비사업 정보 (kbland complex/rcnsInfo). Playwright 없이 단계·인가일 확보."""
@@ -3429,7 +3468,7 @@ class KBPriceAPI:
             print(f"[OK] KB AI시세 조회 완료: {price_info} ({result['complex_name']})")
         else:
             print(f"[OK] KB 단지 식별 완료(시세없음): {result['complex_name']} / id={result.get('complex_id')}")
-        return result
+        return _discard_kb_prices_without_source_url(result)
 
 
 def get_kb_price_from_registry(address: str, area: str, registry_text: Optional[str] = None) -> Optional[Dict[str, Any]]:
@@ -3582,8 +3621,9 @@ def get_kb_price_from_registry(address: str, area: str, registry_text: Optional[
             address, area_float, complex_name=complex_name, hint_text=registry_text
         )
         villa_tried = True
+        # 참고 링크(complex_id) 있는 시세/단지 식별만 여기서 확정. 링크 없는 AI시세는 미사용.
         if villa and (villa.get("kb_ai_price") or villa.get("complex_id")):
-            return villa
+            return _discard_kb_prices_without_source_url(villa)
 
     road_address = extract_registry_road_address(registry_text)
     if road_address:
@@ -3597,16 +3637,16 @@ def get_kb_price_from_registry(address: str, area: str, registry_text: Optional[
         road_address=road_address,
     )
     if result and result.get("kb_price"):
-        return result
+        return _discard_kb_prices_without_source_url(result)
 
     if not villa_tried:
         villa = api.get_villa_kb_ai_price(
             address, area_float, complex_name=complex_name, hint_text=registry_text
         )
     if not villa:
-        return result
+        return _discard_kb_prices_without_source_url(result)
     if not result:
-        return villa
+        return _discard_kb_prices_without_source_url(villa)
 
     # 공식시세는 없지만 아파트 단지가 이미 식별된 경우:
     # 같은 단지일 때만 AI시세를 얹고, 다른 단지면 아파트 식별 결과를 유지한다.
@@ -3617,10 +3657,10 @@ def get_kb_price_from_registry(address: str, area: str, registry_text: Optional[
             "빌라 AI시세 단지가 기존 식별 단지와 다름 → AI시세 생략 (apt=%s, villa=%s)",
             result_cid, villa_cid,
         )
-        return result
+        return _discard_kb_prices_without_source_url(result)
     for key, value in villa.items():
         if key.startswith("kb_ai") or key.startswith("villa_"):
             result[key] = value
         elif result.get(key) in (None, "", [], False) and value not in (None, "", []):
             result[key] = value
-    return result
+    return _discard_kb_prices_without_source_url(result)
