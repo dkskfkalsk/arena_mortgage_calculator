@@ -811,7 +811,7 @@ class BaseCalculator:
         
         # 시세 우선순위: KB시세 > 부동산테크 > KB AI시세 > 감정가·탁감가 > 한국부동산원 > 하우스머치 > 실거래가
         # 파서는 탁감가를 kb_price 칸에 넣으므로, 공식 KB시세가 아니면 대체 시세 후보로 내린다
-        price_sources = self.config.get("price_sources", {})
+        price_sources = self._price_sources_for_property(property_data)
         _appraisal_keywords = ("탁감", "감정가")
         is_tackgamga_in_kb_field = bool(kb_price_raw) and any(k in str(kb_price_raw) for k in _appraisal_keywords)
         appraisal_from_kb_field = None
@@ -863,7 +863,6 @@ class BaseCalculator:
         
         # price_sources 설정에 따라 시세 추출 시도 (KB시세가 없을 경우)
         if kb_price is None:
-            price_sources = self.config.get("price_sources", {})
             special_notes = property_data.get("special_notes", "") or ""
             original_kb_price_raw = property_data.get("kb_price_raw", "") or ""
             
@@ -1096,6 +1095,12 @@ class BaseCalculator:
         region_errors, grade = self._collect_region_validation(region)
         if region_errors:
             return self._error_result(region_errors)
+
+        ptype_regions = ((property_type_conditions or {}).get(ptype_key) or {}).get("allowed_regions") if ptype_key else None
+        if ptype_regions and not self._region_in_targets(region, ptype_regions):
+            prop_label = property_type or ptype_key
+            log_print(f"DEBUG: BaseCalculator.calculate - {ptype_key} 허용 지역 {ptype_regions} 아님: {region}")
+            return self._error_result([f"{prop_label}은(는) {'·'.join(ptype_regions)} 지역만 취급 가능합니다"])
 
         # 감정가·탁감가 급지 제한 (bank_appraisal_max_grade: 이음론 1~3급지만)
         appraisal_max_grade = self.config.get("bank_appraisal_max_grade")
@@ -3857,6 +3862,44 @@ class BaseCalculator:
         print(f"DEBUG: BaseCalculator.validate_kb_price - output: {result}")
         return result
 
+    _REGION_ABBREVIATIONS = {
+        "경북": "경상북도",
+        "경남": "경상남도",
+        "충북": "충청북도",
+        "충남": "충청남도",
+        "전북": "전라북도",
+        "전남": "전라남도",
+        "강원": "강원특별자치도",
+    }
+
+    @classmethod
+    def _region_in_targets(cls, region: str, targets: List[str]) -> bool:
+        """target_regions 형식("서울", "경기", "광주" 등) 목록에 region이 포함되는지."""
+        for target in targets:
+            # "광주": 광주광역시만 매칭, 경기도광주시 제외
+            if target == "광주":
+                if region.startswith("광주광역시"):
+                    return True
+                continue
+            target_full = cls._REGION_ABBREVIATIONS.get(target, target)
+            if target_full in region or target in region:
+                return True
+        return False
+
+    def _price_sources_for_property(self, property_data: Dict[str, Any]) -> Dict[str, Any]:
+        """전역 price_sources에 property_type_conditions.<물건>.price_sources를 덮어쓴 결과."""
+        price_sources = dict(self.config.get("price_sources", {}) or {})
+        ptype_key = get_property_type_key(
+            property_data.get("property_type", "") or "",
+            property_data.get("special_notes", "") or "",
+        )
+        if ptype_key:
+            ptype_cfg = (self.config.get("property_type_conditions") or {}).get(ptype_key) or {}
+            override = ptype_cfg.get("price_sources")
+            if isinstance(override, dict):
+                price_sources.update({k: v for k, v in override.items() if not k.startswith("_")})
+        return price_sources
+
     def _collect_region_validation(self, region: str) -> tuple:
         """
         지역·급지 검증. (errors, grade) 반환.
@@ -3877,29 +3920,7 @@ class BaseCalculator:
 
         target_regions = self.config.get("target_regions", [])
         if target_regions:
-            is_target_region = False
-            region_abbreviation_map = {
-                "경북": "경상북도",
-                "경남": "경상남도",
-                "충북": "충청북도",
-                "충남": "충청남도",
-                "전북": "전라북도",
-                "전남": "전라남도",
-                "강원": "강원특별자치도"
-            }
-
-            for target in target_regions:
-                target_full = region_abbreviation_map.get(target, target)
-                # "광주": 광주광역시만 매칭, 경기도광주시 제외
-                if target == "광주":
-                    if region.startswith("광주광역시"):
-                        is_target_region = True
-                        break
-                    continue
-                if target_full in region or target in region:
-                    is_target_region = True
-                    break
-            if not is_target_region:
+            if not self._region_in_targets(region, target_regions):
                 print(f"DEBUG: BaseCalculator.calculate - Region {region} is not in target regions: {target_regions}")
                 region_errors.append("취급 대상 지역이 아닙니다")
 

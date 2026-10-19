@@ -487,19 +487,41 @@
   "collateral_provider_excluded": true,
   "_comment_collateral_provider_excluded": "담보제공건(차주·담보제공자 구분) 취급 불가",
   "property_type_conditions": {
+    "_comment": "price_sources: 물건별로 전역 price_sources를 덮어씀. allowed_regions: 해당 물건만 취급 지역 제한(target_regions 형식)",
     "apartment": {
-      "min_household_count": 30
+      "min_household_count": 30,
+      "price_sources": {
+        "kb_ai_price": 0
+      }
     },
     "apartment_no_land_registry": {
-      "min_household_count": 30
+      "min_household_count": 30,
+      "price_sources": {
+        "kb_ai_price": 0
+      }
     },
     "residential_commercial": {
-      "min_household_count": 30
+      "min_household_count": 30,
+      "price_sources": {
+        "kb_ai_price": 0
+      }
     },
     "officetel": {
-      "min_household_count": 100
+      "min_household_count": 100,
+      "price_sources": {
+        "kb_ai_price": 0
+      }
+    },
+    "villa": {
+      "allowed_regions": [
+        "서울"
+      ]
     }
   },
+  "max_ltv_by_property_type": {
+    "villa": 80
+  },
+  "_comment_max_ltv_by_property_type": "빌라 최대 LTV 80%",
   "price_sources": {
     "_comment": "시세 소스 사용 여부 설정 (1: 사용, 0: 사용안함)",
     "kb_price": 1,
@@ -518,14 +540,6 @@
     "officetel": 1,
     "detached_house": 0,
     "multi_family_house": 0
-  },
-  "villa_conditions": {
-    "_comment": "빌라 특별 조건: 서울만, 최대 LTV 80%, AI시세 사용 가능",
-    "allowed_regions": [
-      "서울"
-    ],
-    "max_ltv": 80,
-    "kb_ai_price_allowed": true
   },
   "conditions": [
     "상환방식(모든등급 동일): 원리금 균등 60/84/120개월 中 택1, 거치 1년 가능",
