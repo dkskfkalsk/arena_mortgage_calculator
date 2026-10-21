@@ -721,10 +721,10 @@ def _clean_extracted_complex_name(name: str) -> str:
     s = re.sub(r"^(?:[가-힣]+구)", "", s)
     s = re.sub(r"^(?:[가-힣]+군)", "", s)
     s = re.sub(r"^[가-힣]+동", "", s)
-    s = re.sub(r"^\d+(?:-\d+)?", "", s)
+    s = re.sub(r"^\d+(?:-\d+)?(?:외\d+필지)?", "", s)
     s = re.sub(r"^(?:[가-힣]+구)", "", s)
     s = re.sub(r"^[가-힣]+동", "", s)
-    s = re.sub(r"^\d+(?:-\d+)?", "", s)
+    s = re.sub(r"^\d+(?:-\d+)?(?:외\d+필지)?", "", s)
     return s.strip()
 
 
@@ -1081,7 +1081,8 @@ def _extract_road_name_and_number(address: str) -> Optional[Tuple[str, str]]:
         address,
     )
     if m:
-        return m.group(1), m.group(2)
+        # 등기부 도로명주소는 부번 없는 건물번호를 '16-0'으로 적는다
+        return m.group(1), re.sub(r"-0+$", "", m.group(2))
     return None
 
 
