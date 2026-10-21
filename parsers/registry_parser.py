@@ -1112,8 +1112,9 @@ class RegistryParser:
         
         # 방법 1: 주요 등기사항 요약에서 추출 (가장 정확)
         # "3. (근)저당권 및 전세권 등 ( 을구 )" 섹션 찾기
-        # [ 참 고 사 항 ] 또는 출력일시 전까지 포함 (2순위 등 모두 포함)
-        summary_section_pattern = r'\(근\)저당권\s*및\s*전세권\s*등[\s\S]*?(?=\[\s*참\s*고|출력일시|$)'
+        # [ 참 고 사 항 ] 전까지 포함. 요약이 2페이지 이상이면 중간에
+        # "1/2\n출력일시"가 끼어 있으므로 출력일시로 끊으면 뒤쪽 순위가 누락된다.
+        summary_section_pattern = r'\(근\)저당권\s*및\s*전세권\s*등[\s\S]*?(?=\[\s*참\s*고|$)'
         summary_match = re.search(summary_section_pattern, self.text, re.DOTALL | re.IGNORECASE)
         
         if summary_match:
