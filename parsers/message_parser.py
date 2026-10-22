@@ -362,6 +362,12 @@ class MessageParser:
             # 전체 순위 재정렬 (1 신탁, 2 세입자, 3 근저당... 또는 1 세입자, 2 근저당...)
             for idx, m in enumerate(data["mortgages"]):
                 m["priority"] = idx + 1
+
+        if not (data.get("residence") or "").strip():
+            if tenant or has_tenant_in_mortgages:
+                data["residence"] = "비거주"
+            else:
+                data["residence"] = "거주"
         
         # 지역 추출 (주소에서)
         if data["address"]:

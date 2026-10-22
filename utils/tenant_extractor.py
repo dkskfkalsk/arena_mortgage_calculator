@@ -10,6 +10,18 @@ from typing import Dict, Optional, Any
 # 세입자 인식 키워드
 TENANT_KEYWORDS = r'전세세입자|월세세입자|전세입자|월세입자|세입자|임차보증금'
 
+# 세입자 없음 표기. '세입자 x / 추가필요자금 7000'을 보증금으로 오인하지 않기 위함
+_NO_TENANT_RE = re.compile(
+    r'(?:세입자|임차인|임차보증금)\s*(?:없음|없이|없|무|x\b|X\b|✕|×)|'
+    r'(?:없|무|x|X|✕|×)\s*(?:는\s*)?(?:세입자|임차인)|'
+    r'(?:본인|본인세대)\s*만\s*거주'
+)
+
+# 추가자금·필요자금 금액은 임차보증금이 아님
+_FUNDING_AMOUNT_RE = re.compile(
+    r'(?:추가\s*필요자금|추가자금|필요자금|추가\s*대출)\s*[:：\-]?\s*[\d,]+(?:\s*만)?'
+)
+
 # 설정내역 기관명으로 쓰이는 세입자 표기 (완전일치 + '세입자' 포함 변형)
 TENANT_INSTITUTION_NAMES = (
     "전세세입자",
@@ -19,6 +31,18 @@ TENANT_INSTITUTION_NAMES = (
     "세입자",
     "임차보증금",
 )
+
+
+def is_no_tenant_text(text: Optional[str]) -> bool:
+    """세입자 없음(세입자 x, 본인세대만 거주 등) 표기인지."""
+    return bool(text and _NO_TENANT_RE.search(text))
+
+
+def has_tenant_occupancy(text: Optional[str]) -> bool:
+    """임차·세입자로 비거주가 되는 내용이 있는지. 세입자 없음 표기는 False."""
+    if not text or is_no_tenant_text(text):
+        return False
+    return bool(re.search(TENANT_KEYWORDS, text))
 
 
 def is_tenant_institution(name: Optional[str]) -> bool:
@@ -44,6 +68,11 @@ def extract_tenant_info(text: str, parse_amount_fn=None) -> Optional[Dict[str, A
     """
     if not text or not re.search(TENANT_KEYWORDS, text):
         return None
+    if _NO_TENANT_RE.search(text):
+        return None
+
+    # '추가필요자금 7000'처럼 세입자와 무관한 금액은 보증금 후보에서 제외
+    text = _FUNDING_AMOUNT_RE.sub(' ', text)
     
     deposit_man = None
     monthly_rent_man = None

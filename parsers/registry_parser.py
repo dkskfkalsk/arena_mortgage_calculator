@@ -313,6 +313,22 @@ class RegistryParser:
         """1페이지 요약 등에서 '...'로 잘린 주소인지 확인"""
         return bool(re.search(r'(?:\.{2,}|…)\s*$', addr.strip()))
 
+    _ADDRESS_HEADER_COMPACT = {
+        "건물내역", "등기원인및기타사항", "등기원인", "기타사항",
+        "소재지번건물명칭및번호", "건물명칭및번호", "표시번호",
+        "권리자및기타사항", "기록사항없음",
+    }
+
+    def _looks_like_registry_address(self, addr: str) -> bool:
+        """표제 헤더('건 물 내 역')가 아니라 실제 주소인지."""
+        compact = re.sub(r"\s+", "", addr or "")
+        if not compact or compact in self._ADDRESS_HEADER_COMPACT:
+            return False
+        return bool(re.search(
+            r"(?:특별시|광역시|특별자치시|특별자치도|도|시|군|구|읍|면|동|리|로|길)",
+            compact,
+        ))
+
     def _append_unit_to_address(self, base_addr: str, unit_line: str) -> str:
         """제N동 제N층 제N호 등 전유부분 표시를 주소에 붙임"""
         unit = re.sub(r'\s+', ' ', unit_line.strip())
@@ -320,18 +336,18 @@ class RegistryParser:
             return base_addr
         return f"{base_addr} {unit}"
 
-    def _extract_collective_building_address(self) -> str:
-        """[집합건물] 주소 추출 - 1페이지 생략(...) 시 표제부 등 후속 페이지 전체 주소 우선"""
+    def _extract_tagged_registry_address(self, tag: str) -> str:
+        """[집합건물] / [건물] 주소 추출. 1페이지 생략(...)이면 표제부 전체 주소 우선."""
         candidates = []
-        for match in re.finditer(r'\[집합건물\]\s*(.+?)(?:\n|$)', self.text):
+        pattern = rf'\[\s*{re.escape(tag)}\s*\]\s*(.+?)(?:\n|$)'
+        for match in re.finditer(pattern, self.text):
             addr = re.sub(r'\s+', ' ', match.group(1).strip())
-            if len(addr) > 5:
+            if len(addr) > 5 and self._looks_like_registry_address(addr):
                 candidates.append((match.start(), addr))
 
         if not candidates:
             return ""
 
-        # "..." 없는 주소 중 가장 긴 것 우선 (표제부 전체 주소)
         full_candidates = [
             (pos, addr) for pos, addr in candidates if not self._is_truncated_address(addr)
         ]
@@ -341,39 +357,45 @@ class RegistryParser:
             best_pos, best_addr = candidates[0]
             best_addr = re.sub(r'(?:\.{2,}|…)\s*$', '', best_addr).strip()
 
-        # 같은 [집합건물] 블록 다음 줄: 제122동 제13층 제1305호
-        remainder = self.text[best_pos:]
-        unit_match = re.search(
-            r'\[집합건물\]\s*[^\n]+\n\s*(제\s*\d+동\s*제\s*\d+층\s*제\s*\d+호)',
-            remainder
-        )
-        if unit_match:
-            best_addr = self._append_unit_to_address(best_addr, unit_match.group(1))
+        if tag == "집합건물":
+            remainder = self.text[best_pos:]
+            unit_match = re.search(
+                r'\[집합건물\]\s*[^\n]+\n\s*(제\s*\d+동\s*제\s*\d+층\s*제\s*\d+호)',
+                remainder
+            )
+            if unit_match:
+                best_addr = self._append_unit_to_address(best_addr, unit_match.group(1))
 
         return best_addr
+
+    def _extract_collective_building_address(self) -> str:
+        """[집합건물] 주소 추출 - 1페이지 생략(...) 시 표제부 등 후속 페이지 전체 주소 우선"""
+        return self._extract_tagged_registry_address("집합건물")
 
     def _extract_address(self) -> str:
         """부동산 주소 추출"""
         collective_addr = self._extract_collective_building_address()
         if collective_addr:
             return collective_addr
+
+        building_addr = self._extract_tagged_registry_address("건물")
+        if building_addr:
+            return building_addr
         
-        # 소재지 / 소재지번 다음 줄
+        # 소재지 / 소재지번 다음 줄 (컬럼 헤더 '건 물 내 역'은 제외)
         pattern = r'소재지번[^\n]*\n\s*(.+?)(?:\n|$)'
         match = re.search(pattern, self.text)
         if match:
-            addr = match.group(1).strip()
-            addr = re.sub(r'\s+', ' ', addr)
-            if len(addr) > 5:
+            addr = re.sub(r'\s+', ' ', match.group(1).strip())
+            if len(addr) > 5 and self._looks_like_registry_address(addr):
                 return addr
         
         # 소재지 : 주소 (한 줄)
         pattern = r'소재지\s*[:：]\s*(.+?)(?:\n|$)'
         match = re.search(pattern, self.text)
         if match:
-            addr = match.group(1).strip()
-            addr = re.sub(r'\s+', ' ', addr)
-            if len(addr) > 5:
+            addr = re.sub(r'\s+', ' ', match.group(1).strip())
+            if len(addr) > 5 and self._looks_like_registry_address(addr):
                 return addr
         
         return ""
@@ -426,10 +448,52 @@ class RegistryParser:
             return as_area(after_unit.group(1))
         return ""
 
+    def _extract_building_floor_area_sum(self) -> str:
+        """
+        일반건물(단독주택 등) 표제부 층별 면적 합산(연면적).
+        전유부분이 없는 건물 등기는 '1층 84.78㎡ / 2층 55.32㎡'만 있다.
+        행정구역변경으로 같은 층이 반복되면 층당 첫 값만 쓰고, 지하는 제외한다.
+        """
+        if self._extract_primary_registry_kind() != "건물":
+            return ""
+        table = ""
+        m = re.search(
+            r'【\s*표\s*제\s*부\s*】[\s\S]*?(?=【\s*갑\s*구\s*】|【|$)',
+            self.text,
+            re.IGNORECASE,
+        )
+        search_text = m.group(0) if m else self.text[:4000]
+        floor_areas: Dict[str, float] = {}
+        for fm in re.finditer(r'(\d+)\s*층\s+(\d+\.?\d*)\s*㎡', search_text):
+            start = max(0, fm.start() - 3)
+            prefix = search_text[start:fm.start()]
+            if "지하" in prefix or (fm.start() > 0 and search_text[fm.start() - 1] == "지"):
+                continue
+            floor = fm.group(1)
+            try:
+                area = float(fm.group(2))
+            except ValueError:
+                continue
+            if floor in floor_areas or not (5 <= area <= 1000):
+                continue
+            floor_areas[floor] = area
+        if not floor_areas:
+            return ""
+        total = sum(floor_areas.values())
+        if total < 10:
+            return ""
+        formatted = f"{total:.2f}".rstrip("0").rstrip(".")
+        return f"{formatted}㎡"
+
     def _extract_area(self) -> str:
         """면적 추출 (전용면적) - 표제부 '전유부분의 건물의 표시'에 기재된 면적 사용"""
         # 줄바꿈으로 쪼개진 소수(예: 84\\n.8799㎡)를 먼저 복원
         text = self._normalize_split_decimals(self.text)
+
+        # 일반건물 등기: 전유부분이 없어 층별 면적 합산이 연면적이다
+        building_area = self._extract_building_floor_area_sum()
+        if building_area:
+            return building_area
 
         # 1순위: ( 전유부분의 건물의 표시 ) 블록에서 추출 (층별 면적 240㎡ 등과 구분)
         building_section = self._exclusive_building_section(text)

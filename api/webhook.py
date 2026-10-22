@@ -572,11 +572,7 @@ def get_application(force_new=False):
                             info['credit_score'] = str(score)
                             break
             
-            # 거주여부 추출 (비거주 먼저 - "비거주(월세동의)"에서 "거주" 오매칭 방지)
-            if re.search(r'비거주|임대|전세', caption):
-                info['residence'] = '비거주'
-            elif re.search(r'거주|실거주|본인\s*거주', caption):
-                info['residence'] = '거주'
+            # 거주여부는 세입자 추출 이후에 확정 (세입자 없으면 기본 거주)
             
             # 세대수 추출 (세대수 700, 700세대, 271 / 5개동 등)
             households_match = (
@@ -726,7 +722,7 @@ def get_application(force_new=False):
                         info['total_floor'] = f"{num}층"
                         break
             
-            # 면적 추출 (전용 83.89, 83.89㎡ 등)
+            # 면적 추출 (전용 83.89, 83.89㎡ 등). 등기부 면적이 있으면 그쪽을 우선한다.
             area_patterns = [
                 r'전용\s*[:：]?\s*(\d+(?:\.\d+)?)',  # 전용 83.89
                 r'(\d+(?:\.\d+)?)\s*㎡',             # 83.89㎡
@@ -792,10 +788,19 @@ def get_application(force_new=False):
                         break
             
             # 세입자 추출 (공통 유틸 사용)
-            from utils.tenant_extractor import extract_tenant_info
+            from utils.tenant_extractor import extract_tenant_info, has_tenant_occupancy
             tenant = extract_tenant_info(caption, parse_amount_fn=parse_complex_amount)
             if tenant:
                 info['tenant'] = tenant
+
+            # 거주여부: 세입자 관련 내용이 없으면 기본 거주.
+            # 비거주 명시는 유지. '전세퇴거'의 전세만으로 비거주 처리하지 않음.
+            if re.search(r'비거주', caption):
+                info['residence'] = '비거주'
+            elif tenant or has_tenant_occupancy(caption) or re.search(r'임대', caption):
+                info['residence'] = '비거주'
+            else:
+                info['residence'] = '거주'
             
             # 특이사항 추출 (캡션에서 "특이사항" 키워드 뒤의 내용)
             # 패턴: "특이사항 : 내용" 또는 "특이사항: 내용" 또는 "특이사항 내용"
@@ -932,9 +937,9 @@ def get_application(force_new=False):
             address = result.부동산_주소 or "확인불가"
             floor_info = result.층수정보 or ""
             
-            # 총층수: 캡션 우선, 없으면 PDF(등기부)에서 추출
-            total_floor = caption_info.get('total_floor') or ""
-            if not total_floor and floor_info:
+            # 총층수: 등기부 우선, 없을 때만 캡션
+            total_floor = ""
+            if floor_info:
                 # "15층 중 2층 203호" 또는 "17층 1802호" 또는 "18층" 형태에서 파싱
                 floor_match = re.search(r'(\d+)층\s*중', floor_info)
                 if floor_match:
@@ -943,6 +948,8 @@ def get_application(force_new=False):
                     floor_match = re.search(r'^(\d+)층', floor_info)
                     if floor_match:
                         total_floor = f"{floor_match.group(1)}층"
+            if not total_floor:
+                total_floor = caption_info.get('total_floor') or ""
             unit_info = ""
             if floor_info:
                 
@@ -960,11 +967,16 @@ def get_application(force_new=False):
             else:
                 lines.append(f"총층수 : ")
             
-            # 면적 (캡션에서 입력한 면적 우선, 없으면 등기부에서 추출)
+            # 면적: 등기부 우선, 없을 때만 캡션
             area_from_caption = caption_info.get('area')
             area_from_pdf = result.면적 or ''
-            area = area_from_caption or area_from_pdf or ''
-            area_source_note = "캡션 입력" if (area and area_from_caption) else ("등기부 추출" if area else "")
+            area = area_from_pdf or area_from_caption or ''
+            if area_from_pdf:
+                area_source_note = "등기부 추출"
+            elif area_from_caption:
+                area_source_note = "캡션 입력"
+            else:
+                area_source_note = ""
             area_source = f" ({area_source_note})" if area_source_note else ""
             lines.append(f"면   적 : {area}{area_source}")
             # KB '동일시세 전용면적'으로 매칭된 경우 아래에서 이 줄에 표기를 덧붙인다
@@ -972,9 +984,9 @@ def get_application(force_new=False):
             
             # 세대수, 구분, KB시세 (캡션에서 추출한 정보 사용, KB API 결과로 업데이트 가능)
             households = caption_info.get('households') or ''
-            property_type = caption_info.get('property_type') or ''
+            property_type = getattr(result, "부동산구분", "") or ""
             if not property_type:
-                property_type = getattr(result, "부동산구분", "") or ""
+                property_type = caption_info.get('property_type') or ""
             
             # KB시세: 캡션에서 추출한 것이 없으면 등기부 주소/면적로 자동 조회
             kb_price = caption_info['kb_price']
