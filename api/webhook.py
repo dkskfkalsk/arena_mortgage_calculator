@@ -1551,8 +1551,14 @@ def get_application(force_new=False):
             if land_category == "임야" and "지목 임야" not in special_notes:
                 special_notes.append("지목 임야")
             
-            # 특이사항
-            lines.append(f"특이사항 : {' / '.join(special_notes) if special_notes else ''}")
+            # 특이사항 (캡션에 이전 응답의 "특이사항 : A / B"가 그대로 오면 등기부 항목과 겹치므로 항목 단위 중복 제거)
+            unique_notes = []
+            for note in special_notes:
+                for part in str(note).split(" / "):
+                    part = part.strip()
+                    if part and part not in unique_notes:
+                        unique_notes.append(part)
+            lines.append(f"특이사항 : {' / '.join(unique_notes)}")
             
             # 요청사항
             request_text = caption_info.get('request', '')
