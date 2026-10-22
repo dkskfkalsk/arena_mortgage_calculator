@@ -1014,8 +1014,6 @@ def get_application(force_new=False):
             kb_result = None  # KB API 전체 결과 (사용승인일·재건축 정보 포함)
             kb_ai_price_num = None
             kb_ai_price_min_num = None
-            real_transactions_display = ""  # KB 시세 없을 때 공공데이터 실거래가
-            
             # 등기부에서 주소와 면적을 추출한 경우 KB API 호출 (면적은 문자열 그대로 전달해 51/37.85 등 전용 추출)
             # pdf_only 모드에서는 KB API·공공데이터·스크래핑 호출 없음 (Vercel 수준에서 PDF 파싱만)
             has_area = bool(area and str(area).strip()) or (area_value is not None and area_value > 0)
@@ -1138,26 +1136,6 @@ def get_application(force_new=False):
                         kb_api_no_result = True
                         print(f"[WEBHOOK] ⚠️ KB 시세 조회 실패 (결과 없음)", file=sys.stderr, flush=True)
                         logger.warning("KB 시세 조회 실패 (결과 없음)")
-
-                    # 공식 KB시세가 없으면 공공데이터 실거래가 조회 (단지만 식별된 경우 포함)
-                    if not (kb_result and kb_result.get('kb_price')):
-                        try:
-                            from KB_api.kb_price_api import KBPriceAPI
-                            from utils.real_transaction_api import get_real_transactions, format_real_transactions_display
-                            api = KBPriceAPI()
-                            dongcode = api.find_dongcode(address)
-                            if dongcode:
-                                real_tx = get_real_transactions(
-                                    address, dongcode,
-                                    area_hint=area_value,
-                                    max_items=5
-                                )
-                                if real_tx:
-                                    real_transactions_display = format_real_transactions_display(real_tx)
-                                    print(f"[WEBHOOK] ✅ 실거래가 조회 성공: {len(real_tx)}건", file=sys.stderr, flush=True)
-                                    logger.info(f"실거래가 조회 성공: {len(real_tx)}건")
-                        except Exception as rt_e:
-                            logger.debug("실거래가 조회 실패: %s", rt_e)
                 except Exception as e:
                     kb_api_failed = True
                     print(f"[WEBHOOK] ❌ KB 시세 조회 중 오류: {str(e)}", file=sys.stderr, flush=True)
@@ -1293,12 +1271,6 @@ def get_application(force_new=False):
                 if kb_complex_id:
                     kb_price_url = kb_source_url or f"https://kbland.kr/c/{kb_complex_id}"
                     lines.append(f"KB AI시세 참고 : {kb_price_url}")
-                if real_transactions_display:
-                    tx_lines = [ln.strip() for ln in real_transactions_display.split("\n") if ln.strip()]
-                    if tx_lines:
-                        lines.append(f"실거래가 : {tx_lines[0]}")
-                        for ln in tx_lines[1:]:
-                            lines.append(f"           {ln}")
             else:
                 # KB 시세가 없어도 단지 식별 ID가 있으면 단지 페이지는 안내
                 lines.append("KB시세 : 없음")
@@ -1306,12 +1278,22 @@ def get_application(force_new=False):
                 if kb_complex_id:
                     kb_price_url = kb_source_url or f"https://kbland.kr/c/{kb_complex_id}"
                     lines.append(f"KB단지 참고 : {kb_price_url}")
-                if real_transactions_display:
-                    tx_lines = [ln.strip() for ln in real_transactions_display.split("\n") if ln.strip()]
-                    if tx_lines:
-                        lines.append(f"실거래가 : {tx_lines[0]}")
-                        for ln in tx_lines[1:]:
-                            lines.append(f"           {ln}")
+
+            # 국토부 실거래가: 등기부 면적과 정확히 같은 면적의 최근 매매 1건 (KB시세 유무와 무관)
+            if should_call_kb_api:
+                try:
+                    from real_estate_search import lookup_registry_trade_line
+                    trade_line = lookup_registry_trade_line(
+                        address,
+                        area,
+                        complex_name=(kb_result or {}).get("complex_name"),
+                        property_type=property_type,
+                    )
+                    if trade_line:
+                        lines.append(trade_line)
+                        print(f"[WEBHOOK] {trade_line}", file=sys.stderr, flush=True)
+                except Exception as rt_e:
+                    logger.warning("실거래가 조회 실패: %s", rt_e)
             
             # 근저당권 설정 내역
             lines.append(f"=========설정내역=========")
