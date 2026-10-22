@@ -1,0 +1,58 @@
+name: Release Python packages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/release-please/**"
+      - ".github/workflows/release-python.yml"
+      - "python-packages/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  detect_python_packages:
+    runs-on: ubuntu-latest
+    outputs:
+      has_python_packages: ${{ steps.detect.outputs.has_python_packages }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: detect
+        shell: bash
+        run: |
+          if find python-packages -mindepth 2 -maxdepth 2 -name pyproject.toml -print -quit | grep -q .; then
+            echo "has_python_packages=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_python_packages=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  scaffold-only:
+    needs: detect_python_packages
+    if: ${{ needs.detect_python_packages.outputs.has_python_packages != 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "No Python package exists yet. release-please remains scaffold-only."
+
+  release:
+    needs: detect_python_packages
+    if: ${{ needs.detect_python_packages.outputs.has_python_packages == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: release
+        uses: googleapis/release-please-action@v5
+        with:
+          config-file: .github/release-please/python-config.json
+          manifest-file: .github/release-please/python-manifest.json
+
+      - name: Reminder
+        if: ${{ steps.release.outputs.releases_created == 'true' }}
+        run: |
+          echo "Python package release metadata was created."
+          echo "Wire package-specific build/publish steps here when the first python package is added."

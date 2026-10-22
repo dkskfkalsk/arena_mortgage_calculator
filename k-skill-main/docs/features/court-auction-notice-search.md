@@ -1,0 +1,122 @@
+# 법원 경매 부동산 매각공고 조회
+
+대한민국 법원이 운영하는 공식 **법원경매정보** 사이트(`courtauction.go.kr`) 의 매각공고와 사건정보를 에이전트가 활용할 수 있는 JSON 형태로 변환해서 돌려준다.
+
+> **참고용입니다.** 실제 입찰 전에는 반드시 해당 법원의 원문 매각공고와 매각물건명세서를 직접 확인하세요. 본 스킬은 read-only이며, 입찰서 자동 작성·자동 제출은 지원하지 않습니다.
+
+## 무엇을 할 수 있나
+
+- ✅ Workflow A — **매각공고 브라우징**: 매각기일·법원·기일/기간 입찰을 조건으로 매각공고 목록 → 그 공고 안의 사건번호·용도·주소·감정평가액·최저매각가격 펼치기
+- ✅ Workflow B — **사건번호 직접 조회**: 법원사무소코드 + 사건번호(`2024타경100001`) → 사건정보·물건내역·매각기일별 이력·배당요구종기
+- ✅ Workflow C — **부동산 물건 자유 조건검색**: 지역·용도·가격대·면적·유찰횟수·매각기일 조건 → 물건 목록 JSON
+- ✅ 법원사무소 코드(60+개) + 입찰구분 코드(기일입찰=`000331`, 기간입찰=`000332`) + Workflow C용 대표 용도/지역 코드 변환
+- ✅ 3-tier transport — direct HTTP 1차, platform-aware runtime browser fallback(macOS: Aside → BrowserOS → Chrome, 기타: BrowserOS → Aside → Chrome), 로컬 Playwright(`rebrowser-playwright`/`playwright-core`) launch fallback
+- ✅ 안티봇 가드 — 호출 간 ≥2초 jitter, 세션당 호출 budget, `data.ipcheck === false` 즉시 `BLOCKED` throw
+
+## 무엇을 할 수 없나 (별도 follow-up 이슈)
+
+- ❌ Workflow D 일별/월별 캘린더
+- ❌ 매각물건 사진(전경/개황/내부) URL 노출
+- ❌ 매각물건명세서·현황조사서·감정평가서 PDF 다운로드
+- ❌ 동산(자동차·중기) 경매
+
+## 차단(BLOCKED) 정책
+
+`courtauction.go.kr` 은 자동화 호출에 매우 민감해서 빠른 연속 조회 시 IP가 약 1시간 차단됩니다. 본 스킬은 다음과 같이 보수적으로 동작합니다.
+
+- 호출 간 최소 2초 + jitter 0~1초 대기 (override: `--min-delay-ms 3000`)
+- 세션당 호출 budget 10회 (override: `--max-calls 5`)
+- `data.ipcheck === false` 또는 응답 메시지에 "차단" 포함 시 → `BLOCKED` 에러를 즉시 throw, **자동 재시도 금지** (차단 연장 위험)
+
+차단되면 같은 IP에서 약 1시간을 기다려야 합니다. 그 사이에는 다른 IP 또는 사람이 직접 사이트에 접속해서 차단 해제 화면을 거칩니다.
+
+## CLI 사용
+
+```bash
+court-auction-notice-search -h
+court-auction-notice-search codes courts --pretty | head -40
+court-auction-notice-search codes bid-types --pretty
+court-auction-notice-search codes usages --pretty
+court-auction-notice-search codes regions --pretty
+court-auction-notice-search notices --date 2026-04 --court-code B000210 --bid-type date --pretty
+court-auction-notice-search search --sido 서울특별시 --sigungu 11680 --usage-large 건물 --usage-medium 21200 \
+  --price-min 100000000 --price-max 500000000 --sale-from 2026-05-01 --sale-to 2026-05-20 --pretty
+court-auction-notice-search case --court-code B000210 --case-number "2024타경100001" --pretty
+```
+
+## Node.js 사용
+
+```js
+const {
+  searchSaleNotices,
+  getSaleNoticeDetail,
+  getCaseByCaseNumber,
+  searchProperties
+} = require("court-auction-notice-search");
+
+const notices = await searchSaleNotices({
+  date: "2026-04", // 월 전체 조회. 일자 입력은 같은 월 조회 후 해당일만 필터링
+  courtCode: "B000210",
+  bidType: "date"
+});
+
+if (notices.items.length > 0) {
+  const detail = await getSaleNoticeDetail(notices.items[0]);
+  for (const item of detail.items) {
+    console.log(item.caseNumber, item.usage, item.address);
+    console.log("  감정 ", item.appraisedPrice, "최저 ", item.minimumSalePrice);
+  }
+}
+
+const caseInfo = await getCaseByCaseNumber({
+  courtCode: "B000210",
+  caseNumber: "2024타경100001"
+});
+
+const properties = await searchProperties({
+  region: { sido: "서울특별시", sigungu: "11680", dong: "11680101" },
+  usage: { large: "건물" },
+  priceRange: { min: 100000000, max: 500000000 },
+  saleDate: { from: "2026-05-01", to: "2026-05-20" },
+  flbdCount: { min: 1 },
+  page: 1,
+  pageSize: 20
+});
+```
+
+## 사이트 내부 endpoint (직접 캡처한 것)
+
+| 목적 | 메소드 + 경로 | request body |
+| --- | --- | --- |
+| 매각공고 목록 | `POST /pgj/pgj143/selectRletDspslPbanc.on` | `{"dma_srchDspslPbanc":{"srchYmd","cortOfcCd","bidDvsCd","srchBtnYn":"Y"}}` (`srchYmd`는 사이트 검색 버튼과 동일하게 `YYYYMM`) |
+| 매각공고 상세 | `POST /pgj/pgj143/selectRletDspslPbancDtl.on` | `{"dma_srchGnrlPbanc":{"cortOfcCd","dspslDxdyYmd","jdbnCd",...}}` |
+| 사건 단건 | `POST /pgj/pgj15A/selectAuctnCsSrchRslt.on` | `{"dma_srchCsDtlInf":{"cortOfcCd","csNo"}}` |
+| 물건 자유 조건검색 | `POST /pgj/pgjsearch/searchControllerMain.on` | canonical body captured via Playwright (`scripts/capture-pgj151-submit.cjs`); fixture at `packages/court-auction-notice-search/test/fixtures/canonical-search-body.json`. `pageNo/pageSize/statNum` 은 number, `pageSize` 는 upstream 드롭다운 값 `10`/`20`/`50`/`100`만 허용, `notifyLoc` 기본 `"off"`. |
+| 법원사무소 코드 | `POST /pgj/pgjComm/selectCortOfcCdLst.on` | `{}` |
+
+세션 cookie(`JSESSIONID`, `WMONID`)는 endpoint별 진입 화면을 먼저 열어 받아둡니다. 매각공고/상세는 `GET /pgj/index.on?w2xPath=/pgj/ui/pgj100/PGJ143M01.xml&pgjId=143M01`, 물건 자유 조건검색(Workflow C)은 `GET /pgj/index.on?w2xPath=/pgj/ui/pgj100/PGJ151F00.xml&pgjId=151F00` 으로 warmup 합니다.
+
+## 브라우저 fallback 런타임
+
+Workflow C direct HTTP가 WAF-style HTTP 400을 반환하거나, 명시적으로 `fallbackOnBlocked:true` 를 준 `BLOCKED` 응답일 때만 browser fallback을 쓴다. fallback 순서는 다음과 같다.
+
+1. **runtime browser (기본 `auto`)** — `k-skill-browser-runtime`으로 macOS에서는 Aside Browser REPL(`aside repl`), BrowserOS GUI CDP(`http://127.0.0.1:9100`), Chrome/Chromium CDP(`http://127.0.0.1:9222`) 순서로 fallback하고 기타 플랫폼에서는 BrowserOS를 먼저 시도한다. `KSKILL_BROWSER_PROVIDER`(`auto`/`browseros`/`aside`/`chrome-cdp`), `KSKILL_BROWSEROS_CDP_URL`, `KSKILL_CHROME_CDP_URL`, `KSKILL_ASIDE_COMMAND`, `provider`, `cdpUrl` 로 조정할 수 있다. BrowserOS/Aside를 launch하거나 BrowserOS를 headless로 띄우지 않는다.
+2. **Local Playwright launch fallback** — CDP endpoint가 닿지 않을 때만 이 패키지가 직접 소유하는 로컬 브라우저를 `chromium.launch({ headless })`로 띄운다. 이 로컬 브라우저는 패키지가 닫을 수 있다.
+
+Runtime으로 붙은 BrowserOS/Aside/Chrome 세션은 사용자 소유이므로 fallback 종료 시 adapter 생성 page/context/tab만 정리하고 브라우저/프로필은 닫지 않는다. 로그인/CAPTCHA/payment/전자서명/irreversible 액션은 자동화하지 않는다.
+
+## 설치
+
+```bash
+npm install court-auction-notice-search
+# Runtime browser fallback 은 k-skill-browser-runtime regular dependency로 자동 설치된다.
+# CDP가 unavailable일 때 로컬 launch fallback까지 쓰려면 (선택):
+npm install rebrowser-playwright
+# 또는
+npm install playwright-core
+```
+
+## 관련 이슈
+
+- 이 패키지는 [Issue #167](https://github.com/NomaDamas/k-skill/issues/167) 에서 출발했고, #184에서 Workflow C 자유 조건검색을 추가했습니다.
+- 캘린더·물건 사진·PDF·동산 경매는 별도 follow-up 이슈로 분리되어 추적됩니다.

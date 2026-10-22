@@ -1,0 +1,33 @@
+{
+  "name": "k-skill",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "build:manus-bundle": "node scripts/build-manus-bundle.js",
+    "generate:plugin-manifest": "node scripts/generate-plugin-manifest.js",
+    "lint": "node scripts/run-lint.js",
+    "typecheck": "tsc --noEmit",
+    "prepare:python-test-env": "node scripts/prepare-python-test-env.js",
+    "test:store-longevity-mirror": "node scripts/run-store-longevity-mirror-test.js",
+    "test": "node scripts/run-tests.js",
+    "pack:dry-run": "node scripts/pack-dry-run.js",
+    "ci": "npm run lint && npm run typecheck && npm run test && npm run test:store-longevity-mirror && npm run pack:dry-run",
+    "version-packages": "changeset version",
+    "release:npm": "changeset publish",
+    "sync:cli-skills": "node scripts/sync-cli-skills.js",
+    "generate:skill-stubs": "node scripts/generate-skill-stubs.js",
+    "generate:skill-list": "node scripts/generate-skill-list.js",
+    "migrate:cli-assets": "node scripts/migrate-cli-asset-instructions.js"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.29.5",
+    "@types/node": "^22.14.1",
+    "typescript": "^5.8.2"
+  }
+}

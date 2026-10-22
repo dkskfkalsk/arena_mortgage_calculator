@@ -1,0 +1,115 @@
+# k-skill-proxy
+
+## 0.12.0
+
+### Minor Changes
+
+- 28bac25: Add the komsa-ferry-info skill and hosted KOMSA MTIS ferry lookup route.
+
+## 0.11.1
+
+### Patch Changes
+
+- 3a8567d: Add KAMIS food-price and MOFA travel-alert proxy routes for the new lookup skills.
+
+## 0.11.0
+
+### Minor Changes
+
+- 8453959: Add a hosted read-only Coupang Partners product-search route with server-side HMAC signing, normalized results, caching, rate limiting, usage logging, and health configuration reporting.
+
+## 0.10.2
+
+### Patch Changes
+
+- fc01be1: Fix proxy rate-limit buckets behind Cloudflare Tunnel, retry idempotent GET upstream failures, and accept mcp SDK 2.x in myrealtrip-search.
+
+## 0.10.1
+
+### Patch Changes
+
+- 0f077cf: Add per-endpoint usage logging (route pattern + status code) so daily/weekly/monthly call statistics can be derived from server logs. `/health` checks are excluded from the counts.
+- 0eebea8: Relicense the k-skill-proxy package from MIT to AGPL-3.0-only (repository default remains MIT).
+
+## 0.10.0
+
+### Minor Changes
+
+- af1c1f0: Add the hosted building-register title route and `building-register-search` stdlib helper.
+- 0ff844a: Add hosted EV charger information and status routes plus the `ev-charger-nearby` stdlib helper.
+- 8c8ef1d: Remove the KERIS/RISS academic search proxy route. RISS Open API keys are only issued to non-profit institutions/universities, so the `keris-academic-search` skill now calls the RISS upstream directly with the user's own `KSKILL_RISS_API_KEY` instead of routing through the hosted proxy.
+
+## 0.9.0
+
+### Minor Changes
+
+- aac715a: Add KISA WHOIS IP and AS lookups, and prefer Aside Browser first for automatic browser selection on macOS.
+- 1e82436: VWorld 단지 검색과 공동주택 공시가격 조회를 위한 두 개의 좁은 읽기 전용 relay 경로를 추가합니다. 호출자 키는 전용 HTTPS 헤더로만 위임하며 쿼리, 캐시, 응답, 로그에는 남기지 않습니다.
+
+## 0.8.0
+
+### Minor Changes
+
+- 701b6f1: Add KISA WHOIS IP and AS lookups, and prefer Aside Browser first for automatic browser selection on macOS.
+
+## 0.7.1
+
+### Patch Changes
+
+- 1d2e5d6: Avoid caching semantic Assembly and KOPIS upstream errors, bound public proxy cache and rate-limit state, attribute Cloud Run clients through the configured trusted proxy hops, redact AirKorea upstream failures, tighten KR WHOIS domain validation, and update Fastify dependencies for current security fixes.
+
+## 0.7.0
+
+### Minor Changes
+
+- 66f12cb: Add hosted `korean-law` proxy routes (`/v1/korean-law/search`, `/v1/korean-law/detail`) that wrap the official 법제처 (open.law.go.kr) DRF `lawSearch.do`/`lawService.do` endpoints. The proxy injects the operator `LAW_OC` plus a browser `User-Agent`/`Referer` (the actual cause of upstream "사용자 정보 검증 실패" rejections) and retries empty/HTML maintenance responses, so the `korean-law-search` skill becomes proxy-first with no per-user key. Drops the unstable Beopmang fallback from the documented surface.
+
+## 0.6.1
+
+### Patch Changes
+
+- Remove unsupported Naver Map and Blue Ribbon proxy routes. The proxy no longer registers `/v1/naver-map/*` or `/v1/blue-ribbon/nearby`.
+
+## 0.6.0
+
+### Minor Changes
+
+- 6d49a28: Add Kakao Map proxy routes (keyword search, category search, coord2address, coord2region, Kakao Mobility car directions) used by the new kakao-map skill (issue #267). All routes inject server-side KAKAO_REST_API_KEY and never forward caller-supplied apiKey query params.
+- ff2aa91: Add NAVER Cloud Platform Maps directions, geocoding, and reverse-geocoding proxy routes used by the new naver-map-route skill (issue #268). Routes inject server-side NAVER_MAP_CLIENT_ID/SECRET and return 503 when the upstream key is missing.
+- 540e80b: Add `/v1/kstartup/{business-info,announcements,contents,statistics}` routes that wrap the data.go.kr `15125364` (창업진흥원\_K-Startup) Open API. The routes inject `DATA_GO_KR_API_KEY` server-side, return 503 when the key (or the per-dataset 활용신청) is missing, and cache successful JSON responses while bypassing the cache for upstream error envelopes (`resultCode != "00"`).
+- e6d7072: Add Seoul Bike realtime, station master, and nearby lookup proxy routes.
+
+## 0.5.0
+
+### Minor Changes
+
+- 01cd887: Add `/v1/kstartup/{business-info,announcements,contents,statistics}` routes that wrap the data.go.kr `15125364` (창업진흥원\_K-Startup) Open API. The routes inject `DATA_GO_KR_API_KEY` server-side, return 503 when the key (or the per-dataset 활용신청) is missing, and cache successful JSON responses while bypassing the cache for upstream error envelopes (`resultCode != "00"`).
+
+## 0.4.0
+
+### Minor Changes
+
+- 271ea18: Add `/v1/kstartup/{business-info,announcements,contents,statistics}` routes that wrap the data.go.kr `15125364` (창업진흥원\_K-Startup) Open API. The routes inject `DATA_GO_KR_API_KEY` server-side, return 503 when the key (or the per-dataset 활용신청) is missing, and cache successful JSON responses while bypassing the cache for upstream error envelopes (`resultCode != "00"`).
+
+## 0.3.0
+
+### Minor Changes
+
+- 315dbbb: Add `/v1/seoul-density/citydata` route that proxies the Seoul Open Data realtime hotspot crowd-level API (`citydata_ppltn`) using the server-side `SEOUL_OPEN_API_KEY`.
+
+### Patch Changes
+
+- cd3366a: Add National Tax Service business registration status and authenticity proxy routes.
+
+## 0.2.1
+
+### Patch Changes
+
+- 2ff51db: refactor: remove realtyprice route (moved to standalone gongsijiga-search package)
+
+## 0.2.0
+
+### Minor Changes
+
+- 4fc0139: Add `/v1/lh-notice/search` and `/v1/lh-notice/detail` routes plus matching `lh-notice-search` skill. Proxies the official LH 청약 (Korea Land & Housing Corporation lease/subscription) notice API on `apis.data.go.kr/B552555/lhLeaseNoticeInfo1/*`, reuses the existing `DATA_GO_KR_API_KEY`, and keeps the user-facing credential surface empty ("불필요"). Handles the LH-specific `[CMN, dsList]` JSON envelope plus the standard data.go.kr XML auth-error envelope, does not cache upstream failures, and exposes `lhNoticeConfigured` on `/health`. Closes #145.
+- 4fc0139: Add `/v1/naver-news/search` route plus matching `naver-news-search` skill. Proxies the official Naver Search Open API news endpoint (`openapi.naver.com/v1/search/news.json`), reuses the existing `NAVER_SEARCH_CLIENT_ID`/`NAVER_SEARCH_CLIENT_SECRET` credentials, and keeps the user-facing credential surface empty ("불필요"). Strips `<b>` highlight tags and decodes HTML entities in titles/descriptions, parses RFC822 `pubDate` into ISO-8601, deduplicates results by canonicalized `link` (query-param order, trailing slash, host casing and fragments are ignored; different paths or query values are preserved), caches successes for 5 minutes (failures are not cached), and exposes `naverNewsApiConfigured` on `/health`. The route rejects `start + display - 1 > 1000` with a `400 bad_request` preflight before calling upstream, so requests outside Naver's 1000-item search window fail fast with a clear message instead of returning empty results. Closes #143.

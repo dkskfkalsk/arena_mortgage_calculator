@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <meta name="k-skill-privacy-policy-version" content="2026-08-18">
+    <title>k-skill-proxy 개인정보 처리방침</title>
+    <style>
+      :root {
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #172033;
+        background: #f7f8fb;
+      }
+      body {
+        margin: 0;
+        padding: 32px 18px 64px;
+      }
+      main {
+        max-width: 880px;
+        margin: 0 auto;
+        padding: 32px;
+        background: #fff;
+        border: 1px solid #dce1ea;
+        border-radius: 16px;
+        box-shadow: 0 10px 30px rgb(23 32 51 / 8%);
+      }
+      h1, h2, h3 { line-height: 1.3; }
+      h1 { margin-top: 0; font-size: 2rem; }
+      h2 { margin-top: 2.2rem; padding-top: 0.4rem; border-top: 1px solid #e4e8ef; }
+      p, li, td, th { line-height: 1.7; }
+      table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+      th, td { border: 1px solid #dce1ea; padding: 10px; text-align: left; vertical-align: top; }
+      th { background: #f1f4f8; }
+      code { padding: 0.1rem 0.3rem; border-radius: 4px; background: #eef1f5; }
+      .summary, .warning {
+        padding: 16px 18px;
+        border-radius: 10px;
+      }
+      .summary { background: #edf6ff; border: 1px solid #b8dcff; }
+      .warning { background: #fff5df; border: 1px solid #f0ce81; }
+      .meta { color: #526077; }
+      a { color: #145fd7; }
+      @media (prefers-color-scheme: dark) {
+        :root { color: #e7ecf5; background: #111723; }
+        main { background: #182131; border-color: #334158; box-shadow: none; }
+        h2 { border-color: #334158; }
+        th, td { border-color: #3a4962; }
+        th, code { background: #222e42; }
+        .summary { background: #132f4a; border-color: #255b87; }
+        .warning { background: #3d3016; border-color: #7b622a; }
+        .meta { color: #a9b5c8; }
+        a { color: #85b7ff; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>k-skill-proxy 개인정보 처리방침</h1>
+      <p class="meta">시행일: 2026년 8월 18일</p>
+
+      <div class="summary">
+        <strong>요약</strong>
+        <ul>
+          <li>회원가입, 광고 추적, 쿠키, 이용자 프로파일링을 하지 않습니다.</li>
+          <li>일반 요청 로그에 IP 주소, 검색어, 요청 본문을 기록하지 않습니다.</li>
+          <li>접속 IP는 남용 방지를 위해 서버 메모리에서 최대 60초간 처리합니다.</li>
+          <li>일부 정상 조회 응답은 성능과 공공 API 보호를 위해 최대 5분간 서버 메모리에 캐시합니다.</li>
+          <li>민감정보, 주민등록번호 등 고유식별정보를 입력하면 안 됩니다.</li>
+        </ul>
+      </div>
+
+      <p>
+        NomaDamas(이하 “운영자”)는 <code>k-skill-proxy</code>를 운영하면서
+        「개인정보 보호법」 제30조에 따라 개인정보 처리 기준과 정보주체의 권리를
+        다음과 같이 공개합니다.
+      </p>
+
+      <h2>1. 처리 목적, 항목, 법적 근거 및 보유기간</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>처리 목적</th>
+            <th>처리 항목</th>
+            <th>법적 근거</th>
+            <th>보유·이용기간</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>API 요청 처리 및 공식·공개 upstream 조회</td>
+            <td>이용자가 요청한 검색 조건, 사업자 조회값, 주소·지역·좌표 등 route별 입력값</td>
+            <td>개인정보 보호법 제15조 제1항 제4호(정보주체의 요청에 따른 서비스 제공)</td>
+            <td>요청 처리 중 일시 처리. 일부 정상 응답은 서버 메모리에 최대 5분간 캐시</td>
+          </tr>
+          <tr>
+            <td>남용 방지와 서비스 안정성 확보</td>
+            <td>접속 IP 주소</td>
+            <td>개인정보 보호법 제15조 제1항 제4호 및 제6호</td>
+            <td>서버 메모리에서 최대 60초. 일반 요청 로그에는 기록하지 않음</td>
+          </tr>
+          <tr>
+            <td>장애 분석 및 운영 통계</td>
+            <td>route 패턴, HTTP 상태코드, 처리 시각, 프로세스 식별정보</td>
+            <td>서비스 운영을 위한 정당한 이익</td>
+            <td>운영 로그 보관기간 동안. 검색어·요청 본문·IP 주소는 일반 요청 로그에서 제외</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        메모리 캐시는 프로세스가 종료되거나 보유기간이 지나면 삭제됩니다.
+        운영자는 조회값이나 조회 결과를 별도의 고객 데이터베이스로 구축하거나
+        광고·마케팅·이용자 프로파일링에 사용하지 않습니다.
+      </p>
+
+      <h2>2. 이용자가 입력해서는 안 되는 정보</h2>
+      <div class="warning">
+        <p>
+          <strong>민감정보, 주민등록번호·여권번호·운전면허번호·외국인등록번호,
+          계정 비밀번호, 인증서, 금융계좌 비밀번호를 입력하지 마십시오.</strong>
+        </p>
+        <p>
+          사업자 조회 route는 공개된 사업자·법인 정보를 확인하는 용도입니다.
+          개인사업자처럼 입력값이 특정 개인을 식별할 수 있는 경우에는 본인 정보이거나
+          적법한 권한이 있는 경우에만 사용해야 합니다.
+        </p>
+      </div>
+
+      <h2>3. 제3자 제공과 공식 upstream 전송</h2>
+      <p>
+        운영자는 개인정보를 판매하거나 광고 목적으로 제3자에게 제공하지 않습니다.
+        다만 이용자가 선택한 조회 기능을 수행하기 위해 route별 검색 조건을
+        공공데이터포털, 국가기관, 지방자치단체 또는 해당 공개 서비스 제공자의
+        공식 API·웹 표면에 전송합니다.
+      </p>
+      <ul>
+        <li>전송 목적: 이용자가 요청한 공공·공개 정보 조회 결과 제공</li>
+        <li>전송 항목: 해당 조회에 필요한 최소 검색 조건</li>
+        <li>전송 시점과 방법: 이용자의 API 요청 시 TLS로 전송</li>
+        <li>보유기간: 각 공식 제공기관의 개인정보 처리방침과 법령에 따름</li>
+      </ul>
+      <p>
+        개인을 식별하는 정보의 제3자 제공이 필요한 기능은 별도의 적법한 동의 또는
+        법적 근거 없이 제공하지 않습니다. 현재 공개 프록시는 그러한 개인정보 제공을
+        목적으로 설계되지 않았습니다.
+      </p>
+
+      <h2>4. 개인정보 처리업무의 위탁</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>수탁자</th>
+            <th>위탁업무</th>
+            <th>처리 가능 항목</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Cloudflare, Inc. 및 그 하위처리자</td>
+            <td>DNS, TLS 종료, DDoS 방어, 트래픽 전달 및 Cloudflare Tunnel</td>
+            <td>IP 주소, 요청 헤더, 트래픽 라우팅 정보, 요청 내용</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        운영자는 수탁자가 위탁 목적 범위에서만 개인정보를 처리하도록 계약과
+        서비스 설정을 통해 관리합니다. Cloudflare의 처리 기준은
+        <a href="https://www.cloudflare.com/cloudflare-customer-dpa/">Data Processing Addendum</a>와
+        <a href="https://www.cloudflare.com/privacypolicy/southkorea-addendum/">대한민국 이용자 부록</a>에서
+        확인할 수 있습니다.
+      </p>
+
+      <h2>5. 개인정보의 국외 이전</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>이전받는 자</th>
+            <th>이전 국가</th>
+            <th>이전 항목</th>
+            <th>목적·시점·방법</th>
+            <th>보유기간</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Cloudflare, Inc.<br><a href="mailto:dpo@cloudflare.com">dpo@cloudflare.com</a></td>
+            <td>미국 및 Cloudflare가 운영하거나 하위처리자를 두는 국가</td>
+            <td>IP 주소, 요청 헤더, 트래픽 라우팅 정보, 요청 내용</td>
+            <td>서비스 제공·보안 목적, 접속 시 TLS를 통한 네트워크 전송</td>
+            <td>Cloudflare 계약, 서비스 설정 및 관련 법령에 따른 기간</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        국외 이전은 개인정보 보호법 제28조의8 제1항 제3호에 따라 이용자가 요청한
+        서비스 제공을 위해 필요한 처리위탁·보관으로 이루어집니다. 이용자는
+        국외 이전을 원하지 않으면 공개 proxy 대신 각 스킬이 지원하는 로컬 또는
+        공식 upstream 직접 호출 경로를 사용할 수 있습니다.
+      </p>
+
+      <h2>6. 파기 절차와 방법</h2>
+      <ul>
+        <li>rate-limit IP 상태는 최대 60초 후 메모리에서 삭제합니다.</li>
+        <li>일반 응답 캐시는 최대 5분 후 메모리에서 삭제합니다.</li>
+        <li>프로세스가 재시작되면 위 메모리 데이터는 함께 소멸합니다.</li>
+        <li>운영 로그는 운영 목적이 끝나면 안전한 방법으로 삭제합니다.</li>
+      </ul>
+
+      <h2>7. 정보주체의 권리와 행사 방법</h2>
+      <p>
+        정보주체는 개인정보의 열람, 정정·삭제, 처리정지 및 동의 철회를 요구할 수
+        있습니다. 다만 서비스는 계정이나 이용자별 영구 데이터베이스를 운영하지 않아
+        짧은 메모리 보유기간이 지난 후에는 특정 정보주체의 데이터를 식별하거나
+        복구할 수 없습니다.
+      </p>
+      <p>
+        권리행사 또는 개인정보 관련 문의는 아래 담당자에게 이메일로 요청할 수 있습니다.
+      </p>
+
+      <h2>8. 안전성 확보조치</h2>
+      <ul>
+        <li>전송 구간 TLS 적용</li>
+        <li>API key와 운영 비밀정보의 환경변수 분리</li>
+        <li>검색어·요청 본문·IP를 일반 요청 로그에서 제외</li>
+        <li>메모리 보유기간과 항목 수 제한</li>
+        <li>고정된 allowlist upstream과 route별 입력 검증</li>
+      </ul>
+
+      <h2>9. 쿠키, 행태정보 및 자동화된 결정</h2>
+      <p>
+        <code>k-skill-proxy</code>는 회원 식별 쿠키, 광고 쿠키 또는 맞춤형 광고를
+        사용하지 않습니다. 이용자에 대한 자동화된 평가·결정이나 AI 학습용 데이터
+        수집도 하지 않습니다.
+      </p>
+
+      <h2>10. 아동의 개인정보</h2>
+      <p>
+        운영자는 만 14세 미만 아동의 개인정보를 의도적으로 수집하지 않습니다.
+        공개 프록시에 아동의 개인정보를 입력해서는 안 됩니다.
+      </p>
+
+      <h2>11. 개인정보 보호 담당</h2>
+      <ul>
+        <li>담당: NomaDamas 개인정보 보호 담당</li>
+        <li>책임자: Jeffrey (Dongkyu) Kim</li>
+        <li>이메일: <a href="mailto:vkehfdl1@gmail.com">vkehfdl1@gmail.com</a></li>
+        <li>프로젝트: <a href="https://github.com/NomaDamas/k-skill">github.com/NomaDamas/k-skill</a></li>
+      </ul>
+      <p>
+        개인정보 침해 신고·상담은 개인정보침해신고센터(국번 없이 118) 또는
+        개인정보분쟁조정위원회(1833-6972)를 이용할 수 있습니다.
+      </p>
+
+      <h2>12. 처리방침 변경</h2>
+      <p>
+        처리 항목, 보유기간, 수탁자 또는 국외 이전 내용이 변경되면 시행 전에 이
+        페이지와 저장소 변경이력을 통해 공개합니다.
+      </p>
+
+      <hr>
+      <p class="meta">
+        이 문서는 <a href="https://github.com/kimlawtech/korean-privacy-terms">korean-privacy-terms</a>
+        (Apache-2.0, author: @kimlawtech)의 한국 법령 기반 템플릿과 개인정보보호위원회
+        「개인정보 처리방침 작성지침(2025.4.)」을 참고해 실제 k-skill-proxy 데이터 흐름에
+        맞게 작성했습니다. 이 문서는 서비스 운영을 위한 공개 고지이며 개별 사안에 대한
+        법률 자문을 대신하지 않습니다.
+      </p>
+    </main>
+  </body>
+</html>

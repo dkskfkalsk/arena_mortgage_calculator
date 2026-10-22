@@ -1,0 +1,34 @@
+{
+  "name": "toss-investment",
+  "version": "1.1.0",
+  "description": "Read-only client for the official Toss Securities Open API with OAuth2",
+  "license": "MIT",
+  "main": "src/index.js",
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NomaDamas/k-skill.git"
+  },
+  "keywords": [
+    "k-skill",
+    "korea",
+    "toss",
+    "investment",
+    "securities",
+    "tossinvest",
+    "openapi"
+  ],
+  "scripts": {
+    "lint": "node --check src/index.js && node --check src/official-client.js && node --check test/index.test.js && node --check test/official-client.test.js",
+    "test": "node --test"
+  }
+}

@@ -1,0 +1,504 @@
+# 설치 방법
+
+## 기본 설치 흐름
+
+권장 순서는 아래와 같다.
+
+1. Node.js 18 이상과 `npx`가 사용 가능한지 확인한다.
+2. 철도 통합 시간표 스킬을 사용할 경우 Python 3.11 이상과 `uv`가 사용 가능한지 확인한다.
+3. `k-skill` 전체 스킬을 먼저 설치한다.
+4. 설치가 끝나면 `k-skill-setup` 스킬을 사용해 공통 설정을 마친다.
+5. 그 다음 필요한 기능 스킬을 호출한다.
+
+인증이 필요한 기능만 따로 설치 흐름을 분기하지 않는다. 일단 전체 스킬을 설치해 두고, 실제 시크릿/환경 준비는 `k-skill-setup` 에 맡기는 것을 기본으로 한다.
+
+## 에이전트에게 맡기기
+
+Codex나 Claude Code에 아래 문장을 그대로 붙여 넣으면 된다.
+
+```text
+이 레포의 설치 문서를 읽고 k-skill 전체 스킬을 먼저 설치해줘. 설치가 끝나면 k-skill-setup 스킬을 사용해서 credential 확보와 환경변수 확인까지 이어서 진행해줘. 끝나면 설치된 스킬과 다음 단계만 짧게 정리해.
+```
+
+## 직접 설치
+
+`skills` 설치 명령은 아래 셋 중 하나만 있으면 된다.
+
+```bash
+npx --yes skills add NomaDamas/k-skill --list
+pnpm dlx skills add NomaDamas/k-skill --list
+bunx skills add NomaDamas/k-skill --list
+```
+
+권장: 전체 스킬 먼저 설치
+
+```bash
+npx --yes skills add NomaDamas/k-skill --all -g
+```
+
+설치 후 `k-skill-setup` 을 호출해 공통 설정을 진행한다.
+
+```text
+k-skill-setup 스킬을 사용해서 공통 설정을 진행해줘.
+```
+
+선택 설치가 꼭 필요할 때만(예: 조회형만 먼저 테스트):
+
+```bash
+npx --yes skills add NomaDamas/k-skill \
+  --skill hwp \
+  --skill rhwp-edit \
+  --skill rhwp-advanced \
+  --skill express-bus-booking \
+  --skill intercity-bus-booking \
+  --skill foresttrip-vacancy \
+  --skill kbo-results \
+  --skill kbl-results \
+  --skill kleague-results \
+  --skill lck-analytics \
+  --skill toss-investment \
+  --skill lotto-results \
+  --skill kakaotalk-mac \
+  --skill korean-law-search \
+  --skill korean-privacy-terms \
+  --skill korean-jangbu-for \
+  --skill popbill \
+  --skill corporate-registration-consulting \
+  --skill iros-registry-automation \
+  --skill building-register-search \
+  --skill real-estate-search \
+  --skill korean-scholarship-search \
+  --skill korean-stock-search \
+  --skill daishin-report-search \
+  --skill household-waste-info \
+  --skill mfds-drug-safety \
+  --skill mfds-food-safety \
+  --skill joseon-sillok-search \
+  --skill korean-heritage-search \
+  --skill korean-patent-search \
+  --skill korea-weather \
+  --skill cheap-gas-nearby \
+  --skill public-restroom-nearby \
+  --skill ev-charger-nearby \
+  --skill ev-subsidy-status \
+  --skill emergency-room-beds \
+  --skill animal-pharmacy-search \
+  --skill fine-dust-location \
+  --skill han-river-water-level \
+  --skill subway-lost-property \
+  --skill geeknews-search \
+  --skill daiso-product-search \
+  --skill market-kurly-search \
+  --skill olive-young-search \
+  --skill korean-cinema-search \
+  --skill hola-poke-yeoksam \
+  --skill kakao-bar-nearby \
+  --skill zipcode-search \
+  --skill delivery-tracking \
+  --skill coupang-product-search \
+  --skill ohou-today-deal \
+  --skill bunjang-search \
+  --skill korean-spell-check \
+  --skill library-book-search \
+  --skill keris-academic-search \
+  --skill k-schoollunch-menu \
+  --skill korean-character-count \
+  --skill court-auction-notice-search \
+  --skill donation-place-search \
+  --skill k-skill-cleaner \
+  --skill naming-house
+```
+
+인증이 필요한 기능만 부분 설치할 때도 `k-skill-setup` 은 같이 넣는다.
+
+```bash
+npx --yes skills add NomaDamas/k-skill \
+  --skill k-skill-setup \
+  --skill railway-timetable \
+  --skill express-bus-booking \
+  --skill intercity-bus-booking \
+  --skill foresttrip-vacancy \
+  --skill korean-law-search \
+  --skill real-estate-search \
+  --skill mfds-drug-safety \
+  --skill mfds-food-safety \
+  --skill cheap-gas-nearby \
+  --skill joseon-sillok-search \
+  --skill korean-patent-search \
+  --skill naver-ad-performance \
+  --skill seoul-subway-arrival \
+  --skill seoul-density \
+  --skill seoul-bike \
+  --skill subway-lost-property \
+  --skill geeknews-search \
+  --skill korea-weather \
+  --skill fine-dust-location
+```
+
+## 통합 CLI와 SKILL.md 어댑터
+
+설치되는 각 `SKILL.md`는 스킬 선택에 필요한 frontmatter와 최소 안전 규칙을
+유지하지만, 전체 instruction은 `@nomadamas/k-skill` CLI가 런타임에 조립한다.
+
+```bash
+npx -y @nomadamas/k-skill@0 instruct <skill-name>
+```
+
+스킬 설치 후 CLI를 별도로 설치할 필요는 없다. 에이전트가 `SKILL.md`에 적힌
+명령을 실행하면 `npx`가 호환되는 최신 `0.x` 버전을 가져온다.
+
+```bash
+# 설치된 CLI 버전
+npx -y @nomadamas/k-skill@0 version
+
+# CLI가 뒤처져 있으면 갱신하고, Vercel Agent Skills를 포함한 모든 코딩 에이전트 스킬을 함께 갱신
+npx -y @nomadamas/k-skill@0 update
+
+# 배포된 스킬 목록
+npx -y @nomadamas/k-skill@0 list
+
+# 현재 환경에 맞는 instruction 확인
+npx -y @nomadamas/k-skill@0 instruct railway-timetable
+
+# npm 패키지에 동봉된 helper 실행
+npx -y @nomadamas/k-skill@0 exec \
+  kosis-stats scripts/run_kosis_stats.py -- --help
+
+# 번들 reference 읽기
+npx -y @nomadamas/k-skill@0 read \
+  kosis-stats references/kosis-openapi-guide.md
+
+# 다른 도구가 절대경로를 요구할 때만 경로 조회
+npx -y @nomadamas/k-skill@0 path \
+  kosis-stats scripts/run_kosis_stats.py
+```
+
+CLI는 Dolshoi capability가 있으면 vault/CloakBrowser/action profile을
+Dolshoi 방식으로 조립하고, 그 밖의 환경에서는 generic instruction만
+출력한다. `scripts/`와 `references/`는 CLI npm 패키지에도 동봉되므로
+`SKILL.md`만 설치되는 환경에서도 helper가 누락되지 않는다. helper 실행은
+`exec`, reference 조회는 `read`를 사용하며 npm cache 내부 경로를 직접
+추측하지 않는다.
+
+npm 접근이 제한되거나 반복 호출 비용을 피해야 하면 선택적으로 전역
+설치한다.
+
+```bash
+npm install -g @nomadamas/k-skill@0
+k-skill version
+k-skill list
+k-skill instruct railway-timetable
+k-skill exec kosis-stats scripts/run_kosis_stats.py -- --help
+k-skill read kosis-stats references/kosis-openapi-guide.md
+```
+
+전역 설치는 필수가 아니다. 전역 설치를 사용하면 최신 호환 버전으로
+갱신할 때 `npx -y @nomadamas/k-skill@0 update` 또는 다음 명령을 다시 실행한다.
+
+```bash
+npm install -g @nomadamas/k-skill@0
+```
+
+`naming-house` 는 작명소 스킬이다. 시크릿은 필요 없고, npm 배포 후 반복 사용 시 `npm install -g naming-house` 로 package를 설치한다. 저장소 개발 중에는 루트 `npm install` 후 로컬 workspace package를 사용한다.
+
+`korean-law-search` 는 별도 설치 없이 기본 hosted proxy(`k-skill-proxy.nomadamas.org`)를 통해 바로 사용할 수 있다. 사용자 쪽 `LAW_OC` 가 불필요하다. proxy의 `/v1/korean-law/search` · `/v1/korean-law/detail` endpoint가 법제처(국가법령정보센터) 공식 Open API(`open.law.go.kr`)를 감싸며, 설계는 `https://github.com/chrisryugj/korean-law-mcp` 를 참고했다. 운영자만 proxy 서버에 `LAW_OC` 를 채운다(무료 발급: `https://open.law.go.kr`). 자세한 사용법은 [한국 법령 검색 가이드](features/korean-law-search.md)를 본다.
+
+`real-estate-search` 는 별도 설치 없이 기본 hosted proxy(`k-skill-proxy.nomadamas.org`)를 통해 바로 사용할 수 있다. 사용자 쪽 `DATA_GO_KR_API_KEY` 가 불필요하다. 원본 참고: `https://github.com/tae0y/real-estate-mcp/tree/main`. 자세한 사용법은 [한국 부동산 실거래가 조회 가이드](features/real-estate-search.md)를 본다.
+
+`korean-scholarship-search` 는 스킬 이름 `장학금 검색 및 조회` 로 동작한다. 별도 API key 없이 최신 웹 검색과 공식 공고 확인으로 장학금을 찾고, 한국장학재단·전국 대학교 본부·단과대·학과·재단·기업·공공기관 공고를 모아 금액/지원자격/지원구간/공식 링크를 정리한다. 설치된 helper `npx -y @nomadamas/k-skill@0 exec korean-scholarship-search scripts/scholarship_filter.py --` 로 사용자 조건 필터링, KST(`Asia/Seoul`) 현재 날짜 기준 마감 상태 분류, readable report, 지원 가능 여부 확인을 할 수 있고, `npx -y @nomadamas/k-skill@0 exec korean-scholarship-search scripts/university_search_plan.py --` 로 학교별 또는 전국 대학 검색 쿼리 팩을 만들 수 있다. 자세한 사용법은 [장학금 검색 및 조회 가이드](features/korean-scholarship-search.md)를 본다.
+
+
+`korean-jangbu-for` 는 `kimlawtech/korean-jangbu-for` (Apache-2.0, 원저작자 @kimlawtech / SpeciAI) 업스트림을 중심으로 사용하는 thin wrapper 다. 별도 hosted proxy 없이 `npx -y @nomadamas/k-skill@0 exec korean-jangbu-for scripts/install.sh --` 로 pinned upstream 을 `~/.claude/skills/korean-jangbu-for/upstream/` 와 `~/.agents/skills/korean-jangbu-for/upstream/` 양쪽에 설치하고, 업스트림 `jangbu-*` 하위 스킬을 양쪽 홈 디렉터리의 top-level skill 로 함께 등록한다. CODEF 자동 수집은 사용자가 직접 발급한 키를 쓰는 BYOK 방식이며, 장부·재무제표·세무사 전달 CSV 는 참고용 초안이므로 신고 전 세무사 검토 및 외감 대상 공인회계사 감사가 필요하다. 자세한 사용법은 [한국 사업자 장부 자동화 가이드](features/korean-jangbu-for.md)를 본다.
+
+`popbill` 은 사용자별 과금/권한 API인 팝빌 SDK를 로컬 BYOK 방식으로 호출한다. `KSKILL_POPBILL_LINK_ID`, `KSKILL_POPBILL_SECRET_KEY`, `KSKILL_POPBILL_CORP_NUM` 을 `~/.config/k-skill/secrets.env` 또는 환경변수로 공급하고, 기본 테스트 환경에서 `npx -y @nomadamas/k-skill@0 exec popbill scripts/popbill_cli.py -- config-check`, `methods taxinvoice`, `health taxinvoice` 순서로 확인한다. 전자세금계산서 발행은 테스트/운영 환경 각각 공동인증서 등록이 필요하고, 문자·카카오·팩스는 발신번호/채널/템플릿 사전 등록이 필요하다. 발행·전송·취소·삭제·계좌조회는 사용자 현재 턴 승인 후에만 `--yes-i-understand` 로 실행한다. 자세한 사용법은 [팝빌 all-service API helper](features/popbill.md)를 본다.
+
+`korean-stock-search` 는 별도 설치 없이 기본 hosted proxy(`k-skill-proxy.nomadamas.org`)를 통해 바로 사용할 수 있다. 사용자 쪽 `KRX_API_KEY` 가 불필요하다. 원본 참고: `https://github.com/jjlabsio/korea-stock-mcp`. 자세한 사용법은 [한국 주식 정보 조회 가이드](features/korean-stock-search.md)를 본다.
+
+`household-waste-info` 는 별도 설치 없이 `k-skill-proxy`의 `/v1/household-waste/info` 라우트를 호출하고, `serviceKey`(`DATA_GO_KR_API_KEY`)는 proxy 서버에서만 원본 API(`apis.data.go.kr/1741000/household_waste_info/info`)로 주입한다. 사용자 쪽 `DATA_GO_KR_API_KEY` 가 불필요하다. 자세한 사용법은 [생활쓰레기 배출정보 조회 가이드](features/household-waste-info.md)를 본다.
+
+`ev-charger-nearby` 는 stdlib Python helper로 기본 hosted proxy의 `/v1/ev-charger/info`·`/v1/ev-charger/status`를 호출하므로 사용자 키가 필요 없다. `--direct`에서만 `KSKILL_EV_CHARGER_API_KEY` 또는 `DATA_GO_KR_API_KEY`를 사용하며, 기존 공공데이터포털 키가 있어도 데이터셋 `15076352` 활용신청은 별도로 필요하다. 자세한 사용법은 [전기차 충전소 위치·상태 조회 가이드](features/ev-charger-nearby.md)를 본다.
+
+`building-register-search` 는 주소를 hosted Kakao geocode로 법정동 코드·필지로 바꾼 뒤 `/v1/building-register/title`을 호출하거나 PNU를 바로 조회한다. hosted 사용자는 키가 필요 없다. `--direct`는 PNU/개별 필지만 지원하고 `KSKILL_BUILDING_REGISTER_API_KEY` 또는 `DATA_GO_KR_API_KEY`를 사용하며, 데이터셋 `15134735` 활용신청은 별도로 필요하다. 건축물대장은 권리관계 자료가 아니므로 소유권·근저당 확인은 `iros-registry-automation`을 사용한다. 자세한 사용법은 [건축물대장 표제부 조회 가이드](features/building-register-search.md)를 본다.
+
+`keris-academic-search` 는 RISS 검색 Open API로 학술 메타데이터를 조회한다. RISS 검색 API는 기관 전용 키를 요구하므로 프록시를 거치지 않고 사용자 본인이 발급받은 `KSKILL_RISS_API_KEY`(호환 `RISS_API_KEY`)로 직접 호출한다. RISS 키는 비영리 기관/대학에만 발급되며 `DATA_GO_KR_API_KEY`와는 별개다. 발급 방법은 [KERIS/RISS 학술자료 검색 가이드](features/keris-academic-search.md)를 본다.
+
+`library-book-search` 는 별도 설치 없이 기본 hosted proxy(`k-skill-proxy.nomadamas.org`)를 통해 바로 사용할 수 있다. 사용자 쪽 `DATA4LIBRARY_AUTH_KEY` 는 불필요하고, self-host proxy 운영자만 프록시 서버 환경변수로 설정한다. 자세한 사용법은 [도서관 도서 조회 가이드](features/library-book-search.md)를 본다.
+
+### `korean-stock-search` proxy quickstart
+
+`korean-stock-search` 는 로컬 MCP 설치 대신 **proxy first** 로 사용한다.
+
+- 가장 빠른 smoke test 는 `curl -fsS --get 'https://k-skill-proxy.nomadamas.org/v1/korean-stock/search' --data-urlencode 'q=삼성전자' --data-urlencode 'bas_dd=20260408'`
+- 검색 결과에서 `market`, `code` 를 확인한 뒤 `base-info` 또는 `trade-info` 로 이어간다.
+- 사용자 쪽 `KRX_API_KEY` 는 필요 없다. self-host proxy 운영자만 서버 환경변수 `KRX_API_KEY` 를 설정한다.
+
+```bash
+curl -fsS --get 'https://k-skill-proxy.nomadamas.org/v1/korean-stock/search' \
+  --data-urlencode 'q=삼성전자' \
+  --data-urlencode 'bas_dd=20260408'
+
+curl -fsS --get 'https://k-skill-proxy.nomadamas.org/v1/korean-stock/base-info' \
+  --data-urlencode 'market=KOSPI' \
+  --data-urlencode 'code=005930' \
+  --data-urlencode 'bas_dd=20260408'
+```
+
+
+### `olive-young-search` upstream CLI quickstart
+
+`olive-young-search` 는 upstream 원본 [`hmmhmmhm/daiso-mcp`](https://github.com/hmmhmmhm/daiso-mcp) / npm package [`daiso`](https://www.npmjs.com/package/daiso) 를 그대로 사용한다.
+
+- 기본 경로는 **MCP 서버 직접 설치가 아니라 CLI first** 다.
+- 가장 빠른 smoke test 는 `npx --yes daiso health`
+- 재고/매장/상품 조회는 `npx --yes daiso get /api/oliveyoung/...`
+- public endpoint는 upstream 수집 상태에 따라 간헐적인 `5xx/503` 이 날 수 있으니 먼저 한두 번 재시도한다.
+- 반복 사용이면 `npm install -g daiso`
+- 재시도 후에도 불안정하거나 버전 고정/원본 확인이 필요하면 `git clone https://github.com/hmmhmmhm/daiso-mcp.git && cd daiso-mcp && npm install && npm run build` clone fallback으로 전환한 뒤 `node dist/bin.js ...` 로 실행한다. clone checkout 안에서 `npx daiso ...` 는 `Permission denied` 로 실패할 수 있다.
+
+```bash
+npx --yes daiso health
+npx --yes daiso get /api/oliveyoung/stores --keyword 명동 --limit 5 --json
+npx --yes daiso get /api/oliveyoung/products --keyword 선크림 --size 5 --json
+npx --yes daiso get /api/oliveyoung/inventory --keyword 선크림 --storeKeyword 명동 --size 5 --json
+```
+
+clone fallback 예시:
+
+```bash
+git clone https://github.com/hmmhmmhm/daiso-mcp.git
+cd daiso-mcp
+npm install
+npm run build
+node dist/bin.js health
+node dist/bin.js get /api/oliveyoung/stores --keyword 명동 --limit 5 --json
+node dist/bin.js get /api/oliveyoung/products --keyword 선크림 --size 5 --json
+node dist/bin.js get /api/oliveyoung/inventory --keyword 선크림 --storeKeyword 명동 --size 5 --json
+```
+
+### `korean-cinema-search` upstream CLI quickstart
+
+`korean-cinema-search` 는 upstream 원본 [`hmmhmmhm/daiso-mcp`](https://github.com/hmmhmmhm/daiso-mcp) / npm package [`daiso`](https://www.npmjs.com/package/daiso) 를 그대로 사용한다.
+
+- 기본 경로는 **MCP 서버 직접 설치가 아니라 CLI first** 다.
+- 가장 빠른 smoke test 는 `npx --yes daiso health`
+- CGV, 메가박스, 롯데시네마의 영화관, 상영작, 시간표, 잔여석 조회를 다룬다.
+- 날짜가 있는 요청은 Asia/Seoul 기준 `YYYYMMDD` 로 바꿔 `--playDate <YYYYMMDD>` 를 명시한다.
+- 예매와 결제는 자동화하지 않는다.
+- 반복 사용이면 `npm install -g daiso`
+- public endpoint는 upstream 상태에 따라 간헐적인 `5xx/503` 이 날 수 있으니 먼저 한두 번 재시도한다.
+- 재시도 후에도 불안정하거나 버전 고정/원본 확인이 필요하면 `git clone https://github.com/hmmhmmhm/daiso-mcp.git && cd daiso-mcp && npm install && npm run build` clone fallback으로 전환한 뒤 `node dist/bin.js ...` 로 실행한다.
+
+```bash
+npx --yes daiso health
+npx --yes daiso get /api/cgv/theaters --keyword 강남 --limit 5 --json
+npx --yes daiso get /api/cgv/timetable --keyword 강남 --playDate <YYYYMMDD> --json
+npx --yes daiso get /api/megabox/theaters --keyword 코엑스 --limit 5 --json
+npx --yes daiso get /api/megabox/seats --keyword 코엑스 --playDate <YYYYMMDD> --limit 10 --json
+npx --yes daiso get /api/lottecinema/theaters --keyword 월드타워 --limit 5 --json
+npx --yes daiso get /api/lottecinema/seats --keyword 월드타워 --playDate <YYYYMMDD> --limit 10 --json
+```
+
+clone fallback 예시:
+
+```bash
+git clone https://github.com/hmmhmmhm/daiso-mcp.git
+cd daiso-mcp
+npm install
+npm run build
+node dist/bin.js health
+node dist/bin.js get /api/cgv/timetable --keyword 강남 --playDate <YYYYMMDD> --json
+```
+
+### `bunjang-search` upstream CLI quickstart
+
+`bunjang-search` 는 upstream 원본 [`pinion05/bunjangcli`](https://github.com/pinion05/bunjangcli) / npm package [`bunjang-cli`](https://www.npmjs.com/package/bunjang-cli) 를 그대로 사용한다.
+
+- 기본 경로는 **CLI first** 다.
+- 가장 빠른 smoke test 는 `npx --yes bunjang-cli --help`
+- 검색/상세조회는 로그인 없이도 먼저 검증할 수 있다.
+- `favorite` / `chat` / `purchase` 는 로그인 세션이 필요하므로 **선택적 로그인 플로우**로만 안내한다.
+- `auth login` 은 headful 브라우저 + TTY(interactive 터미널) 가 필요하다.
+- 대량 수집은 `--start-page`, `--pages`, `--max-items`, `--with-detail`, `--output` 조합을 우선 쓴다.
+- AI 분석용 chunk 는 `--ai --output <directory>` 로 만든다.
+
+```bash
+npx --yes bunjang-cli --help
+npx --yes bunjang-cli --json auth status
+npx --yes bunjang-cli --json search "아이폰" --max-items 3 --sort date
+npx --yes bunjang-cli --json item get 354957625
+npx --yes bunjang-cli search "아이폰" --start-page 1 --pages 2 --max-items 20 --with-detail --output artifacts/bunjang-iphone.json
+npx --yes bunjang-cli search "아이폰" --start-page 1 --pages 2 --max-items 20 --with-detail --ai --output artifacts/bunjang-iphone-ai
+```
+
+로그인된 interactive 세션에서만 아래 액션을 진행한다.
+
+```bash
+npx --yes bunjang-cli auth login
+npx --yes bunjang-cli --json favorite list
+npx --yes bunjang-cli --json favorite add 354957625
+npx --yes bunjang-cli --json favorite remove 354957625
+npx --yes bunjang-cli --json chat list
+npx --yes bunjang-cli --json chat start 354957625 --message "안녕하세요"
+npx --yes bunjang-cli --json chat send 84191651 --message "상품 상태 괜찮을까요?"
+```
+
+
+`korean-patent-search` 는 설치된 skill payload 안의 helper를 그대로 쓴다.
+
+- helper 환경변수는 `KIPRIS_PLUS_API_KEY`
+- 실제 API 요청에서는 이 값을 `ServiceKey` 쿼리 파라미터로 보낸다
+- 공공데이터포털에서 복사한 percent-encoded key를 그대로 넣어도 helper가 한 번 정규화해서 double-encoding 없이 보낸다
+- KIPRIS Plus / 공공데이터포털 안내 기준으로 개발계정은 자동승인, 운영계정은 심의승인 대상이다
+
+```bash
+export KIPRIS_PLUS_API_KEY=your-service-key
+npx -y @nomadamas/k-skill@0 exec korean-patent-search scripts/patent_search.py -- --query "배터리" --year 2024 --num-rows 5
+npx -y @nomadamas/k-skill@0 exec korean-patent-search scripts/patent_search.py -- --application-number 1020240001234
+```
+
+로컬 저장소에서 바로 전체 설치 테스트:
+
+```bash
+npx --yes skills add . --all -g
+```
+
+## 로컬 테스트
+
+현재 디렉터리에서 바로 확인:
+
+```bash
+npx --yes skills add . --list
+```
+
+설치 반영 확인:
+
+```bash
+npx --yes skills ls -g
+```
+
+유지보수자가 패키지/릴리스 설정까지 같이 검증하려면:
+
+```bash
+npm install
+npm run ci
+```
+
+## 패키지가 없을 때의 기본 동작
+
+스킬 실행에 필요한 Node/Python 패키지가 없으면 다른 방법으로 우회하지 말고 전역 설치를 먼저 시도하는 것을 기본으로 합니다.
+
+### Node 패키지
+
+```bash
+npm install -g kordoc pdfjs-dist kbo-game kbl-results kleague-results lck-analytics toss-investment k-lotto coupang-product-search cheap-gas-nearby public-restroom-nearby korean-law-mcp market-kurly-search daiso bunjang-cli court-auction-notice-search gongsijiga-search donation-place-search ev-subsidy-status
+export NODE_PATH="$(npm root -g)"
+```
+
+HWP Node API 예시는 전역 `NODE_PATH` 대신 로컬 프로젝트에 `npm install kordoc pdfjs-dist` 후 실행한다.
+`kordoc` CLI를 일회성으로만 쓸 때는 `npx --yes --package kordoc --package pdfjs-dist kordoc ...` 형태를 사용한다.
+
+### macOS 바이너리
+
+카카오톡 Mac 아카이브 검색은 npm 패키지가 아니라 `katok` CLI 설치를 사용한다.
+
+```bash
+brew tap NomaDamas/katok https://github.com/NomaDamas/katok.git
+brew install katok
+```
+
+Cargo로 설치할 수도 있다.
+
+```bash
+cargo install katok
+export PATH="$HOME/.cargo/bin:$PATH"
+```
+
+`toss-investment` 스킬은 공식 토스증권 Open API만 사용한다. 발급받은 자격증명을 사용자 환경변수로 두며, 공유 프록시로 보내지 않고 토스 서버로 직접 호출한다. 공식 credentials가 없거나 공식 API가 제공하지 않는 기능은 비공식 경로로 우회하지 않는다.
+
+```bash
+export TOSSINVEST_CLIENT_ID=...        # 필수
+export TOSSINVEST_CLIENT_SECRET=...    # 필수
+export TOSSINVEST_ACCOUNT=...          # 선택, 계좌·자산·주문조회 시 X-Tossinvest-Account
+```
+
+### Python 패키지
+
+```bash
+uv --version
+```
+
+철도 통합 시간표 스킬은 Python 3.11 이상과 [`uv`](https://docs.astral.sh/uv/getting-started/installation/)가 필요합니다. `uv`가 코레일 공식 XLSX parser의 `openpyxl`을 자동 설치하며 철도 회원 ID·비밀번호는 필요하지 않습니다.
+
+조선왕조실록 검색 helper는 설치된 `joseon-sillok-search` skill 안의 `scripts/sillok_search.py` 를 그대로 쓰면 되고, 별도 외부 패키지 없이 표준 라이브러리 `python3` 만 있으면 된다.
+
+```bash
+npx -y @nomadamas/k-skill@0 exec joseon-sillok-search scripts/sillok_search.py -- --query "훈민정음" --king 세종 --year 1443
+```
+
+한국 특허 정보 검색 helper는 설치된 `korean-patent-search` skill 안의 `scripts/patent_search.py` 를 그대로 쓰면 되고, 별도 외부 패키지 없이 표준 라이브러리 `python3` 만 있으면 된다.
+
+```bash
+export KIPRIS_PLUS_API_KEY=your-service-key
+npx -y @nomadamas/k-skill@0 exec korean-patent-search scripts/patent_search.py -- --query "배터리"
+```
+
+장학금 검색 및 조회 helper는 설치된 `korean-scholarship-search` skill 안의 `scripts/scholarship_filter.py` 를 그대로 쓰면 되고, 별도 외부 패키지 없이 표준 라이브러리 `python3` 만 있으면 된다. `--today` 를 생략하거나 잘못 넣으면 host local time 이 아니라 KST 오늘 날짜를 기준으로 마감 상태를 계산한다.
+
+```bash
+npx -y @nomadamas/k-skill@0 exec korean-scholarship-search scripts/scholarship_filter.py -- report --input scholarships.json --today 2026-04-14 --only-open-now
+```
+
+국가데이터처 KOSIS 통계 조회 helper는 설치된 `kosis-stats` skill 안의 `scripts/run_kosis_stats.py` 를 그대로 쓰면 되고, 별도 외부 패키지 없이 표준 라이브러리 `python3` 만 있으면 된다. 일반 `search`/`meta`/`data`는 기본 hosted proxy를 쓰므로 사용자 KOSIS 키가 필요 없다.
+
+```bash
+npx -y @nomadamas/k-skill@0 exec kosis-stats scripts/run_kosis_stats.py -- search --query "1인 가구" --text
+```
+
+한국어 맞춤법 검사 helper는 별도 외부 패키지 없이 표준 라이브러리 `python3` 만 있으면 된다.
+
+```bash
+npx -y @nomadamas/k-skill@0 exec korean-spell-check scripts/korean_spell_check.py -- --text "아버지가방에들어가신다."
+```
+
+한국어 글자 수 세기 helper는 별도 외부 패키지 없이 `node` 18+ 만 있으면 된다.
+
+```bash
+npx -y @nomadamas/k-skill@0 exec korean-character-count scripts/korean_character_count.js -- --text "가나다"
+npx -y @nomadamas/k-skill@0 exec korean-character-count scripts/korean_character_count.js -- --text $'첫 줄\n둘째 줄🙂' --profile neis --format text
+```
+
+운영체제 정책이나 권한 때문에 전역 설치가 막히면, 임의의 대체 구현으로 넘어가지 말고 그 차단 사유를 사용자에게 설명한 뒤 다음 설치 단계를 정합니다.
+
+## npx도 없으면
+
+`npx`, `pnpm dlx`, `bunx` 중 아무것도 없으면 먼저 Node.js 계열 런타임을 설치해야 한다.
+
+- `npx`를 쓰려면 Node.js + npm
+- `pnpm dlx`를 쓰려면 pnpm
+- `bunx`를 쓰려면 Bun
+
+## setup이 필요한 기능
+
+먼저 `k-skill-setup`을 따라야 하는 스킬:
+
+- `railway-timetable`
+- `seoul-subway-arrival`
+- `seoul-density`
+- `seoul-bike`
+- `korea-weather`
+- `fine-dust-location`
+- `korean-law-search`
+- `real-estate-search`
+- `korean-patent-search`
+- `naver-ad-performance`
+- `korean-stock-search`
+- `household-waste-info`
+- `cheap-gas-nearby`
+- `public-restroom-nearby`
+- `k-schoollunch-menu` (hosted proxy에 `KEDU_INFO_KEY`가 배포된 경우 사용자 시크릿 불필요)
+- `library-book-search` (hosted proxy에 `DATA4LIBRARY_AUTH_KEY`가 배포된 경우 사용자 시크릿 불필요)
+
+관련 문서:
+
+- [공통 설정 가이드](setup.md)
+- [보안/시크릿 정책](security-and-secrets.md)

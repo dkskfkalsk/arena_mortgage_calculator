@@ -1,0 +1,100 @@
+# k-skill repository instructions
+
+This repository inherits the broader oh-my-codex guidance from the parent environment.
+These rules are repo-specific and apply to everything under this directory.
+
+## Release automation rules
+
+- Node packages live under `packages/*` and use npm workspaces.
+- Node package releases use **Changesets**. Do not hand-edit package versions only to cut a release; add a `.changeset/*.md` file instead.
+- npm publish is automated from GitHub Actions and should happen only after the bot-generated **Version Packages** PR is merged into `main`.
+- Python packages live under `python-packages/*` and use **release-please**. Until a real Python package exists, keep the Python release workflow as scaffold-only.
+- PyPI publish should run only when release-please reports `release_created=true` for a concrete package path.
+- Prefer trusted publishing via OIDC for npm and PyPI. Do not introduce long-lived registry tokens unless trusted publishing is unavailable.
+
+## Verification rules
+
+- For release or packaging changes, run `npm run ci`.
+- Keep release docs, workflow files, and package metadata aligned in the same change.
+
+## Skill deletion rules
+
+- When a skill is removed, delete its source, generated copies, package code, tests, fixtures, documentation, proxy helpers, and registry metadata from the repository.
+- Do **not** preserve removed skills or related code under `legacy/`, `archive/`, `deprecated/`, `retired/`, or any similar in-repository holding directory.
+- If future reimplementation may be useful, track the intent and requirements in a GitHub issue; Git history remains the source for retrieving deleted implementations.
+
+## Testing anti-patterns
+
+- **Never write tests that assert `.changeset/*.md` files exist.** Changesets are consumed (deleted) by `changeset version` during the release flow. Any test guarding changeset file presence will break CI on the version-bump commit and block the release pipeline.
+- **Never write tests that pin a workspace package's `version` field** (in `package.json` or `package-lock.json`). `changeset version` bumps these on every release, so any hardcoded version assertion will fail the next release commit and block the npm publish pipeline. Stable invariants like `name`, `license`, `engines.node`, or workspace link metadata are fine to assert; the `version` is not.
+
+## Development skill install rules
+
+- When testing or developing skills from this repository, install or sync the current skill directories into the user's home-directory global skill locations first.
+- To refresh the published CLI and every coding-agent skill install (including Vercel Agent Skills at `~/.agents/skills`), run `npx -y @nomadamas/k-skill@0 update`. Use `update --check` to report versions without installing.
+- Use `~/.claude/skills/<skill-name>` for Claude Code and `~/.agents/skills/<skill-name>` for agents-compatible home installs.
+- Respect existing home-directory indirection such as symlinks when syncing `~/.agents/skills`.
+- Do **not** create repo-local `.claude` or `.agents` directories for skill installation unless the user explicitly asks for a repository-local test fixture.
+
+## Unified CLI skill instruction rules
+
+- Every top-level skill uses `skill.json` (frontmatter + profiles) and `instruction.md` (site-specific workflow) as its source of truth.
+- Top-level `SKILL.md` files are generated CLI adapter stubs. Do not edit them directly; run `npm run generate:skill-stubs` after changing `skill.json`.
+- Run `npm run sync:cli-skills` after changing `skill.json`, `instruction.md`, `scripts/`, or `references/` so `packages/k-skill-cli/skills/` stays aligned.
+- Instruction commands must execute bundled helpers through `npx -y @nomadamas/k-skill@0 exec <skill> scripts/<file> -- ...` and read references through `... read <skill> references/<file>`. Run `npm run migrate:cli-assets` to normalize legacy relative paths.
+- Agents must version-check the CLI before using those tools with `npx -y @nomadamas/k-skill@0 update`. That command also refreshes all coding-agent skill installs, including Vercel Agent Skills (`~/.agents/skills`), via `npx --yes skills add NomaDamas/k-skill --all -g`.
+- Shared runtime behavior belongs in `packages/k-skill-cli/templates/*.md`, selected by profiles such as `proxy`, `vault`, `browser`, `action:booking`, `action:commerce`, `legal`, `operations`, `local`, and `lookup`. The CLI update one-liner lives in `templates/core.md` and generated `SKILL.md` stubs; do not copy it into `instruction.md`.
+- Do not duplicate shared runtime blocks in `instruction.md`. Keep only the skill's site-dependent navigation, commands, inputs/outputs, action details, and failure modes there.
+- Runtime detection is capability-based. Credential action mode requires both `DOLSHOI_ACTION_BROKER_URL` and a usable `vault-run`; CloakBrowser mode is detected independently through the bundled browser tool or `CLOAKBROWSER_PEEK_TOKEN`.
+- In Dolshoi credential mode, never ask for or reveal plaintext credentials. Use provisioned `vault-run` capabilities and call `request_vault_credential` when the required credential is missing.
+- In Dolshoi browser mode, the built-in browser tool backed by CloakBrowser is the first browser path. Generic `k-skill-browser-runtime` providers remain the fallback outside Dolshoi or when CloakBrowser is unavailable.
+- If the user asks for an action and the official surface supports it lawfully, continue past lookup through reversible preparation and execution. Immediately before payment, message delivery, final submission, cancellation, or another irreversible external side effect, use the `clarify` tool with the exact target and effect, then execute only after approval.
+- Do not bypass CAPTCHA, identity-proofing, electronic-signature, or official authentication controls. Legal profiles proceed through supported official authentication and resume after user-presence-only controls.
+
+## Crawling/search skill authoring
+
+- For any k-skill that crawls or searches a website, the expected output is a site-dependent recipe packaged into that skill.
+- Before fixing that recipe, use an insane-search-style, site-agnostic discovery pass: identify public entry points, observe browser-visible data flows when needed, prefer stable public/data endpoints over brittle screen scraping, and classify login/CAPTCHA/empty/blocked responses as explicit failure modes.
+- Record the discovered site-dependent access path, fallback order, inputs/outputs, and failure modes in `SKILL.md` and any helper package code. See `docs/adding-a-skill.md` for the canonical checklist.
+- Do not add crawling dependencies by default; first prefer existing runtime capabilities, public endpoints, or narrow allowlisted proxy routes.
+
+## Browser runtime skill authoring
+
+- For new or changed Node skills that need a logged-in browser session, rendered-page automation, or CDP browser fallback, use `k-skill-browser-runtime` as the default browser runtime instead of writing ad hoc CDP or Playwright connection code.
+- In Dolshoi browser mode, use the agent's built-in CloakBrowser-backed browser tool before `k-skill-browser-runtime`; the package runtime is the portable fallback.
+- The default provider is `auto`: attach to a user-launched BrowserOS GUI session first (`KSKILL_BROWSEROS_CDP_URL`, default `http://127.0.0.1:9100`), use Aside Browser through the documented `aside repl` CLI when available, then fall back to a user-launched Chrome/Chromium CDP session (`KSKILL_CHROME_CDP_URL`, default `http://127.0.0.1:9222`). `KSKILL_BROWSER_PROVIDER` may pin `auto`, `browseros`, `aside`, or `chrome-cdp`.
+- BrowserOS is CDP-only attach; Aside is CLI REPL-backed, not an undocumented CDP port. Skills must not launch BrowserOS or Aside, pass headless flags to BrowserOS, close the user browser/profile, solve CAPTCHA/identity-proofing/e-signature flows, or bypass the required `clarify` approval before irreversible submission. Disconnect automation clients and clean up only pages/contexts/tabs the skill created.
+- Package dependencies must use publishable semver such as `"k-skill-browser-runtime": "^0.1.0"`; do not use `workspace:` for publishable packages.
+- Keep site-specific navigation, selectors, parsing, fallback order, and typed stop/failure modes in the skill's `SKILL.md` and helper package code. Prefer public/direct HTTP endpoints before browser automation when they are stable and do not require authentication.
+
+## Free API proxy policy
+
+- The built-in `k-skill-proxy` is for **free APIs only**.
+- **k-skill-proxy inclusion rule**: A skill should be served through `k-skill-proxy` **only when the upstream requires an API key** (e.g., data.go.kr, KRX, Naver Search Open API, NEIS, Data4Library). Fully public endpoints that work without any authentication (e.g., realtyprice.kr) should be called directly from the user's machine, not routed through the proxy.
+- Default posture: public read-only endpoint, **no proxy auth by default**.
+- Keep free-API proxy surfaces narrow, allowlisted, cache-backed, and rate-limited.
+- If abuse or operational issues appear later, add stricter controls then instead of preemptively requiring auth.
+
+## Proxy server development
+
+- 개발 repo (`dev` 브랜치)에서 proxy 코드를 수정하고, main에 merge하면 프로덕션에 반영된다.
+- 프로덕션 배포 대상은 **gpu01**의 systemd user service이며, Cloudflare Tunnel을 통해 `k-skill-proxy.nomadamas.org`로 노출된다.
+- `main` 브랜치에 merge되면 gpu01 cron이 `origin/main`을 감지하고 테스트, 백업, 파일 동기화, systemd 재시작, local/public `/health` smoke test를 수행한다.
+- 따라서 **dev에서 route를 추가/수정한 뒤 main에 merge되기 전까지는 프로덕션 proxy에 반영되지 않는다.**
+- proxy 서버 코드: `packages/k-skill-proxy/src/server.js`
+- 자동 배포 스크립트: `scripts/deploy-k-skill-proxy-gpu01.sh`
+- proxy 서버 테스트: `packages/k-skill-proxy/test/server.test.js`
+- 로컬 테스트: `node packages/k-skill-proxy/src/server.js` (환경변수는 `~/.config/k-skill/secrets.env` 등에서 직접 export해서 띄운다)
+- 프로덕션 시크릿은 gpu01의 `/data/home/jeffrey/apps/k-skill-proxy/.env`에 보관되고 systemd가 주입한다.
+- **운영 관련 모든 절차는 [`docs/deploy-k-skill-proxy.md`](docs/deploy-k-skill-proxy.md)에 정리되어 있다.** 자동 배포, 상태 확인, 로그, 수동 배포, rollback 절차는 그 문서를 기준으로 한다.
+
+## Large public file mirrors
+
+- `store-longevity-radar`의 R2 저장소는 `k-skill-proxy` API route가 아니라, 특정 egress에서 원본 공공 파일 다운로드가 차단될 때만 사용하는 정적 공개 객체 mirror다.
+- mirror workflow: `.github/workflows/store-longevity-r2-mirror.yml`
+- 운영 문서: `docs/store-longevity-r2-mirror.md`
+- GitHub Actions secrets: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`
+- GitHub Actions variables: `STORE_LONGEVITY_R2_BUCKET`, `STORE_LONGEVITY_R2_PUBLIC_BASE_URL`
+- workflow는 원본 직접 접근을 먼저 시도하고, rendered-page discovery fallback을 사용한다. 두 경로가 막히면 manual dispatch의 strict `source_file_id=FILE_<digits>` override로 bootstrap한다.
+- ZIP CRC, 필수 CSV header, 파일 크기, SHA-256 검증 후 immutable object를 먼저 올리고 `latest.json`을 마지막에 교체한다.
+- R2 Standard 무료 한도와 custom-domain 변경 시 함께 수정해야 할 경로는 `docs/store-longevity-r2-mirror.md`를 기준으로 한다.
