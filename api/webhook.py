@@ -59,6 +59,9 @@ _processed_update_ids: set = set()
 _MAX_CACHED_UPDATE_IDS = 200
 
 
+TELEGRAM_TIMEOUT_SEC = 10
+
+
 def get_application(force_new=False):
     """텔레그램 애플리케이션 인스턴스 가져오기. force_new=True면 요청 전용 새 인스턴스 반환(캐시 안 함)."""
     global telegram_application
@@ -144,7 +147,15 @@ def get_application(force_new=False):
         print(f"[WEBHOOK] Application initializing - allowed_chat_ids_banks: {allowed_chat_ids_banks}, allowed_chat_ids_loan: {allowed_chat_ids_loan}, allowed_chat_ids_banks_2: {allowed_chat_ids_banks_2}, allowed_chat_ids_pdf_only: {allowed_chat_ids_pdf_only}", file=sys.stderr, flush=True)
         logger.info(f"Application initialized - allowed_chat_ids_banks: {allowed_chat_ids_banks}, allowed_chat_ids_loan: {allowed_chat_ids_loan}, allowed_chat_ids_banks_2: {allowed_chat_ids_banks_2}, allowed_chat_ids_pdf_only: {allowed_chat_ids_pdf_only}")
 
-        app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+        app = (
+            Application.builder()
+            .token(TELEGRAM_BOT_TOKEN)
+            .connect_timeout(TELEGRAM_TIMEOUT_SEC)
+            .read_timeout(TELEGRAM_TIMEOUT_SEC)
+            .write_timeout(TELEGRAM_TIMEOUT_SEC)
+            .pool_timeout(TELEGRAM_TIMEOUT_SEC)
+            .build()
+        )
         print("[WEBHOOK] Application initialized successfully", file=sys.stderr, flush=True)
 
         def get_chat_id(update):
