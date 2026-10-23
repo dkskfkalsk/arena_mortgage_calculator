@@ -92,6 +92,7 @@ class MessageParser:
             "address": None,
             "area": None,
             "household_count": None,
+            "building_count": None,  # 동 수 (세대수 줄의 "N개동")
             "total_floors": None,  # 건물 총층수
             "property_type": None,
             "kb_price": None,
@@ -237,6 +238,10 @@ class MessageParser:
                     household_match = re.search(r'총?\s*(\d+)\s*세대', line)
                     if household_match:
                         data["household_count"] = int(household_match.group(1))
+                if data.get("building_count") is None and "세대" in line:
+                    building_match = re.search(r'(\d+)\s*개\s*동', line)
+                    if building_match:
+                        data["building_count"] = int(building_match.group(1))
                 if data.get("total_floors") is None and "층" in line:
                     floors_match = re.search(r'총\s*(\d+)\s*층', line)
                     if floors_match:
@@ -929,6 +934,9 @@ class MessageParser:
             match = re.search(r"(\d+)", value)
             if match:
                 data["household_count"] = int(match.group(1))
+            building_match = re.search(r"(\d+)\s*개\s*동", value)
+            if building_match:
+                data["building_count"] = int(building_match.group(1))
         
         elif "총층수" in key_clean or "층수" in key_clean:
             # 총층수에서 숫자 추출 (예: "10층")

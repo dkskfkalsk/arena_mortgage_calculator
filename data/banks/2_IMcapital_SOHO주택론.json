@@ -47,6 +47,10 @@
   },
   "_comment_corporate_business_restriction": "enabled true = 법인사업자 취급 가능, false = 취급 불가(키워드 검사)",
   "show_interest_rate_range": false,
+  "additional_restricted_keywords": [
+    "대지권미등기"
+  ],
+  "_comment_additional_restricted_keywords": "특이사항·구분에 대지권미등기가 있으면 취급 불가 멘트 (공백 무시)",
   "validation_rules": {
     "enabled": true,
     "occupation_requirements": {
@@ -909,8 +913,8 @@
   "business_property_types": {
     "_comment": "사업자금 상품 취급 물건 타입 설정 (1: 취급, 0: 취급안함)",
     "apartment": 1,
-    "apartment_no_land_registry": 0,
-    "_comment_apartment_no_land_registry": "아파트 (대지권 미등기) 취급 불가",
+    "apartment_no_land_registry": 1,
+    "_comment_apartment_no_land_registry": "취급 불가는 additional_restricted_keywords 멘트로 처리 (0이면 결과가 출력에서 빠짐)",
     "residential_commercial": 1,
     "_comment_residential_commercial": "주상복합",
     "villa": 0,

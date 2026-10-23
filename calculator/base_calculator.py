@@ -1071,6 +1071,12 @@ class BaseCalculator:
                     if household_count is None or household_count < min_household_count:
                         log_print(f"DEBUG: BaseCalculator.calculate - {ptype_key} 세대수 {household_count} < min_household_count {min_household_count}, 취급 불가")
                         validation_errors.append(f"{prop_label}은(는) 최소 {min_household_count}세대 이상이어야 취급 가능합니다 (현재: {household_count or '정보없음'}세대)")
+                # 동 수는 KB 스크래핑 실패로 빠지는 경우가 많아, 확인된 값이 기준 미만일 때만 불가
+                min_building_count = conditions_for_ptype.get("min_building_count")
+                building_count = property_data.get("building_count")
+                if min_building_count is not None and building_count is not None and building_count < min_building_count:
+                    log_print(f"DEBUG: BaseCalculator.calculate - {ptype_key} 동수 {building_count} < min_building_count {min_building_count}, 취급 불가")
+                    validation_errors.append(f"{prop_label}은(는) {building_count}개동은 취급 불가합니다 (최소 {min_building_count}개동 이상)")
                 min_kb_price_for_type = conditions_for_ptype.get("min_kb_price")
                 if min_kb_price_for_type is not None and kb_price < min_kb_price_for_type:
                     log_print(f"DEBUG: BaseCalculator.calculate - {ptype_key} KB price {kb_price}만원 < min_kb_price {min_kb_price_for_type}만원, 취급 불가")
@@ -1084,6 +1090,11 @@ class BaseCalculator:
                 log_print("DEBUG: BaseCalculator.calculate - 지분/공유지분 물건, fractional_share_allowed=false")
                 validation_errors.append("지분·공유지분 물건은 취급 불가입니다")
                 return self._error_result(validation_errors)
+
+        # 요청사항 「지분조건」만 거절 (공동명의 동의조건은 통과)
+        if self.config.get("fractional_share_request_allowed") is False and fractional_share_condition_requested(property_data):
+            log_print("DEBUG: BaseCalculator.calculate - 요청사항 지분조건, fractional_share_request_allowed=false")
+            return self._error_result(["지분조건(지분대출)은 취급 불가입니다"])
         
         # 지역 검증을 시세·직업 등 상세 거절보다 먼저 수행
         # (예: 솔브레인 — 부산·울산·경남 외 지역은 KB시세/직업 멘트 대신 지역 불가만 회신)
@@ -1133,6 +1144,24 @@ class BaseCalculator:
             if not already_checked and kb_price < min_kb_price:
                 log_print(f"DEBUG: BaseCalculator.calculate - KB price {kb_price}만원 < min_kb_price {min_kb_price}만원, 취급 불가")
                 validation_errors.append(f"KB시세 {kb_price:,.0f}만원은 최소 {min_kb_price:,.0f}만원 이상이어야 취급 가능합니다 (현재: {kb_price:,.0f}만원, 부족: {min_kb_price - kb_price:,.0f}만원)")
+
+        # 저가 물건 1순위 전용 (투맨금융대부: KB 1억 미만은 대환 후 남는 선순위가 없어야 함)
+        # 대환 대상 근저당은 말소되므로 제외, 세입자(전·월세)는 선순위로 셈
+        low_kb_cfg = self.config.get("low_kb_price_no_mortgage") or {}
+        low_kb_lt = low_kb_cfg.get("kb_price_lt")
+        if low_kb_lt is not None and kb_price < float(low_kb_lt):
+            remaining_seniors = [
+                m for m in property_data.get("mortgages", []) or []
+                if not m.get("is_refinance", False)
+            ]
+            if remaining_seniors:
+                log_print(f"DEBUG: BaseCalculator.calculate - KB {kb_price}만원 < {low_kb_lt}만원, 대환 후 선순위 {len(remaining_seniors)}건 → 취급 불가")
+                validation_errors.append(
+                    low_kb_cfg.get(
+                        "error_message",
+                        "KB시세 {threshold:,.0f}만원 미만은 선순위(근저당·세입자)가 없어야 취급 가능합니다 (대환 제외 선순위 {n}건)",
+                    ).format(threshold=float(low_kb_lt), n=len(remaining_seniors), kb_price=kb_price)
+                )
         
         # 특이사항 및 직업 정보 추출 (한 번만 조회하여 재사용)
         special_notes = property_data.get("special_notes", "") or ""
@@ -1165,9 +1194,11 @@ class BaseCalculator:
         if additional_restricted_keywords:
             restricted_keywords.extend(additional_restricted_keywords)
         
+        # 구분 "아파트(대지권미등기)"처럼 물건유형에만 적힌 경우도 잡도록 구분까지 검사
+        keyword_check_text = f"{special_notes} {property_data.get('property_type') or ''}"
         found_keywords = []
         for keyword in restricted_keywords:
-            if contains_keyword(special_notes, keyword):
+            if contains_keyword(keyword_check_text, keyword):
                 found_keywords.append(keyword)
                 log_print(f"DEBUG: BaseCalculator.calculate - 특이사항에 '{keyword}' 발견, 취급 불가")
         

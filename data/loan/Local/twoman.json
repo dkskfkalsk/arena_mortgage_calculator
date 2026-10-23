@@ -26,6 +26,15 @@
     "_comment": "무직 최대한도 3천만원. 대환원금이 3천 초과(예: 5천 대환)면 대환 미산출"
   },
   "min_kb_price": 0,
+  "low_kb_price_no_mortgage": {
+    "kb_price_lt": 10000,
+    "error_message": "KB시세 1억 미만은 1순위만 취급 가능합니다 (대환 후 남는 선순위 근저당·세입자 {n}건)"
+  },
+  "_comment_low_kb_price_no_mortgage": "KB시세 kb_price_lt(만원) 미만이면 1순위만 취급. 대환 대상 근저당은 말소되므로 제외, 세입자(전·월세)는 선순위로 보아 있으면 취급 불가",
+  "fractional_share_request_allowed": false,
+  "_comment_fractional_share_request_allowed": "요청사항에 지분조건(지분대출)이면 취급 불가. 공동명의 동의조건은 취급 가능",
+  "additional_restricted_keywords": ["대지권미등기"],
+  "_comment_additional_restricted_keywords": "특이사항·구분에 대지권미등기가 있으면 취급 불가 멘트 (공백 무시)",
   "min_birth_year": 1958,
   "_comment_min_birth_year": "1958년생부터 취급. 1957년생 이하는 불가. 출생연도가 없으면 max_age로 본다",
   "min_birth_year_error_message": "1957년생부터 취급 불가입니다 (현재 {birth_year}년생)",
@@ -43,11 +52,19 @@
   "household_property_types": {
     "apartment": 1,
     "apartment_no_land_registry": 1,
+    "_comment_apartment_no_land_registry": "취급 불가는 additional_restricted_keywords 멘트로 처리 (0이면 결과가 출력에서 빠짐)",
     "residential_commercial": 0,
     "villa": 0,
     "officetel": 0,
     "detached_house": 0,
     "multi_family_house": 0
+  },
+  "property_type_conditions": {
+    "_comment": "아파트 200세대 이상, 1개동 불가 (동 수 정보가 없으면 동 수 조건은 통과)",
+    "apartment": {
+      "min_household_count": 200,
+      "min_building_count": 2
+    }
   },
   "region_grade_prefix_rules": [
     { "starts_with": "서울특별시", "grade": "1" },
@@ -75,7 +92,10 @@
   ],
   "conditions": [
     "가계자금",
-    "아파트만 취급",
+    "아파트만 취급 (200세대 이상, 1개동 불가, 대지권 미등기 불가)",
+    "지분대출 불가 (공동명의 동의조건 가능)",
+    "재건축 4단계까지 취급 (5단계부터 불가)",
+    "KB시세 1억 미만은 1순위만 취급 (대환 가능, 세입자 있으면 불가)",
     "전국 (제주도 제외)",
     "LTV: 서울·경기·인천 65%, 그 외 60%",
     "대출금리 17~18%",

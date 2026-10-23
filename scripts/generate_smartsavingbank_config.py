@@ -266,6 +266,7 @@ def main():
         "business_property_types": {
             "apartment": 1,
             "apartment_no_land_registry": 1,
+            "_comment_apartment_no_land_registry": "취급 불가는 additional_restricted_keywords 멘트로 처리 (0이면 결과가 출력에서 빠짐)",
             "residential_commercial": 1,
             "villa": 0,
             "officetel": 0,
@@ -281,10 +282,11 @@ def main():
             "enabled": True,
             "apartment": {"rules": [{"lower_bound_floors": [1, 2, 3]}]},
             "residential_commercial": {"rules": [{"lower_bound_floors": [1, 2, 3]}]},
-            "apartment_no_land_registry": {"rules": [{"lower_bound_floors": [1, 2, 3]}]},
-            "description": "아파트/주상복합/대지권미등기 — 1~3층 하한가",
+            "description": "아파트/주상복합 — 1~3층 하한가",
         },
         "show_interest_rate_range": False,
+        "additional_restricted_keywords": ["대지권미등기"],
+        "_comment_additional_restricted_keywords": "특이사항·구분에 대지권미등기가 있으면 취급 불가 멘트 (공백 무시)",
         "validation_rules": copy.deepcopy(mg["validation_rules"]),
         "corporate_business_restriction": {"enabled": True},
     }
