@@ -4204,9 +4204,13 @@ class BaseCalculator:
         compact = (address or "").replace(" ", "")
         if not compact:
             return None
-        has_eup_myeon = ("읍" in compact) or ("면" in compact)
-        has_ri = re.search(r"리(?![시군구])", compact) is not None
-        if not has_eup_myeon and not has_ri:
+        # 단지명·동호수(예: 금강펜테리움, 면목동)의 글자에 걸리지 않도록 지번/도로명 번호 앞 행정구역 토큰만 검사
+        admin_tokens = []
+        for token in (address or "").split():
+            if token[0].isdigit():
+                break
+            admin_tokens.append(token)
+        if not any(re.search(r"[가-힣](읍|면|리)$", t) for t in admin_tokens):
             return None
         for pair in cfg.get("allowed_pairs") or []:
             if not isinstance(pair, (list, tuple)) or len(pair) < 2:
