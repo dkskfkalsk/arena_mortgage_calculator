@@ -1780,12 +1780,20 @@ def get_application(force_new=False):
                     housematch_price = property_data.get("housematch_price") or extract_housematch_price_from_special_notes(special_notes)
                     realestatetech_price = property_data.get("realestatetech_price") or extract_realestatetech_price_from_special_notes(special_notes)
                     korea_realestate_price = extract_korea_realestate_price_from_special_notes(special_notes)
+                    real_transaction_price = property_data.get("real_transaction_price")
+                    if real_transaction_price is None:
+                        import re
+                        from utils.validators import parse_price_manwon
+                        tx_match = re.search(r"실거래가\s*[:：]?\s*([^\n]+)", special_notes)
+                        if tx_match:
+                            real_transaction_price = parse_price_manwon(tx_match.group(1))
                     has_alternative_price = any([
                         bank_appraisal_price is not None,
                         kb_ai_price is not None,
                         housematch_price is not None,
                         realestatetech_price is not None,
                         korea_realestate_price is not None,
+                        real_transaction_price is not None,
                     ])
                     if has_alternative_price:
                         # 적용 가능한 시세가 하나라도 있으면 한도 산출 진행 (해당 시세를 사용하는 금융사만 결과 나옴)
@@ -1801,6 +1809,7 @@ def get_application(force_new=False):
                             ("하우스머치", housematch_price),
                             ("부동산테크", realestatetech_price),
                             ("한국부동산원", korea_realestate_price),
+                            ("실거래가", real_transaction_price),
                         ] if v is not None]
                         print(f"[WEBHOOK] 적용 가능 시세로 한도 산출 진행: {', '.join(price_sources_found)}", file=sys.stderr, flush=True)
                         logger.info(f"handle_message - 적용 가능 시세로 한도 산출 진행: {price_sources_found}")

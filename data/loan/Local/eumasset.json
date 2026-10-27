@@ -879,7 +879,8 @@
         "bank_appraisal_price": 0,
         "realestatetech_price": 1,
         "korea_realestate_price": 0,
-        "housematch_price": 0
+        "housematch_price": 0,
+        "real_transaction_price": 0
       },
       "_comment_price_sources": "하이론은 감정가 불가 (KB·부동산테크만)",
       "business_property_types": {

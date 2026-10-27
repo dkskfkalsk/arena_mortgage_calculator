@@ -365,7 +365,8 @@
     "korea_realestate_price": 0,
     "_comment_korea_realestate_price": "한국부동산원 시세",
     "housematch_price": 0,
-    "_comment_housematch_price": "하우스머치 시세"
+    "_comment_housematch_price": "하우스머치 시세",
+    "real_transaction_price": 1
   },
   "property_types": {
     "_comment": "취급 물건 타입 설정 (1: 취급, 0: 취급안함)",

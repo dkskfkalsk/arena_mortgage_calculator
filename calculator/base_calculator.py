@@ -1426,14 +1426,8 @@ class BaseCalculator:
             is_officetel = property_type and "오피스텔" in property_type
             is_villa = property_type and any(k in property_type for k in ("빌라", "연립", "다세대"))
             
-            # 현재 층수 추출 (주소에서)
-            floor = None
-            if address:
-                # 총층수 패턴 제외하고 현재 층수만 추출
-                # "6층 (총층수 10층)" 에서 6만 추출
-                floor_match = re.search(r'(\d+)층(?!\s*\))', address)
-                if floor_match:
-                    floor = int(floor_match.group(1))
+            # 현재 층수 추출 (주소의 N층, 없으면 N호 → 층 추정)
+            floor = self._extract_current_floor(address)
             
             log_print(f"DEBUG: 하한가 체크 - property_type: {property_type}, floor: {floor}, total_floors: {total_floors}")
             
@@ -5139,6 +5133,44 @@ class BaseCalculator:
         
         return None
     
+    def _extract_current_floor(self, address: Optional[str]) -> Optional[int]:
+        """
+        주소에서 현재 층수 추출.
+        1) '제5층' / '5층' 등 명시 층수 우선
+        2) 없으면 '제103호' / '1203호'처럼 3자리 이상 호수에서 층 추정 (103→1, 1203→12)
+        """
+        if not address:
+            return None
+
+        text = str(address)
+
+        # "6층 (총층수 10층)" → 6, "총층수 14층"만 있는 경우는 제외
+        for match in re.finditer(r'(\d+)\s*층', text):
+            start = match.start()
+            prefix = text[max(0, start - 4):start]
+            if "총" in prefix:
+                continue
+            try:
+                return int(match.group(1))
+            except (TypeError, ValueError):
+                return None
+
+        # 호수 → 층 (아파트/주상복합 등 통상 규칙: 앞자리=층)
+        ho_match = re.search(r'(\d+)\s*호', text)
+        if not ho_match:
+            return None
+        digits = ho_match.group(1)
+        if len(digits) < 3:
+            return None
+        try:
+            floor = int(digits) // 100
+        except (TypeError, ValueError):
+            return None
+        if floor <= 0:
+            return None
+        log_print(f"DEBUG: _extract_current_floor - 호수 {digits}호 → {floor}층 추정")
+        return floor
+
     def _check_lower_bound_rules(self, rules: List[Dict], floor: Optional[int], total_floors: Optional[int]) -> bool:
         """
         하한가 적용 규칙 체크
