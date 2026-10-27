@@ -615,7 +615,7 @@
       "apartment_no_land_registry"
     ],
     "household_count_gte": 300,
-    "comment": "본심사 애큐온저축 우량아파트 해당시 LTV +3%추가",
+    "comment": "본심사 애큐온저축 우량아파트 해당시 LTV +3%추가 최대95%",
     "_comment": "1~3급지 아파트 300세대 이상일 때 한도 하단 멘트만 표시(한도 LTV는 자동 가산하지 않음)"
   },
   "reconstruction_max_stage": 5,
