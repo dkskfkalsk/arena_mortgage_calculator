@@ -423,9 +423,10 @@ class BaseCalculator:
     # 전체 지역 리스트 (메인 계산기 기준)
     ALL_REGIONS = [
         "서울특별시종로구", "서울특별시중구", "서울특별시용산구", "서울특별시성동구",
+        "서울특별시광진구광장동", "서울특별시광진구자양동", "서울특별시광진구구의동",
         "서울특별시광진구", "서울특별시동대문구", "서울특별시중랑구", "서울특별시성북구",
         "서울특별시강북구", "서울특별시도봉구", "서울특별시노원구", "서울특별시은평구",
-        "서울특별시서대문구", "서울특별시마포구", "서울특별시양천구", "서울특별시강서구",
+        "서울특별시서대문구", "서울특별시마포구", "서울특별시양천구목동", "서울특별시양천구", "서울특별시강서구",
         "서울특별시구로구", "서울특별시금천구", "서울특별시영등포구", "서울특별시동작구",
         "서울특별시관악구", "서울특별시서초구", "서울특별시강남구", "서울특별시송파구",
         "서울특별시강동구",
@@ -3261,6 +3262,52 @@ class BaseCalculator:
             except (ValueError, TypeError):
                 pass
 
+        # 우량물건 조건 멘트 (예: 애큐온저축 1~3급지 아파트 300세대+ → LTV +3% 안내)
+        premium_cfg = self.config.get("premium_property_conditions") or {}
+        premium_comment = premium_cfg.get("comment")
+        if (
+            results
+            and property_data
+            and premium_comment
+            and premium_cfg.get("enabled", False)
+        ):
+            try:
+                allowed_grades = {
+                    int(g) for g in (premium_cfg.get("region_grades") or [])
+                }
+                household_gte = premium_cfg.get("household_count_gte")
+                ptype_keys = premium_cfg.get("property_type_keys") or []
+                cur_grade = grade
+                try:
+                    cur_grade_int = int(cur_grade) if cur_grade is not None else None
+                except (TypeError, ValueError):
+                    cur_grade_int = None
+                household_count = property_data.get("household_count")
+                household_ok = (
+                    household_gte is None
+                    or (
+                        household_count is not None
+                        and int(household_count) >= int(household_gte)
+                    )
+                )
+                ptype_ok = True
+                if ptype_keys:
+                    cur_ptype_key = get_property_type_key(
+                        property_data.get("property_type"),
+                        property_data.get("special_notes"),
+                    )
+                    ptype_ok = cur_ptype_key in ptype_keys
+                grade_ok = (not allowed_grades) or (
+                    cur_grade_int is not None and cur_grade_int in allowed_grades
+                )
+                if grade_ok and household_ok and ptype_ok and premium_comment not in conditions:
+                    conditions.append(premium_comment)
+                    log_print(
+                        f"DEBUG: BaseCalculator.calculate - premium_property_conditions 멘트 추가: {premium_comment}"
+                    )
+            except (TypeError, ValueError) as e:
+                log_print(f"DEBUG: BaseCalculator.calculate - premium_property_conditions 스킵: {e}")
+
         # 세대수 LTV 차감 적용 시 안내 멘트 (솔브레인저축은행 등)
         hh_meta = getattr(self, "_household_ltv_reduction_meta", None) or {}
         if results and hh_meta.get("applied") and hh_meta.get("message"):
@@ -3420,6 +3467,33 @@ class BaseCalculator:
         print(f"DEBUG: credit_score_to_grade - no match found, returning None")  # 추가
         return None
     
+    def _resolve_credit_grade_key(self, grade_config: Dict[str, Any], credit_grade: Optional[int], priority_key: str) -> Optional[str]:
+        """
+        신용등급을 grade_config의 키("1-7", "3-5", "6" 등)로 변환.
+        신용점수 없음이면 credit_grade_none_fallback(문자열 또는 {"primary": ..., "subordinate": ...}) 사용.
+        """
+        if credit_grade is None:
+            fallback = self.config.get("credit_grade_none_fallback")
+            if isinstance(fallback, dict):
+                fallback = fallback.get(priority_key)
+            if fallback is not None and str(fallback) in grade_config:
+                return str(fallback)
+            return None
+        
+        for key in grade_config:
+            if key.startswith("_"):
+                continue
+            parts = key.split("-")
+            try:
+                if len(parts) == 2:
+                    if int(parts[0]) <= credit_grade <= int(parts[1]):
+                        return key
+                elif len(parts) == 1 and int(parts[0]) == credit_grade:
+                    return key
+            except ValueError:
+                continue
+        return None
+    
     def _get_ltv_steps_by_grade(self, is_subordinate: bool, credit_grade: Optional[int]) -> List[int]:
         """
         신용등급별 LTV steps 조회
@@ -3439,15 +3513,7 @@ class BaseCalculator:
             if priority_key in ltv_by_priority and business_type in ltv_by_priority[priority_key]:
                 grade_config = ltv_by_priority[priority_key][business_type]
                 
-                # 신용등급에 따라 키 선택
-                grade_key = None
-                if credit_grade is not None:
-                    if 1 <= credit_grade <= 6:
-                        grade_key = "1-6"
-                    elif credit_grade == 7:
-                        grade_key = "7"
-                    elif credit_grade == 8:
-                        grade_key = "8"
+                grade_key = self._resolve_credit_grade_key(grade_config, credit_grade, priority_key)
                 
                 if grade_key and grade_key in grade_config:
                     ltv_steps = grade_config[grade_key]
@@ -4523,18 +4589,8 @@ class BaseCalculator:
             if priority_key in max_ltv_by_priority:
                 grade_config = max_ltv_by_priority[priority_key]
                 
-                # 신용등급에 따라 키 선택 (신용점수 없음(X)일 때 fallback 적용)
-                grade_key = None
-                if credit_grade is not None:
-                    if 1 <= credit_grade <= 6:
-                        grade_key = "1-6"
-                    elif credit_grade == 7:
-                        grade_key = "7"
-                    elif credit_grade == 8:
-                        grade_key = "8"
-                else:
-                    # 신용점수 없음: credit_grade_none_fallback 사용. LTV·한도만 등급 적용, 금리는 구간(최저~최고)으로 산출
-                    grade_key = self.config.get("credit_grade_none_fallback", "1-6")
+                # 신용점수 없음(X)이면 credit_grade_none_fallback 적용. LTV·한도만 등급 적용, 금리는 구간(최저~최고)으로 산출
+                grade_key = self._resolve_credit_grade_key(grade_config, credit_grade, priority_key)
                 
                 if grade_key and grade_key in grade_config:
                     region_ltv_map = grade_config[grade_key]
