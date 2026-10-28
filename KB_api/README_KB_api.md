@@ -93,14 +93,16 @@ if doc.부동산_주소 and doc.면적:
 
 ---
 
-## 환경별 스크래핑
+## 단지 부가정보 (세대수·사용승인일 등)
 
-| 환경 | 세대수·사용승인일 | 방식 |
-|------|-------------------|------|
-| 로컬 | ✅ | `kb_complex_scraper.py` + Playwright |
-| Vercel | 세대수 | `api/kb-households.js` (Node Puppeteer) |
-| Render | ✅ (분리) | `PLAYWRIGHT_SCRAPER_URL` → render-playwright |
-| Vercel/Render (미연동) | ❌ | HTTP API만, 부가정보 null 가능 |
+1차는 모든 환경에서 KB API(`get_complex_extra_via_api`: `complexMain` + `rcnsInfo`)입니다.  
+세대수 또는 사용승인일을 못 얻었을 때만 아래 보조 스크래퍼를 호출합니다.
+
+| 환경 | 보조 스크래퍼 |
+|------|---------------|
+| 로컬 | `kb_complex_scraper.py` + Python Playwright |
+| Vercel (`PLAYWRIGHT_SCRAPER_URL` 설정, 현재) | Render 스크래퍼 (`render-playwright/`) |
+| Vercel (미설정) | `api/kb-households.js` (Node Puppeteer) |
 
 한계: [kbland_스크래핑_한계.md](kbland_스크래핑_한계.md)
 
@@ -114,7 +116,7 @@ Vercel 등에서 Python Playwright 없이 HTTP만으로 시세 조회:
 node kb-price-node/index.js "<주소>" "<면적>"
 ```
 
-상세: [../kb-price-node/README.md](../kb-price-node/README.md)
+상세: [../kb-price-node/README_kb-price-node.md](../kb-price-node/README_kb-price-node.md)
 
 ---
 
@@ -136,7 +138,7 @@ python scripts/run_scraper_local.py --pdf "path/to/file.pdf"
 |------|------|
 | `JUSO_API_KEY` / `JUSO_CONFM_KEY` | 도로명 → 법정동코드 |
 | `REAL_ESTATE_API_KEY` | KB 실패 시 실거래가 ([../docs/공공데이터_실거래가_설정_가이드.md](../docs/공공데이터_실거래가_설정_가이드.md)) |
-| `PLAYWRIGHT_SCRAPER_URL` | Render 외부 스크래퍼 |
+| `PLAYWRIGHT_SCRAPER_URL` / `PLAYWRIGHT_SCRAPER_TOKEN` | Render 보조 스크래퍼 (Vercel) |
 
 ---
 
@@ -168,7 +170,7 @@ KB_api/
 ├── kb_next_data.py           # kbland 데이터 파싱 보조
 ├── generate_dongcode_json.py # 법정동 JSON 생성
 ├── 전국_dongcode_data.json
-├── README.md
+├── README_KB_api.md
 ├── 로그_확인_가이드.md
 ├── kbland_스크래핑_한계.md
 └── 법정동코드_데이터_출처.md

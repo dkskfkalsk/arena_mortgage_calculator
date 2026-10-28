@@ -38,7 +38,7 @@ node kb-price-node/index.js "경상남도 진주시 이현동 1180 이현하이�
 ```
 
 `households`: API·페이지 fetch에 있으면 채움, 없으면 `null`.  
-**정확한 세대수**가 필요하면 로컬 Playwright([KB_api/README.md](../KB_api/README.md)) 사용.
+**정확한 세대수**가 필요하면 로컬 Playwright([KB_api/README_KB_api.md](../KB_api/README_KB_api.md)) 사용.
 
 ---
 
@@ -76,5 +76,5 @@ python scripts/test_kb_node_pdf.py
 
 ## 관련 문서
 
-- [KB_api/README.md](../KB_api/README.md)
+- [KB_api/README_KB_api.md](../KB_api/README_KB_api.md)
 - [KB_api/kbland_스크래핑_한계.md](../KB_api/kbland_스크래핑_한계.md)

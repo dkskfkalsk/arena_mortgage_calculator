@@ -3,7 +3,7 @@
 등기부 면적과 정확히 같은 면적의 최근 매매 실거래가 1건 조회.
 
 국토교통부 실거래가 신고 데이터를 k-skill-proxy(`/v1/real-estate/...`)로 받는다.
-API 키가 필요 없다. 자세한 설명은 같은 폴더의 README.md 참고.
+API 키가 필요 없다. 자세한 설명은 같은 폴더의 README_real_estate_search.md 참고.
 """
 
 import logging

@@ -25,8 +25,8 @@
 2512_mortgage_calculator/
 ├── main.py                      # 로컬 Polling 비활성 (가드)
 ├── api/
-│   ├── webhook.py               # Vercel/Render 웹훅 (메인 서비스)
-│   └── kb-households.js         # Vercel Node: 세대수·동수 스크래핑
+│   ├── webhook.py               # Vercel 웹훅 (메인 서비스)
+│   └── kb-households.js         # Vercel Node: 단지 부가정보 스크래핑 (보조)
 ├── config/
 │   └── telegram_config.example.py
 ├── parsers/
@@ -44,7 +44,7 @@
 │   └── real_transaction_api.py  # 공공데이터 실거래가
 ├── KB_api/                      # KB 시세·법정동·스크래퍼
 ├── kb-price-node/               # Node.js KB 시세 (HTTP API 전용)
-├── render-playwright/           # Render Playwright 스크래퍼 서비스
+├── render-playwright/           # Render Playwright 스크래퍼 (KB API 실패 시 보조)
 ├── scripts/                     # 웹훅·빌드·점검 스크립트
 ├── requirements.txt
 ├── package.json                 # Vercel Node 의존성
@@ -122,7 +122,9 @@ python scripts/set_webhook.py https://your-app.vercel.app/api/webhook
 | 환경 | 용도 | 진입점 |
 |------|------|--------|
 | **Vercel** | 운영 웹훅, KB Node API | `api/webhook.py`, `api/kb-households.js` |
-| **Render** | 웹훅 + Playwright 분리 배포 | `run_webhook_render.py`, `render-playwright/` |
+| **Render** | 보조 스크래퍼 (KB API 실패 시만 호출) | `render-playwright/` |
+
+단지 부가정보(세대수·사용승인일 등)는 KB API로 먼저 조회하고, 실패할 때만 스크래퍼를 씁니다. 경위: [PROJECT_SUMMARY.md](PROJECT_SUMMARY.md#kb-단지-부가정보-조회-이력)
 
 ---
 
@@ -133,10 +135,10 @@ python scripts/set_webhook.py https://your-app.vercel.app/api/webhook
 | [SETUP.md](SETUP.md) | 토큰, 환경변수, 웹훅, BotFather 설정 |
 | [USAGE.md](USAGE.md) | 메시지 형식, 금융사 조견 수정, 기능 사용법 |
 | [PROJECT_SUMMARY.md](PROJECT_SUMMARY.md) | 아키텍처·계산 로직·모듈 상세 |
-| [RENDER_무응답_대응.md](RENDER_무응답_대응.md) | Render 무응답 트러블슈팅 |
-| [KB_api/README.md](KB_api/README.md) | KB 시세 API 사용법 |
-| [kb-price-node/README.md](kb-price-node/README.md) | Node.js KB 시세 모듈 |
-| [render-playwright/README.md](render-playwright/README.md) | Render Playwright 서비스 |
+| [KB_api/README_KB_api.md](KB_api/README_KB_api.md) | KB 시세 API 사용법 |
+| [kb-price-node/README_kb-price-node.md](kb-price-node/README_kb-price-node.md) | Node.js KB 시세 모듈 |
+| [real_estate_search/README_real_estate_search.md](real_estate_search/README_real_estate_search.md) | 등기부 면적 기준 실거래가 조회 |
+| [render-playwright/README_render-playwright.md](render-playwright/README_render-playwright.md) | Render 보조 스크래퍼 |
 | [docs/공공데이터_실거래가_설정_가이드.md](docs/공공데이터_실거래가_설정_가이드.md) | 실거래가 API 설정 |
 | [docs/CONFIG_UNIFICATION_PLAN.md](docs/CONFIG_UNIFICATION_PLAN.md) | 조견 JSON 통합 계획 (내부) |
 

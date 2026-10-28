@@ -10,7 +10,7 @@
 |------|------|
 | `config/telegram_config.py` | 로컬 실행용 (예시: `telegram_config.example.py` 복사) |
 | `.env` / `.env.local` | 로컬 PDF 봇·API 키 |
-| Vercel/Render 환경변수 | 운영 배포 |
+| Vercel 환경변수 | 운영 배포 |
 
 `config/telegram_config.py`는 `.gitignore`에 포함되어 Git에 올라가지 않습니다.
 
@@ -168,12 +168,13 @@ KB 일반가가 없을 때 보조 시세로 사용합니다.
 - 설정: [docs/공공데이터_실거래가_설정_가이드.md](docs/공공데이터_실거래가_설정_가이드.md)
 - 환경변수: `REAL_ESTATE_API_KEY`
 
-### Render Playwright 스크래퍼
+### Render Playwright 스크래퍼 (보조)
 
-Render 웹훅에서 세대수·사용승인일 등 브라우저 스크래핑이 필요할 때:
+KB API로 세대수·사용승인일을 못 얻었을 때만 Vercel 웹훅이 호출하는 보조 스크래퍼입니다.
 
-- 환경변수: `PLAYWRIGHT_SCRAPER_URL` (별도 Render 서비스 URL)
-- 설정: [render-playwright/README.md](render-playwright/README.md)
+- Vercel 환경변수: `PLAYWRIGHT_SCRAPER_URL` (Render 서비스 URL), `PLAYWRIGHT_SCRAPER_TOKEN`
+- 미설정 시 보조 경로는 `api/kb-households.js`(Node Puppeteer)
+- 설정: [render-playwright/README_render-playwright.md](render-playwright/README_render-playwright.md)
 
 ---
 

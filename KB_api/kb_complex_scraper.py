@@ -3,7 +3,9 @@
 KB /c/ 단지 페이지 스크래퍼
 - kbland.kr/c/{단지기본일련번호} 에서 재건축 단계(조합설립인가 등) + 세대수·동수 추출
 - Playwright 사용 (JS 렌더링 SPA 대응)
-- Vercel에서는 Playwright 대신 Node Puppeteer API(/api/kb-households)로 세대수·동수 조회
+- KB API(kb_price_api.get_complex_extra_via_api)로 세대수·사용승인일을 못 얻었을 때만 보조로 호출된다.
+- Vercel에서는 in-process 브라우저를 띄우지 않고 Render 스크래퍼(PLAYWRIGHT_SCRAPER_URL) 또는
+  Node Puppeteer API(/api/kb-households)를 호출한다.
 """
 
 import os
@@ -13,9 +15,8 @@ from typing import Dict, List, Optional, Tuple, Any
 
 logger = logging.getLogger(__name__)
 
-# Vercel·Render 등 Playwright 미지원/미사용 환경 → 외부 API(PLAYWRIGHT_SCRAPER_URL/VERCEL_URL)만 사용
-# Render에서 웹훅이 돌 때 in-process Playwright를 쓰면 실패·타임아웃으로 한도 회신이 안 나갈 수 있음
-if os.getenv("VERCEL") == "1" or os.getenv("VERCEL_ENV") or os.getenv("RENDER") == "true":
+# Vercel 서버리스는 Python Playwright(Chromium) 실행 불가 → 외부 API(PLAYWRIGHT_SCRAPER_URL/VERCEL_URL)만 사용
+if os.getenv("VERCEL") == "1" or os.getenv("VERCEL_ENV"):
     _SCRAPER_DISABLED = True
 else:
     _SCRAPER_DISABLED = False
@@ -222,7 +223,8 @@ class KBComplexScraper:
 
 def _fetch_render_playwright(complex_id: str) -> Dict[str, Any]:
     """
-    Vercel 전용. Render Playwright API 호출 (사용승인일·재건축·세대수).
+    Vercel 전용. Render Playwright 스크래퍼(render-playwright/) 호출 (사용승인일·재건축·세대수).
+    KB API 실패 시 보조 경로라 평소에는 호출되지 않는다.
     """
     import time
     import requests
@@ -357,8 +359,10 @@ def get_complex_extra_info(complex_id: int | str) -> Dict[str, Any]:
     """
     단지기본일련번호로 /c/ 스크래핑 후 재건축·세대수·동수·사용승인일 반환.
 
+    KB API로 세대수·사용승인일을 못 얻었을 때만 kb_price_api에서 보조로 호출한다.
+
     - 로컬: Playwright 사용
-    - Vercel/Render: PLAYWRIGHT_SCRAPER_URL 있으면 해당 API, Vercel일 때만 VERCEL_URL(Node API) fallback
+    - Vercel: PLAYWRIGHT_SCRAPER_URL 있으면 Render 스크래퍼, 없으면 VERCEL_URL(Node API)
 
     Returns:
         { redevelop_stages, households, buildings, approval_date, ... }

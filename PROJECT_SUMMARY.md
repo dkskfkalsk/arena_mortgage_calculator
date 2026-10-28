@@ -23,10 +23,8 @@
 
 | 파일 | 역할 |
 |------|------|
-| `main.py` | 로컬 Polling 봇 (개발·간단 테스트) |
-| `api/webhook.py` | Vercel/Render 서버리스 웹훅 (운영) |
+| `api/webhook.py` | Vercel 서버리스 웹훅 (운영) |
 | `main.py` | 로컬 Polling 비활성 가드 (Vercel 웹훅만 사용) |
-| `run_webhook_render.py` | Render 웹훅 실행 |
 
 ---
 
@@ -80,14 +78,31 @@
 
 | 구성 | 설명 |
 |------|------|
-| `KB_api/kb_price_api.py` | Python KB 시세 (법정동코드 → 단지 → 면적 매칭) |
-| `KB_api/kb_complex_scraper.py` | Playwright: 세대수·사용승인일·재건축 |
+| `KB_api/kb_price_api.py` | Python KB 시세 (법정동코드 → 단지 → 면적 매칭), 단지 부가정보 KB API 조회 |
+| `KB_api/kb_complex_scraper.py` | 단지 부가정보 스크래핑 (KB API 실패 시 보조) |
 | `kb-price-node/` | Node HTTP API 전용 (Vercel 호환) |
-| `api/kb-households.js` | Vercel Node Puppeteer 세대수 API |
-| `render-playwright/` | Render 전용 Playwright 마이크로서비스 |
+| `api/kb-households.js` | Vercel Node Puppeteer 스크래퍼 (보조, Render 미설정 시) |
+| `render-playwright/` | Render Playwright 스크래퍼 (보조) |
 
 법정동코드: `KB_api/전국_dongcode_data.json`  
 도로명 주소: `JUSO_API_KEY` 환경변수로 실시간 조회
+
+### 단지 부가정보 조회 순서
+
+세대수·동수·사용승인일·단지유형·재건축 단계는 아래 순서로 채웁니다.
+
+```
+1차  KB API  kb_price_api.get_complex_extra_via_api()
+     complexMain(세대수·동수·준공일·유형) + rcnsInfo(재건축 단계)
+       │  세대수 또는 사용승인일이 비어 있을 때만
+       ▼
+보조  kb_complex_scraper.get_complex_extra_info()
+     로컬   → Python Playwright
+     Vercel → PLAYWRIGHT_SCRAPER_URL 있으면 Render 스크래퍼 (현재 설정됨)
+              없으면 api/kb-households.js (Node Puppeteer)
+```
+
+보조 결과는 KB API가 채우지 못한 항목에만 덮어씁니다.
 
 ---
 
@@ -124,13 +139,56 @@
 
 - `api/webhook.py` — maxDuration 60s
 - `api/kb-households.js` — Node Puppeteer, memory 1024MB
-- Python Playwright 불가 → Node 또는 외부 스크래퍼 사용
+- Python Playwright 불가 → 보조 스크래핑은 Render 스크래퍼 또는 Node 사용
 
-### Render
+### Render (보조 스크래퍼만)
 
-- 무료 플랜 슬립 이슈 → UptimeRobot 등 핑 권장
-- `RENDER=true` 시 in-process Playwright 비활성 → `PLAYWRIGHT_SCRAPER_URL` 연동
-- 상세: [RENDER_무응답_대응.md](RENDER_무응답_대응.md)
+- `render-playwright/`만 배포. 웹훅은 Render에서 돌리지 않음
+- Vercel 환경변수 `PLAYWRIGHT_SCRAPER_URL`, `PLAYWRIGHT_SCRAPER_TOKEN`으로 연동
+- 무료 플랜 슬립(15분) → 보조 경로가 필요하면 `/health` 14분 간격 핑
+- 상세: [render-playwright/README_render-playwright.md](render-playwright/README_render-playwright.md)
+
+---
+
+## KB 단지 부가정보 조회 이력
+
+세대수·사용승인일 등을 어디서 가져오는지가 여러 번 바뀌었습니다. Render가 왜 남아 있는지 이해하려면 이 흐름을 보면 됩니다.
+
+### 1. 로컬 Playwright (2026.01)
+
+- kbland.kr은 Vue SPA라 초기 HTML에 데이터가 없음 → `/c/{단지ID}` 페이지를 브라우저로 띄워 본문 텍스트를 파싱
+- 당시 알던 API(`complex/info`)에는 세대수·사용승인일이 없었음
+- 로컬에서는 잘 되지만 Vercel 서버리스에서는 Python Playwright(Chromium) 실행 불가
+
+### 2. Vercel Node Puppeteer (2026.01.30)
+
+- `api/kb-households.js` 추가: `puppeteer-core` + `@sparticuz/chromium`으로 Vercel 안에서 스크래핑
+- Chromium 네이티브 라이브러리 문제·시간 제한으로 실패가 잦음
+
+### 3. Render 분리 (2026.02)
+
+- `render-playwright/`: Render에 Playwright 전용 서비스를 따로 배포하고 Vercel이 `PLAYWRIGHT_SCRAPER_URL`로 호출
+- 같은 시기 웹훅 자체를 Render에서 돌리는 구성(`run_webhook_render.py`)도 시도
+  - 무료 플랜 슬립·콜드 스타트로 무응답이 잦아 "일어나" 명령, UptimeRobot 핑 등으로 대응
+  - 이후 웹훅은 Vercel로 일원화 → `run_webhook_render.py`, `RENDER_무응답_대응.md`, `RENDER=true` 분기 삭제 (2026.10)
+
+### 4. KB API 우선 (2026.08 ~ 현재)
+
+- `complexMain`(세대수·동수·준공일·유형)과 `rcnsInfo`(재건축 단계)에 같은 값이 있다는 것을 확인
+- `kb_price_api.get_complex_extra_via_api()`가 1차로 조회. 0.3~0.7초 (브라우저 11~19초)
+- 스크래퍼는 KB API로 세대수·사용승인일을 못 얻은 경우에만 보조로 호출
+- 상세: [KB_api/kbland_스크래핑_한계.md](KB_api/kbland_스크래핑_한계.md)
+
+### 현재 상태 (2026.10)
+
+| 구성 | 상태 |
+|------|------|
+| KB API (`get_complex_extra_via_api`) | 1차, 정상 상황에서는 이것만 사용 |
+| Render 스크래퍼 (`render-playwright/`) | 보조. Vercel에 `PLAYWRIGHT_SCRAPER_URL` 설정되어 있어 이쪽이 먼저 쓰임 |
+| Node 스크래퍼 (`api/kb-households.js`) | 보조의 대체. `PLAYWRIGHT_SCRAPER_URL`을 지우면 사용 |
+| Render 웹훅 | 삭제 |
+
+Render를 완전히 걷어내려면 Vercel에서 `PLAYWRIGHT_SCRAPER_URL`을 지우고 KB API 실패 시 Node 스크래퍼가 잘 도는지 확인한 뒤, `render-playwright/`와 `_fetch_render_playwright`를 삭제하고 Render 서비스를 내리면 됩니다.
 
 ---
 
@@ -158,4 +216,5 @@
 - [README.md](README.md) — 프로젝트 소개·빠른 시작
 - [SETUP.md](SETUP.md) — 환경 설정
 - [USAGE.md](USAGE.md) — 사용법
-- [KB_api/README.md](KB_api/README.md) — KB API 상세
+- [KB_api/README_KB_api.md](KB_api/README_KB_api.md) — KB API 상세
+- [render-playwright/README_render-playwright.md](render-playwright/README_render-playwright.md) — Render 보조 스크래퍼

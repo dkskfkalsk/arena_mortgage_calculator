@@ -45,8 +45,11 @@ KB 부동산(kbland.kr)에서 **브라우저 없이** 가져올 수 있는 정�
 | 환경 | 1차(API) | 폴백(브라우저) |
 |------|----------|----------------|
 | **로컬** | ✅ | Python Playwright |
-| **Vercel** | ✅ | Node Puppeteer (`api/kb-households.js`, Chromium 네이티브 라이브러리 이슈로 실패 가능) |
-| **Render** | ✅ | 분리 Playwright 서비스 (`PLAYWRIGHT_SCRAPER_URL`) |
+| **Vercel** (`PLAYWRIGHT_SCRAPER_URL` 설정, 현재) | ✅ | Render 분리 Playwright 서비스 (`render-playwright/`) |
+| **Vercel** (미설정) | ✅ | Node Puppeteer (`api/kb-households.js`, Chromium 네이티브 라이브러리 이슈로 실패 가능) |
+
+웹훅은 Vercel에서만 돌고, Render에는 보조 스크래퍼만 있다. 경위는
+[../PROJECT_SUMMARY.md](../PROJECT_SUMMARY.md#kb-단지-부가정보-조회-이력) 참고.
 
 ---
 
@@ -61,6 +64,6 @@ KB 부동산(kbland.kr)에서 **브라우저 없이** 가져올 수 있는 정�
 
 ## 관련 문서
 
-- [README.md](README.md)
-- [../kb-price-node/README.md](../kb-price-node/README.md)
+- [README_KB_api.md](README_KB_api.md)
+- [../kb-price-node/README_kb-price-node.md](../kb-price-node/README_kb-price-node.md)
 - [로그_확인_가이드.md](로그_확인_가이드.md)

@@ -1620,7 +1620,7 @@ def get_application(force_new=False):
                 await help_command(update, context)
                 return
             
-            # Render 등 서버 슬립 깨우기: "일어나" → banks_2(PDF 방)에서만 회신
+            # 서버 동작 확인용: "일어나" → banks_2(PDF 방)에서만 회신
             if (message.text or "").strip() == "일어나":
                 if chat_id in allowed_chat_ids_banks_2:
                     global _last_request_time
