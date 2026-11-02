@@ -59,7 +59,7 @@ _processed_update_ids: set = set()
 _MAX_CACHED_UPDATE_IDS = 200
 
 
-TELEGRAM_TIMEOUT_SEC = 10
+TELEGRAM_TIMEOUT_SEC = 15
 
 
 def get_application(force_new=False):
