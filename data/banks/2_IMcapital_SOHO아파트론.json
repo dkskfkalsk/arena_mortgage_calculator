@@ -762,7 +762,7 @@
   },
   "_comment_interest_structure": "지역그룹(1~4) x LTV(70~95) x 신용등급. 선·후순위 동일",
   "min_amount": 2000,
-  "max_amount_limit": 10000,
+  "max_amount_limit": 5000,
   "max_amount_limit_applies_to_total": true,
   "_comment_max_amount_limit": "대환: 총실행(대환+신규) 최대 1억원",
   "max_amount_limit_subordinate": 5000,
