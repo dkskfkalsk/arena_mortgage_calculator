@@ -3,6 +3,7 @@
 결과 포맷팅 유틸리티
 """
 
+import re
 from typing import Dict, List, Any, Optional, Tuple, Set
 
 
@@ -446,6 +447,43 @@ def _format_result_with_label(
     return "\n".join(lines)
 
 
+REJECTION_REASON_KEYWORD = "부결사유"
+NO_LIMIT_BANKS_MESSAGE = (
+    "한도 산출 가능한 금융사가 없습니다.\n"
+    "※ 요청사항 또는 특이사항에 \"부결사유\"를 적으면 금융사별 부결 사유까지 함께 산출합니다."
+)
+
+
+def wants_rejection_reasons(property_data: Optional[Dict[str, Any]]) -> bool:
+    """요청사항·특이사항에 '부결사유'(띄어쓰기 무관)가 있으면 부결 금융사도 함께 표시."""
+    if not property_data:
+        return False
+    text = f"{property_data.get('special_notes') or ''}{property_data.get('requests') or ''}"
+    return REJECTION_REASON_KEYWORD in re.sub(r"\s+", "", text)
+
+
+def has_presentable_limit(bank_result: Dict[str, Any], requests: str = "") -> bool:
+    """
+    한도가 실제로 회신되는 금융사인지 (format_result가 한도 줄을 그리는 경우와 동일 기준).
+    에러·한도 미산출·전 결과 최소진행 미만이면 False. 부족자금 요청은 마이너스 가용도 한도로 본다.
+    """
+    if bank_result.get("errors"):
+        return False
+    results = bank_result.get("results") or []
+    if not results:
+        return False
+    if "부족자금" in (requests or ""):
+        return True
+    min_amount = bank_result.get("min_amount", 3000)
+    for r in results:
+        if r.get("limit_not_calculated", False):
+            continue
+        basis = (r.get("total_amount") or 0) if r.get("is_refinance", False) else (r.get("amount") or 0)
+        if basis > 0 and basis >= min_amount:
+            return True
+    return False
+
+
 def format_all_results(
     all_results: List[Dict[str, Any]],
     property_data: Optional[Dict[str, Any]] = None
@@ -470,6 +508,13 @@ def format_all_results(
         for r in all_results
     ):
         return "개인설정 후순위는 취급 불가"
+
+    # 기본은 한도가 나오는 금융사만 회신. '부결사유' 요청 시에만 부결(에러·미산출) 금융사까지 표시
+    if not wants_rejection_reasons(property_data):
+        _notes = f"{(property_data or {}).get('special_notes') or ''} {(property_data or {}).get('requests') or ''}"
+        all_results = [br for br in all_results if has_presentable_limit(br, _notes)]
+        if not all_results:
+            return NO_LIMIT_BANKS_MESSAGE
 
     # 전체 결과에서 대환/후순위 여부 및 대환하는 기관 목록 확인
     all_refinance_results = []
