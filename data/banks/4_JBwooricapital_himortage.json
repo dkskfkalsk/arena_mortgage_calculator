@@ -518,10 +518,11 @@
       ]
     }
   },
-  "max_ltv_by_property_type": {
-    "villa": 80
-  },
-  "_comment_max_ltv_by_property_type": "빌라 최대 LTV 80%",
+  "ltv_adjustments": [
+    { "preset": "property_type_cap", "when": { "property_type_in": ["villa"] }, "value": 80 },
+    { "action": "note", "when": { "region_grade_in": [4] }, "message": "4급지 지역 원리금균등 1년거치 선택시 LTV 5% 차감" }
+  ],
+  "_comment_ltv_adjustments": "조건별 LTV 조정 (형식·preset은 data/common/ltv_adjustments.json). 빌라 최대 LTV 80% / 4급지면 원리금균등 1년거치 LTV 5% 차감 안내(상환방식은 입력에 없어 한도에는 미반영)",
   "price_sources": {
     "_comment": "시세 소스 사용 여부 설정 (1: 사용, 0: 사용안함)",
     "kb_price": 1,
@@ -543,7 +544,6 @@
   },
   "conditions": [
     "상환방식(모든등급 동일): 원리금 균등 60/84/120개월 中 택1, 거치 1년 가능",
-    "4급지 지역 원리금균등 1년거치 선택시 LTV 5% 차감",
     "세입자 후순위, 담보제공, 환매특약 취급 불가",
     "3~6개월 사업자 매출증빙 필수, 6개월이상 사업자 매출증빙 없음",
     "대환건 자택사업자 불가"

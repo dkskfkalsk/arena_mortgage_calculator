@@ -602,22 +602,6 @@
     }
   },
   "_comment_interest_rates": "LTV 구간별 신용등급 금리(급지 무관). 금리표에 없는 LTV는 바로 위 구간 금리 적용(예: 77%→80%). 표에 없는 칸=취급불가",
-  "tenant_ltv_reduction": 5,
-  "premium_property_conditions": {
-    "enabled": true,
-    "region_grades": [
-      1,
-      2,
-      3
-    ],
-    "property_type_keys": [
-      "apartment",
-      "apartment_no_land_registry"
-    ],
-    "household_count_gte": 300,
-    "comment": "본심사 애큐온저축 우량아파트 해당시 LTV +3%추가 최대95%",
-    "_comment": "1~3급지 아파트 300세대 이상일 때 한도 하단 멘트만 표시(한도 LTV는 자동 가산하지 않음)"
-  },
   "reconstruction_max_stage": 5,
   "reconstruction_keyword": "재건축",
   "restricted_occupations": {
@@ -691,29 +675,28 @@
     "villa": 0,
     "_comment_villa": "빌라",
     "officetel": 1,
-    "_comment_officetel": "오피스텔 (취급, LTV 5%p 차감은 property_type_ltv_reduction)",
+    "_comment_officetel": "오피스텔 (취급, LTV 5%p 차감은 ltv_adjustments)",
     "detached_house": 0,
     "_comment_detached_house": "단독주택",
     "multi_family_house": 0,
     "_comment_multi_family_house": "공동주택"
   },
-  "property_type_ltv_reduction": {
-    "enabled": true,
-    "officetel": {
-      "ltv_reduction": 5,
-      "message": "*오피스텔 LTV5%차감",
-      "no_limit_error_message": "*오피스텔 LTV5%차감으로 한도 불가"
-    }
-  },
-  "_comment_property_type_ltv_reduction": "물건 타입별 최대 LTV 차감. 오피스텔 5%p. 세대수 차감(household_ltv_reduction)과 별개로 중첩 가능",
-  "household_ltv_reduction": {
-    "enabled": true,
-    "household_count_lt": 100,
-    "ltv_reduction": 5,
-    "message": "*100세대미만 LTV5%차감",
-    "no_limit_error_message": "*100세대미만 LTV5%차감으로 한도 불가"
-  },
-  "_comment_household_ltv_reduction": "100세대 미만 시 최대 LTV 5%p 차감. 차감으로 한도 없으면 no_limit_error_message. 오피스텔 차감과 중첩",
+  "ltv_adjustments": [
+    {
+      "action": "note",
+      "when": {
+        "region_grade_in": [1, 2, 3],
+        "property_type_in": ["apartment", "apartment_no_land_registry"],
+        "household_count_gte": 300
+      },
+      "message": "본심사 애큐온저축 우량아파트 해당시 LTV +3%추가 최대95%"
+    },
+    { "preset": "household_under", "when": { "household_count_lt": 100 }, "value": 5 },
+    { "preset": "officetel", "value": 5 },
+    { "preset": "tenant", "value": 5 },
+    { "preset": "area_over", "when": { "area_gt": 135 }, "value": 5 }
+  ],
+  "_comment_ltv_adjustments": "조건별 LTV 조정 (형식·preset은 data/common/ltv_adjustments.json). 1~3급지 아파트 300세대 이상 우량 안내(한도 LTV 자동 가산 없음) / 100세대 미만 5%p / 오피스텔 5%p / 세입자 5%p / 전용 135㎡ 초과 5%p. 차감끼리 중첩",
   "min_amount": 2000,
   "conditions": [
     "*매출없는 사업자 부가세신고후 접수",

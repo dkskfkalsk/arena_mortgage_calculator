@@ -686,13 +686,10 @@
         "9": 0
       },
       "_comment_hiroon_ltv": "1~3급지 LTV 90% (전용 85㎡ 초과 시 85%), 4·5급지 취급 불가",
-      "area_limit": {
-        "enabled": true,
-        "max_area": 85,
-        "max_ltv_when_exceeded": 85,
-        "exceeded_message": "※ 전용면적 {area}㎡ ({max_area}㎡ 초과)로 LTV {ltv}% 적용",
-        "_comment": "전용면적 85㎡ 초과 시 최대 LTV 85% + 사유 안내"
-      },
+      "ltv_adjustments": [
+        { "preset": "area_over_cap", "when": { "area_gt": 85 }, "value": 85 }
+      ],
+      "_comment_ltv_adjustments": "조건별 LTV 조정 (형식·preset은 data/common/ltv_adjustments.json). 전용면적 85㎡ 초과 시 최대 LTV 85% + 사유 안내",
       "ltv_steps": [
         90,
         85,

@@ -498,18 +498,14 @@
       "8": null
     }
   },
-  "primary_ltv_adjustments": {
-    "credit_grade_7_8_ltv_reduction": 5,
-    "area_over_110_ltv_reduction": 5
-  },
-  "subordinate_ltv_restrictions": {
-    "small_apartment_max_ltv": 100,
-    "small_apartment_conditions": [
-      "1개동",
-      "200세대 이하"
-    ],
-    "residential_commercial_max_ltv": 100
-  },
+  "ltv_adjustments": [
+    { "preset": "credit_grade", "when": { "credit_grade_in": [7, 8], "priority": "primary" }, "value": 5 },
+    { "action": "reduce", "when": { "area_gt": 110, "priority": "primary" }, "value": 5 },
+    { "action": "cap", "when": { "priority": "subordinate", "property_type_in": ["apartment", "apartment_no_land_registry"], "building_count_lte": 1 }, "value": 100 },
+    { "action": "cap", "when": { "priority": "subordinate", "property_type_in": ["apartment", "apartment_no_land_registry"], "household_count_lte": 200 }, "value": 100 },
+    { "action": "cap", "when": { "priority": "subordinate", "property_type_in": ["residential_commercial"] }, "value": 100 }
+  ],
+  "_comment_ltv_adjustments": "조건별 LTV 조정 (형식·preset은 data/common/ltv_adjustments.json). 선순위만: 신용 7~8등급 5%p, 전용 110㎡ 초과 5%p 차감. 후순위 상한: 1개동 아파트 / 200세대 이하 아파트 / 주상복합 (현재 100 = 실질 제한 없음, 값만 낮추면 적용)",
   "lower_bound_price": {
     "enabled": true,
     "apartment": {

@@ -195,14 +195,10 @@
   "conditions": [
     "대환 및 추가대출 공통 가용 최대 1억"
   ],
-  "household_ltv_reduction": {
-    "enabled": true,
-    "household_count_lt": 100,
-    "ltv_reduction": 5,
-    "message": "*100세대미만 LTV5%차감",
-    "no_limit_error_message": "*100세대미만 LTV5%차감으로 한도 불가"
-  },
-  "_comment_household_ltv_reduction": "100세대 미만 시 최대 LTV 5%p 차감. 차감으로 한도 없으면 no_limit_error_message",
+  "ltv_adjustments": [
+    { "preset": "household_under", "when": { "household_count_lt": 100 }, "value": 5 }
+  ],
+  "_comment_ltv_adjustments": "조건별 LTV 조정 (형식·preset은 data/common/ltv_adjustments.json). 100세대 미만 5%p 차감, 차감으로 한도 없으면 '*100세대미만 LTV5%차감으로 한도 불가'",
   "caption_rules": [
     {
       "keywords": [

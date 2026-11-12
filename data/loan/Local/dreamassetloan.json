@@ -72,12 +72,10 @@
         "2": 70,
         "3": 70
       },
-      "ltv_when_household_gte": {
-        "region_grades": ["1"],
-        "household_gte": 300,
-        "ltv": 80
-      },
-      "_comment_ltv_when_household_gte": "1급지 아파트 300세대 이상만 80%. 세대수 없거나 300 미만, 2·3급지는 70%",
+      "ltv_adjustments": [
+        { "action": "set", "when": { "region_grade_in": ["1"], "household_count_gte": 300 }, "value": 80 }
+      ],
+      "_comment_ltv_adjustments": "조건별 LTV 조정 (형식은 data/common/ltv_adjustments.json). 1급지 아파트 300세대 이상만 80%. 세대수 없거나 300 미만, 2·3급지는 70%",
       "interest_rate_range_by_profile": [
         {
           "match": {

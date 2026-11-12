@@ -515,13 +515,22 @@
       }
     }
   },
-  "_comment_ltv_100_conditions": "LTV 100% 적용 시 아래 조건 모두 충족 시에만 적용. 세대수: property_data.household_count. 준공/사용승인: approval_date(YYYY.MM.DD), completion_date, years_since_completion(숫자) 또는 특이사항/요청사항의 'N년차'/'사용승인일 YYYY.MM.DD(N년차)' 문구로 전달.",
-  "ltv_100_conditions": {
-    "region_grade": 1,
-    "credit_grade_max": 2,
-    "min_households": 500,
-    "completion_years_max": 10
-  },
+  "ltv_adjustments": [
+    { "action": "set", "when": { "product_type": "household" }, "value": 70 },
+    {
+      "action": "raise",
+      "when": {
+        "product_type": "business",
+        "area_gt": 0,
+        "region_grade_in": [1],
+        "credit_grade_lte": 2,
+        "household_count_gte": 500,
+        "completion_years_lte": 10
+      },
+      "value": 100
+    }
+  ],
+  "_comment_ltv_adjustments": "조건별 LTV 조정 (형식·preset은 data/common/ltv_adjustments.json). 가계자금 LTV 70% 고정 / 사업자금 1급지·신용 2등급 이내(credit_score_range_to_grade_number 기준)·500세대 이상·준공 10년 이내면 LTV 100%. 준공: approval_date(YYYY.MM.DD), completion_date, years_since_completion 또는 특이사항·요청사항 'N년차'",
   "min_amount": 2000,
   "min_kb_price": 20000,
   "price_sources": {

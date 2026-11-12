@@ -8,6 +8,43 @@
 
 ---
 
+## 0. 적용 완료: 조건별 LTV 조정 (`ltv_adjustments`)
+
+조건이 맞으면 최대 LTV를 고정·상향·차감·상한하는 규칙은 모두 금융사 JSON의 `ltv_adjustments` 배열 하나로 통일했습니다.
+조건 키·동작·프리셋·적용 순서 정의는 `data/common/ltv_adjustments.json`에 있습니다 (`data/banks`·`data/loan` 밖이어야 금융사로 로드되지 않음).
+
+```json
+"ltv_adjustments": [
+  { "preset": "household_under", "when": { "household_count_lt": 100 }, "value": 5 },
+  { "preset": "area_over", "when": { "area_gt": 135 }, "value": 5 },
+  { "action": "cap", "when": { "priority": "subordinate", "property_type_in": ["residential_commercial"] }, "value": 80 },
+  { "action": "note", "when": { "region_grade_in": [4] }, "message": "안내 문구" }
+]
+```
+
+- 동작: `set`(고정) → `raise`(상향) → `reduce`(차감) → `cap`(상한) 순서로 적용, `note`는 멘트만 추가
+- 적용 위치: 급지·신용·선후순위·면적 매트릭스로 기본 최대 LTV를 정한 뒤, 지분조건 50% 상한 전
+- `message`는 한도 아래 멘트, `no_limit_message`는 그 차감·상한 때문에만 한도가 사라질 때 회신 문구
+
+| 이전 키 (제거됨) | 금융사 | `ltv_adjustments` |
+|------------------|--------|-------------------|
+| `household_ltv_reduction` | 솔브레인, 애큐온저축 | `household_under` reduce |
+| `property_type_ltv_reduction` | 애큐온저축 | `officetel` reduce |
+| `tenant_ltv_reduction` (미구현이었음) | 애큐온저축 | `tenant` reduce |
+| `primary_ltv_adjustments` | 키움 | `priority: primary` reduce 2건 |
+| `subordinate_ltv_restrictions` (미구현이었음) | 키움 | `priority: subordinate` cap 3건 |
+| `max_ltv_by_property_type` | 한투저축, JB | `property_type_cap` cap |
+| `area_limit.max_ltv_when_exceeded` | 이음-하이론 | `area_over_cap` cap |
+| `ltv_when_household_gte` | 드림에셋 아파트 | set |
+| `ltv_100_conditions` | OK | raise 100 |
+| (코드 고정) 가계자금 70% | OK | `product_type: household` set |
+| `premium_property_conditions` | 애큐온저축 | note |
+| `household_condition_lt` | IM 주택론 | note |
+
+`area_limit`(면적 초과 취급 불가, BNK)과 `ltv_kb_price_override`(GM, LTV 단계까지 바꿈)는 성격이 달라 그대로 둡니다.
+
+---
+
 ## 1. 현재 문제점
 
 ### 1.1 코드에 금융사명 하드코딩 (약 40곳)
@@ -19,7 +56,7 @@
 | `is_bnk` | 4곳 | `config.calculation_mode: "ltv_grade"` |
 | `is_acuon` | 5곳+ | `config.calculation_mode: "region_group"` |
 | `is_jb` | 4곳 | `config.calculation_mode: "region_credit_grade"` |
-| `is_kiwoom_retail` | 6곳+ | `config.primary_ltv_adjustments` 존재 여부로 판단 |
+| ~~`is_kiwoom_retail`~~ | 제거됨 | `ltv_adjustments`로 이전 (아래 0절) |
 
 ### 1.2 조견 키 불일치 (금융사마다 다른 키 사용)
 
@@ -31,7 +68,7 @@
 
 ### 1.3 정의만 있고 미구현
 
-- `subordinate_ltv_restrictions` (키움저축) → 미구현
+- ~~`subordinate_ltv_restrictions` (키움저축)~~ → `ltv_adjustments` cap 규칙으로 이전 완료
 - `price_application_rules` (키움저축) → 미구현 (`lower_bound_price`와 중복)
 
 ---
@@ -159,7 +196,7 @@ self.config = deep_merge(DEFAULTS, config)
 |-----------|---------|
 | `if is_ok_bank:` | `if self.config.get("support_household_business"):` |
 | `if is_mg_capital and is_refinance:` | `if self.config.get("refinance_ltv_search_mode") == "step_down_0.1" and is_refinance:` |
-| `if is_kiwoom_retail:` (primary_ltv_adjustments) | `if self.config.get("primary_ltv_adjustments"):` |
+| ~~`if is_kiwoom_retail:`~~ | 완료 — `ltv_adjustments` (0절) |
 | `if is_acuon_capital_no_credit:` | `if self.config.get("calculation_mode") == "region_credit_grade" and credit_grade is None:` |
 | `if is_jb_per_grade:` | `if self.config.get("calculation_mode") == "region_credit_grade":` |
 | `if is_bnk:` | `if self.config.get("calculation_mode") == "ltv_grade":` |
@@ -179,18 +216,9 @@ ltv_steps = (
 - 기존 키 유지(하위호환) + 새 통합 키 우선
 - 점진적 마이그레이션 가능
 
-### Phase 4: subordinate_ltv_restrictions 구현
+### Phase 4: subordinate_ltv_restrictions 구현 — 완료
 
-**위치**: `base_calculator.py` LTV 산출 직전
-
-```python
-sub_rest = self.config.get("subordinate_ltv_restrictions") or self.config.get("ltv", {}).get("restrictions", {}).get("subordinate")
-if sub_rest and is_subordinate:
-    if _is_small_apartment(property_data, sub_rest.get("small_apartment_conditions")):
-        max_ltv = min(max_ltv, sub_rest.get("small_apartment_max_ltv", 100))
-    if is_residential_commercial:
-        max_ltv = min(max_ltv, sub_rest.get("residential_commercial_max_ltv", 100))
-```
+`ltv_adjustments` cap 규칙으로 이전 (0절 참고).
 
 ### Phase 5: price_application_rules 정리
 
@@ -221,18 +249,11 @@ if sub_rest and is_subordinate:
 **추가/유지**:
 ```json
 {
-  "calculation_mode": "primary_subordinate",
-  "primary_ltv_adjustments": {
-    "credit_grade_7_8_ltv_reduction": 5,
-    "area_over_110_ltv_reduction": 5
-  },
-  "subordinate_ltv_restrictions": {
-    "small_apartment_max_ltv": 100,
-    "small_apartment_conditions": ["1개동", "200세대 이하"],
-    "residential_commercial_max_ltv": 100
-  }
+  "calculation_mode": "primary_subordinate"
 }
 ```
+
+LTV 차감·후순위 상한은 `ltv_adjustments`로 이전 완료 (0절 참고).
 
 **제거**: `price_application_rules` (미사용)
 

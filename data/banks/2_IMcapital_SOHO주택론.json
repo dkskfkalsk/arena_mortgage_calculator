@@ -94,9 +94,16 @@
     "*세입자 미동의 진행 가능",
     "*매출없는 사업자 부가세신고후 접수"
   ],
-  "household_condition_lt": 100,
-  "household_condition_message": "*100세대미만, 공시지가 10억 이하 취급 불가",
-  "_comment_household_condition": "세대수 100미만일 때 한도 산출 결과에 주석 추가 (거절 아님)",
+  "ltv_adjustments": [
+    {
+      "action": "note",
+      "when": {
+        "household_count_lt": 100
+      },
+      "message": "*100세대미만, 공시지가 10억 이하 취급 불가"
+    }
+  ],
+  "_comment_ltv_adjustments": "조건별 LTV 조정·안내 (형식은 data/common/ltv_adjustments.json). 세대수 100미만일 때 한도 산출 결과에 주석 추가 (거절 아님)",
   "target_regions": [
     "서울",
     "경기",

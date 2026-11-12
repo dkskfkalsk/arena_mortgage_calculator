@@ -534,11 +534,10 @@
     "korea_realestate_price": 0,
     "housematch_price": 0
   },
-  "max_ltv_by_property_type": {
-    "villa": 75,
-    "multi_family_house": 75
-  },
-  "_comment_max_ltv_by_property_type": "물건유형별 최대 LTV 상한. 빌라(연립·다세대 포함) 75%",
+  "ltv_adjustments": [
+    { "preset": "property_type_cap", "when": { "property_type_in": ["villa", "multi_family_house"] }, "value": 75 }
+  ],
+  "_comment_ltv_adjustments": "조건별 LTV 조정 (형식·preset은 data/common/ltv_adjustments.json). 빌라(연립·다세대 포함) 최대 LTV 75%",
   "business_property_types": {
     "_comment": "사업자금 상품 취급 물건 타입 설정 (1: 취급, 0: 취급안함)",
     "apartment": 1,
