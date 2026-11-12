@@ -1,5 +1,7 @@
 {
   "bank_name": "한국투자저축 (실사업자 매출증빙조건)",
+  "tenant_no_consent_allowed": false,
+  "_comment_tenant_no_consent_allowed": "세입자 미동의(특이사항·요청사항·거주여부) 진행 가능 여부. true=가능, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 tenant_consent",
   "refinance_self_aliases": [
     "한국투자저축"
   ],
@@ -537,7 +539,7 @@
   "ltv_adjustments": [
     { "preset": "property_type_cap", "when": { "property_type_in": ["villa", "multi_family_house"] }, "value": 75 }
   ],
-  "_comment_ltv_adjustments": "조건별 LTV 조정 (형식·preset은 data/common/ltv_adjustments.json). 빌라(연립·다세대 포함) 최대 LTV 75%",
+  "_comment_ltv_adjustments": "조건별 LTV 조정 (형식·preset은 data/common/common_conditions.json의 ltv_adjustments). 빌라(연립·다세대 포함) 최대 LTV 75%",
   "business_property_types": {
     "_comment": "사업자금 상품 취급 물건 타입 설정 (1: 취급, 0: 취급안함)",
     "apartment": 1,

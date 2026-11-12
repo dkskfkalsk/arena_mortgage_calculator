@@ -1,5 +1,7 @@
 {
   "bank_name": "한국투자캐피탈",
+  "tenant_no_consent_allowed": false,
+  "_comment_tenant_no_consent_allowed": "세입자 미동의(특이사항·요청사항·거주여부) 진행 가능 여부. true=가능, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 tenant_consent",
   "bank_id": "hanto_capital",
   "_comment_bank_id": "고정 식별자(변경 금지). bank_name(표시명)은 자유롭게 변경 가능.",
   "refinance_self_aliases": [

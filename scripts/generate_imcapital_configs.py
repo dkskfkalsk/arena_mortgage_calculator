@@ -242,6 +242,8 @@ COMMON_BASE = {
     "_comment_tenant_subordinate_allowed": "세입자 있는 후순위 취급 허용",
     "tenant_consent_caption": "※ 전,월세 동의·미동의 진행 가능",
     "_comment_tenant_consent_caption": "세입자 있을 때 한도 밑에 동의/미동의 가능 안내",
+    "tenant_no_consent_allowed": True,
+    "_comment_tenant_no_consent_allowed": "세입자 미동의(특이사항·요청사항·거주여부) 진행 가능 여부. true=가능, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 tenant_consent",
     "corporate_business_restriction": {
         "enabled": False,
         "keywords": ["법인사업자", "법인"],
@@ -269,7 +271,7 @@ jutaek = {
             "message": "*100세대미만, 공시지가 10억 이하 취급 불가",
         },
     ],
-    "_comment_ltv_adjustments": "조건별 LTV 조정·안내 (형식은 data/common/ltv_adjustments.json). 세대수 100미만일 때 한도 산출 결과에 주석 추가 (거절 아님)",
+    "_comment_ltv_adjustments": "조건별 LTV 조정·안내 (형식은 data/common/common_conditions.json의 ltv_adjustments). 세대수 100미만일 때 한도 산출 결과에 주석 추가 (거절 아님)",
     "target_regions": ["서울", "경기", "인천", "부산", "광주", "대전", "울산", "대구", "세종"],
     "region_grades": region_grades_jutaek,
     "_comment_region_grades": "1A=서울(90%), 1B=수도권1급지(85%), 2=2급지(80%), 3=3급지(75%), 4=4급지(70%), 9=취급불가",

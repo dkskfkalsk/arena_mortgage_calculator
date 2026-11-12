@@ -1,5 +1,7 @@
 {
   "bank_name": "애큐온저축은행",
+  "tenant_no_consent_allowed": false,
+  "_comment_tenant_no_consent_allowed": "세입자 미동의(특이사항·요청사항·거주여부) 진행 가능 여부. true=가능, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 tenant_consent",
   "bank_id": "acuon_savingbank",
   "_comment_bank_id": "고정 식별자(변경 금지). base_calculator.py의 금융사별 특례 로직이 이 값으로 식별됨. bank_name(표시명)은 자유롭게 변경 가능.",
   "refinance_self_aliases": [
@@ -696,7 +698,7 @@
     { "preset": "tenant", "value": 5 },
     { "preset": "area_over", "when": { "area_gt": 135 }, "value": 5 }
   ],
-  "_comment_ltv_adjustments": "조건별 LTV 조정 (형식·preset은 data/common/ltv_adjustments.json). 1~3급지 아파트 300세대 이상 우량 안내(한도 LTV 자동 가산 없음) / 100세대 미만 5%p / 오피스텔 5%p / 세입자 5%p / 전용 135㎡ 초과 5%p. 차감끼리 중첩",
+  "_comment_ltv_adjustments": "조건별 LTV 조정 (형식·preset은 data/common/common_conditions.json의 ltv_adjustments). 1~3급지 아파트 300세대 이상 우량 안내(한도 LTV 자동 가산 없음) / 100세대 미만 5%p / 오피스텔 5%p / 세입자 5%p / 전용 135㎡ 초과 5%p. 차감끼리 중첩",
   "min_amount": 2000,
   "conditions": [
     "*매출없는 사업자 부가세신고후 접수",

@@ -1,5 +1,7 @@
 {
   "bank_name": "솔브레인저축은행 (선심사승인후 부가세신고가능)",
+  "tenant_no_consent_allowed": false,
+  "_comment_tenant_no_consent_allowed": "세입자 미동의(특이사항·요청사항·거주여부) 진행 가능 여부. true=가능, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 tenant_consent",
   "refinance_self_aliases": [
     "솔브레인저축은행",
     "솔브레인저축"
@@ -198,7 +200,7 @@
   "ltv_adjustments": [
     { "preset": "household_under", "when": { "household_count_lt": 100 }, "value": 5 }
   ],
-  "_comment_ltv_adjustments": "조건별 LTV 조정 (형식·preset은 data/common/ltv_adjustments.json). 100세대 미만 5%p 차감, 차감으로 한도 없으면 '*100세대미만 LTV5%차감으로 한도 불가'",
+  "_comment_ltv_adjustments": "조건별 LTV 조정 (형식·preset은 data/common/common_conditions.json의 ltv_adjustments). 100세대 미만 5%p 차감, 차감으로 한도 없으면 '*100세대미만 LTV5%차감으로 한도 불가'",
   "caption_rules": [
     {
       "keywords": [

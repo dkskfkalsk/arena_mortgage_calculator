@@ -1,5 +1,7 @@
 {
   "bank_name": "키움저축-리테일(실사업자 매출증빙조건)",
+  "tenant_no_consent_allowed": true,
+  "_comment_tenant_no_consent_allowed": "세입자 미동의(특이사항·요청사항·거주여부) 진행 가능 여부. true=가능, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 tenant_consent",
   "bank_id": "kiwoom_retail",
   "_comment_bank_id": "고정 식별자(변경 금지). base_calculator.py의 금융사별 특례 로직이 이 값으로 식별됨. bank_name(표시명)은 자유롭게 변경 가능.",
   "refinance_self_aliases": [
@@ -505,7 +507,7 @@
     { "action": "cap", "when": { "priority": "subordinate", "property_type_in": ["apartment", "apartment_no_land_registry"], "household_count_lte": 200 }, "value": 100 },
     { "action": "cap", "when": { "priority": "subordinate", "property_type_in": ["residential_commercial"] }, "value": 100 }
   ],
-  "_comment_ltv_adjustments": "조건별 LTV 조정 (형식·preset은 data/common/ltv_adjustments.json). 선순위만: 신용 7~8등급 5%p, 전용 110㎡ 초과 5%p 차감. 후순위 상한: 1개동 아파트 / 200세대 이하 아파트 / 주상복합 (현재 100 = 실질 제한 없음, 값만 낮추면 적용)",
+  "_comment_ltv_adjustments": "조건별 LTV 조정 (형식·preset은 data/common/common_conditions.json의 ltv_adjustments). 선순위만: 신용 7~8등급 5%p, 전용 110㎡ 초과 5%p 차감. 후순위 상한: 1개동 아파트 / 200세대 이하 아파트 / 주상복합 (현재 100 = 실질 제한 없음, 값만 낮추면 적용)",
   "lower_bound_price": {
     "enabled": true,
     "apartment": {

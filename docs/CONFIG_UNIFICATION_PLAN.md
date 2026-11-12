@@ -11,7 +11,7 @@
 ## 0. 적용 완료: 조건별 LTV 조정 (`ltv_adjustments`)
 
 조건이 맞으면 최대 LTV를 고정·상향·차감·상한하는 규칙은 모두 금융사 JSON의 `ltv_adjustments` 배열 하나로 통일했습니다.
-조건 키·동작·프리셋·적용 순서 정의는 `data/common/ltv_adjustments.json`에 있습니다 (`data/banks`·`data/loan` 밖이어야 금융사로 로드되지 않음).
+조건 키·동작·프리셋·적용 순서 정의는 `data/common/common_conditions.json`의 `ltv_adjustments` 섹션에 있습니다 (`data/banks`·`data/loan` 밖이어야 금융사로 로드되지 않음).
 
 ```json
 "ltv_adjustments": [

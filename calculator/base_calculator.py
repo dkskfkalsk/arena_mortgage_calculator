@@ -146,9 +146,9 @@ def _load_refinanceable_master_names() -> List[str]:
     return _REFINANCE_MASTER_NAMES_CACHE
 
 
-# 금융사 공통 LTV 조정 규칙 정의 (presets·apply_order). data/banks·data/loan 밖에 두어야 금융사로 로드되지 않는다.
-_LTV_ADJUSTMENT_RULES_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "..", "data", "common", "ltv_adjustments.json"
+# 금융사 공통 조건 정의 (ltv_adjustments·tenant_consent). data/banks·data/loan 밖에 두어야 금융사로 로드되지 않는다.
+_COMMON_CONDITIONS_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "data", "common", "common_conditions.json"
 )
 _LTV_ADJUSTMENT_DEFAULT_ORDER = ["set", "raise", "reduce", "cap"]
 
@@ -179,12 +179,36 @@ _LTV_COMPARATORS = {
 }
 
 
-def _load_ltv_adjustment_rules() -> Dict[str, Any]:
+def _load_common_conditions() -> Dict[str, Any]:
     try:
-        return _load_json_config_cached(_LTV_ADJUSTMENT_RULES_PATH)
+        return _load_json_config_cached(_COMMON_CONDITIONS_PATH)
     except (OSError, ValueError) as e:
-        logger.warning("ltv_adjustments.json 로드 실패: %s", e)
+        logger.warning("common_conditions.json 로드 실패: %s", e)
         return {}
+
+
+def _load_ltv_adjustment_rules() -> Dict[str, Any]:
+    return _load_common_conditions().get("ltv_adjustments") or {}
+
+
+def _compact_for_keyword(text: Any) -> str:
+    return re.sub(r"[\s,.·/]+", "", str(text or "")).lower()
+
+
+def has_tenant_no_consent(property_data: Optional[Dict[str, Any]]) -> bool:
+    """특이사항·요청사항·거주여부에 세입자 미동의 키워드가 있는지 (common_conditions.tenant_consent)."""
+    if not property_data:
+        return False
+    cfg = _load_common_conditions().get("tenant_consent") or {}
+    fields = cfg.get("detect_fields") or ["special_notes", "requests", "residence"]
+    text = _compact_for_keyword(" ".join(str(property_data.get(f) or "") for f in fields))
+    if not text:
+        return False
+    return any(
+        _compact_for_keyword(kw) in text
+        for kw in cfg.get("no_consent_keywords") or []
+        if _compact_for_keyword(kw)
+    )
 
 
 def _to_float_or_none(value: Any) -> Optional[float]:
@@ -282,13 +306,14 @@ def get_property_type_key(property_type: str, special_notes: str = "") -> Option
 
 def has_tenant_in_property(property_data: Dict[str, Any]) -> bool:
     """
-    거주·특이사항 또는 근저당(세입자)에 세입자 관련 정보가 있으면 True.
+    거주·특이사항·요청사항 또는 근저당(세입자)에 세입자 관련 정보가 있으면 True.
     키워드: 전세입자, 월세입자, 세입자, 전세세입자, 월세세입자
     """
     keywords = ("전세입자", "월세입자", "세입자", "전세세입자", "월세세입자")
     residence = (property_data.get("residence") or "") or ""
     notes = (property_data.get("special_notes") or "") or ""
-    combined = f"{residence} {notes}"
+    requests = (property_data.get("requests") or "") or ""
+    combined = f"{residence} {notes} {requests}"
     if any(kw in combined for kw in keywords):
         return True
     for m in property_data.get("mortgages") or []:
@@ -2030,6 +2055,16 @@ class BaseCalculator:
                 print(f"DEBUG: BaseCalculator.calculate - OK 저축은행, 오피스텔인 경우 선순위만 산출 가능 (후순위 불가)")
                 return self._error_result(["오피스텔인 경우 선순위만 산출 가능 (세입자 1순위 시 2순위 불가)"])
         
+        # 세입자 미동의 토글 (common_conditions.tenant_consent, 금융사 JSON tenant_no_consent_allowed)
+        tenant_consent_cfg = _load_common_conditions().get("tenant_consent") or {}
+        no_consent_allowed = self.config.get(
+            tenant_consent_cfg.get("toggle_key") or "tenant_no_consent_allowed",
+            tenant_consent_cfg.get("default_allowed", False),
+        )
+        if not no_consent_allowed and has_tenant_no_consent(property_data):
+            print("DEBUG: BaseCalculator.calculate - 세입자 미동의 진행 불가 (tenant_no_consent_allowed=false)")
+            return self._error_result([tenant_consent_cfg.get("reject_message") or "세입자 미동의 진행 불가"])
+
         # 세입자 후순위 토글/급지 제한
         # - tenant_subordinate_allowed=false: 세입자 있는 후순위는 전면 취급 불가
         # - max_subordinate_grade: 세입자 후순위 허용 시 급지 제한
@@ -4763,7 +4798,7 @@ class BaseCalculator:
 
     def _apply_ltv_adjustments(self, max_ltv: Optional[float], ctx: Dict[str, Any]) -> Optional[float]:
         """
-        config.ltv_adjustments 적용 (data/common/ltv_adjustments.json 참고).
+        config.ltv_adjustments 적용 (data/common/common_conditions.json의 ltv_adjustments 참고).
         동작 순서는 공통 apply_order(set → raise → reduce → cap), 같은 동작끼리는 JSON 순서.
         적용 내역은 self._ltv_adjustments_applied, 한도 아래 멘트는 self._ltv_adjustment_messages에 남긴다.
         """

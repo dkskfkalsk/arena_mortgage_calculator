@@ -1,5 +1,7 @@
 {
   "bank_name": "마젤란대부(사업자금)",
+  "tenant_no_consent_allowed": true,
+  "_comment_tenant_no_consent_allowed": "세입자 미동의(특이사항·요청사항·거주여부) 진행 가능 여부. true=가능, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 tenant_consent",
   "enabled": true,
   "_comment_enabled": "한도 산출 on/off. false면 calculate_all_loans에서 이 금융사 제외",
   "loan_type": "사업자금",

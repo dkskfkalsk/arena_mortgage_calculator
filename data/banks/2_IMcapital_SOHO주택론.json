@@ -89,6 +89,8 @@
   },
   "promotions": [],
   "bank_name": "IM캐피탈_SOHO주택론",
+  "tenant_no_consent_allowed": true,
+  "_comment_tenant_no_consent_allowed": "세입자 미동의(특이사항·요청사항·거주여부) 진행 가능 여부. true=가능, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 tenant_consent",
   "conditions": [
     "*만기일시상환(3년)",
     "*세입자 미동의 진행 가능",
@@ -103,7 +105,7 @@
       "message": "*100세대미만, 공시지가 10억 이하 취급 불가"
     }
   ],
-  "_comment_ltv_adjustments": "조건별 LTV 조정·안내 (형식은 data/common/ltv_adjustments.json). 세대수 100미만일 때 한도 산출 결과에 주석 추가 (거절 아님)",
+  "_comment_ltv_adjustments": "조건별 LTV 조정·안내 (형식은 data/common/common_conditions.json의 ltv_adjustments). 세대수 100미만일 때 한도 산출 결과에 주석 추가 (거절 아님)",
   "target_regions": [
     "서울",
     "경기",

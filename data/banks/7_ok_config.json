@@ -1,5 +1,7 @@
 {
   "bank_name": "OK저축은행",
+  "tenant_no_consent_allowed": false,
+  "_comment_tenant_no_consent_allowed": "세입자 미동의(특이사항·요청사항·거주여부) 진행 가능 여부. true=가능, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 tenant_consent",
   "bank_id": "ok_savingbank",
   "_comment_bank_id": "고정 식별자(변경 금지). base_calculator.py의 금융사별 특례 로직이 이 값으로 식별됨. bank_name(표시명)은 자유롭게 변경 가능.",
   "refinance_self_aliases": [
@@ -530,7 +532,7 @@
       "value": 100
     }
   ],
-  "_comment_ltv_adjustments": "조건별 LTV 조정 (형식·preset은 data/common/ltv_adjustments.json). 가계자금 LTV 70% 고정 / 사업자금 1급지·신용 2등급 이내(credit_score_range_to_grade_number 기준)·500세대 이상·준공 10년 이내면 LTV 100%. 준공: approval_date(YYYY.MM.DD), completion_date, years_since_completion 또는 특이사항·요청사항 'N년차'",
+  "_comment_ltv_adjustments": "조건별 LTV 조정 (형식·preset은 data/common/common_conditions.json의 ltv_adjustments). 가계자금 LTV 70% 고정 / 사업자금 1급지·신용 2등급 이내(credit_score_range_to_grade_number 기준)·500세대 이상·준공 10년 이내면 LTV 100%. 준공: approval_date(YYYY.MM.DD), completion_date, years_since_completion 또는 특이사항·요청사항 'N년차'",
   "min_amount": 2000,
   "min_kb_price": 20000,
   "price_sources": {

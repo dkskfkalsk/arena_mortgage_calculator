@@ -1,6 +1,8 @@
 {
   "_comment": "드림에셋대부 가계. 전국. 선순위는 채권최고액. 아파트는 1급지 300세대 이상 80%, 그 외 70%. 오피스텔은 1급지 65%·그 외 60%, 빌라·단독·다가구·토지 60%. 임야 불가. 공동소유는 차주 지분만 (시세×LTV×지분)−차주 명의 선순위.",
   "bank_name": "드림에셋대부",
+  "tenant_no_consent_allowed": false,
+  "_comment_tenant_no_consent_allowed": "세입자 미동의(특이사항·요청사항·거주여부) 진행 가능 여부. true=가능, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 tenant_consent",
   "enabled": true,
   "use_principal_for_calculation": false,
   "_comment_use_principal_for_calculation": "선순위 차감은 채권최고액",
@@ -75,7 +77,7 @@
       "ltv_adjustments": [
         { "action": "set", "when": { "region_grade_in": ["1"], "household_count_gte": 300 }, "value": 80 }
       ],
-      "_comment_ltv_adjustments": "조건별 LTV 조정 (형식은 data/common/ltv_adjustments.json). 1급지 아파트 300세대 이상만 80%. 세대수 없거나 300 미만, 2·3급지는 70%",
+      "_comment_ltv_adjustments": "조건별 LTV 조정 (형식은 data/common/common_conditions.json의 ltv_adjustments). 1급지 아파트 300세대 이상만 80%. 세대수 없거나 300 미만, 2·3급지는 70%",
       "interest_rate_range_by_profile": [
         {
           "match": {

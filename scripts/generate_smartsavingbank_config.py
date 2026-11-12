@@ -224,6 +224,8 @@ def main():
 
     config = {
         "bank_name": "스마트저축은행",
+        "tenant_no_consent_allowed": False,
+        "_comment_tenant_no_consent_allowed": "세입자 미동의(특이사항·요청사항·거주여부) 진행 가능 여부. true=가능, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 tenant_consent",
         "refinance_self_aliases": ["스마트저축은행", "스마트저축"],
         "_comment_refinance_self_aliases": "마스터 대환 명단에서 자기만 제외할 때 사용.",
         "enabled": True,
