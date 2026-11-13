@@ -2051,12 +2051,6 @@ class BaseCalculator:
         self._current_property_data = property_data
         # 창업사업자 vs 일반사업자 구분 (애큐온캐피탈 등)
         self._is_startup_business = self._check_is_startup_business(property_data)
-        # 애큐온캐피탈 등: 프리랜서만 적혀 있으면 창업 키워드에 안 걸려 일반사업자로 나가는데, 프리랜서는 일반사업자 한도 부적용
-        if is_business_product and not self._is_startup_business:
-            occ_ex_msg = self._excluded_business_occupation_message(property_data)
-            if occ_ex_msg:
-                print(f"DEBUG: BaseCalculator.calculate - 사업자금 직업 제외: {occ_ex_msg}")
-                return self._error_result([occ_ex_msg])
         
         # 후순위/선순위에 따른 최대 LTV 재조정 (키움저축-리테일 등)
         # 애큐온저축은행: max_ltv_by_priority_grade_region을 사용한 경우 재조정 불필요
@@ -3615,47 +3609,26 @@ class BaseCalculator:
     
     def _check_is_startup_business(self, property_data: Dict[str, Any]) -> bool:
         """
-        창업사업자 여부 판단 (애큐온캐피탈 등)
-        - 직업: 직장인 -> 창업사업자 (단, startup_occupation_exceptions에 있으면 일반사업자)
-        - 특이사항: 즉발, 즉발사업자, 가라사업자, 즉발보유, 가라사업자보유 -> 창업사업자
-        - 그 외 '사업자' 보유 -> 일반사업자
+        창업사업자 여부 판단 (애큐온캐피탈 등, startup_business_keywords 설정 시에만)
+        1. regular_business_keywords가 직업·특이사항·요청사항에 있으면 일반사업자 (사업자보유, 즉발보유 등)
+        2. startup_business_keywords.special_notes가 특이사항·요청사항에 있으면 창업사업자 (즉발 등)
+        3. startup_business_keywords.occupation이 직업에 있거나, 직업란이 비었고 occupation_empty_is_startup이면 창업사업자
+        4. 그 외 일반사업자
         """
         startup_config = self.config.get("startup_business_keywords", {})
         if not startup_config:
-            return False  # 설정 없으면 일반사업자
+            return False
         occupation = (property_data.get("occupation") or "").strip()
-        special_notes = (property_data.get("special_notes") or "").strip()
-        requests = (property_data.get("requests") or "").strip()
-        # 긴 직업명이 짧은 키워드(직장인)에 먼저 걸리지 않도록: 예외 직업은 창업 아님(일반사업자)
-        for exc in self.config.get("startup_occupation_exceptions", []) or []:
-            if exc and exc in occupation:
-                print(f"DEBUG: _check_is_startup_business - occupation exception '{exc}' -> 일반사업자")
+        notes = f"{property_data.get('special_notes') or ''} {property_data.get('requests') or ''}"
+        for kw in self.config.get("regular_business_keywords") or []:
+            if contains_keyword(occupation, kw) or contains_keyword(notes, kw):
+                print(f"DEBUG: _check_is_startup_business - '{kw}' -> 일반사업자")
                 return False
-        combined = f"{occupation} {special_notes} {requests}"
-        occ_keywords = startup_config.get("occupation", [])
-        notes_keywords = startup_config.get("special_notes", [])
-        for kw in occ_keywords:
-            if kw in occupation:
-                return True
-        for kw in notes_keywords:
-            if kw in special_notes or kw in requests:
-                return True
-        return False
-
-    def _excluded_business_occupation_message(self, property_data: Dict[str, Any]) -> Optional[str]:
-        """
-        사업자금 상품인데 직업이 일반사업자 한도 산출 제외인 경우 (애큐온캐피탈: 프리랜서 등).
-        창업사업자로 이미 분류되면(None 유지) 적용하지 않음.
-        """
-        ex = self.config.get("excluded_occupation_for_business_product")
-        if not ex:
-            return None
-        keywords = ex.get("keywords") or []
-        occupation = (property_data.get("occupation") or "").strip()
-        for kw in keywords:
-            if kw and kw in occupation:
-                return ex.get("error_message") or f"직업에 '{kw}'가 포함된 경우 사업자금 한도 산출 대상이 아닙니다."
-        return None
+        if any(contains_keyword(notes, kw) for kw in startup_config.get("special_notes") or []):
+            return True
+        if any(contains_keyword(occupation, kw) for kw in startup_config.get("occupation") or []):
+            return True
+        return not occupation and bool(self.config.get("occupation_empty_is_startup"))
 
     def _validate_validation_rules(
         self, 

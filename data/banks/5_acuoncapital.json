@@ -1,8 +1,8 @@
 {
   "bank_name": "애큐온캐피탈",
+  "_comment_bank_name": "한도 회신에 표시되는 금융사명",
   "tenant_no_consent_allowed": false,
   "_comment_tenant_no_consent_allowed": "세입자 미동의(특이사항·요청사항·거주여부) 진행 가능 여부. true=가능, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 tenant_consent",
-  "_comment_bank_name": "[]",
   "bank_id": "acuon_capital",
   "_comment_bank_id": "고정 식별자(변경 금지). base_calculator.py의 금융사별 특례 로직이 이 값으로 식별됨. bank_name(표시명)은 자유롭게 변경 가능.",
   "refinance_self_aliases": [
@@ -762,30 +762,31 @@
     90
   ],
   "_comment_ltv_bands": "LTV 구간: 선순위 ~75/75~80/80~85/85~90, 후순위 ~70/70~75/75~80/80~85/85~90",
+  "_comment_business_type_rule": "창업/일반사업자 판정 순서 (아래 3개 설정). ① regular_business_keywords가 직업·특이사항·요청사항에 있으면 일반사업자 → ② startup_business_keywords.special_notes가 특이사항·요청사항에 있으면 창업사업자 → ③ startup_business_keywords.occupation이 직업에 있거나 직업란이 비어 있으면(occupation_empty_is_startup) 창업사업자 → ④ 그 외(개인사업자 등) 일반사업자. 예: 직장인=창업, 직장인+사업자보유=일반, 즉발=창업, 즉발보유=일반. 키워드는 띄어쓰기 무시",
+  "regular_business_keywords": [
+    "사업자보유",
+    "사업자보유조건",
+    "즉발사업자보유",
+    "즉발보유",
+    "가라사업자",
+    "가라사업자보유"
+  ],
+  "_comment_regular_business_keywords": "[판정 ①] 바로 위 키워드 목록. 직업·특이사항·요청사항 중 한 곳에라도 있으면 직업과 상관없이 일반사업자",
   "startup_business_keywords": {
     "occupation": [
-      "직장인"
+      "직장인",
+      "무직",
+      "프리랜서",
+      "주부"
     ],
     "special_notes": [
       "즉발",
-      "즉발사업자",
-      "가라사업자",
-      "즉발보유",
-      "가라사업자보유"
+      "즉발사업자"
     ]
   },
-  "startup_occupation_exceptions": [
-    "직장인(사업자보유)"
-  ],
-  "_comment_startup_occupation_exceptions": "직업에 포함 시 창업 아님 → 일반사업자(regular) 금리·구분. '직장인'만 있으면 창업으로 잡히므로 별도 처리",
-  "_comment_startup": "직업 또는 특이사항에 해당 키워드 있으면 창업사업자. 직장인(사업자보유)는 예외로 일반사업자. 없고 '사업자' 보유면 일반사업자",
-  "excluded_occupation_for_business_product": {
-    "keywords": [
-      "프리랜서"
-    ],
-    "error_message": "프리랜서는 사업자등록 기준 일반사업자 한도 산출 대상이 아닙니다. (창업사업자 키워드에 해당하지 않는 경우)"
-  },
-  "_comment_excluded_occupation": "직업란에 키워드가 있고 창업사업자로 분류되지 않으면 사업자금 한도 산출 제외",
+  "_comment_startup_business_keywords": "[판정 ②·③] 바로 위 키워드 목록. regular_business_keywords가 없을 때만 적용. special_notes=특이사항·요청사항에 있으면 창업(②, '보유'가 붙으면 ①에서 일반), occupation=직업란에 있으면 창업(③)",
+  "occupation_empty_is_startup": true,
+  "_comment_occupation_empty_is_startup": "[판정 ③] 직업란이 비어 있으면 창업사업자로 볼지 (true=창업, false=일반)",
   "min_amount": 3000,
   "max_amount_limit": null,
   "startup_max_amount_limit": 30000,
@@ -868,6 +869,6 @@
     ],
     "comment": "법인사업자 취급 불가"
   },
-  "_comment_corporate_business_restriction": "enabled false = 법인사업자 취급 불가(키워드 검사), true = 취급 가능",
+  "_comment_corporate_business_restriction": "바로 위 설정. enabled는 '법인사업자 취급 가능' 스위치(일반 on/off와 반대 의미 주의). false=직업·특이사항에 keywords(법인사업자)가 있으면 '법인사업자 취급 불가', true=검사 안 함(법인 취급 가능). 현재 false=법인 취급 불가",
   "_comment_corporate_business_ui": "UI: enabled false →「법인사업자 취급 불가」, true → 법인 취급 가능"
 }
