@@ -259,8 +259,81 @@ def detect_tenant_no_consent(property_data: Optional[Dict[str, Any]]) -> Optiona
     return {"types": types, "label_key": label_key}
 
 
-def has_tenant_no_consent(property_data: Optional[Dict[str, Any]]) -> bool:
-    return detect_tenant_no_consent(property_data) is not None
+def _condition_text(property_data: Dict[str, Any], cfg: Dict[str, Any]) -> str:
+    """detect_fields 값을 합쳐 압축하고 exclude_phrases(해제·없음 등)를 지운 비교용 문자열."""
+    fields = cfg.get("detect_fields") or ["special_notes", "requests"]
+    text = _compact_for_keyword(" ".join(str(property_data.get(f) or "") for f in fields))
+    for phrase in sorted((_compact_for_keyword(p) for p in cfg.get("exclude_phrases") or []), key=len, reverse=True):
+        if phrase:
+            text = text.replace(phrase, "")
+    return text
+
+
+def _text_has_condition_keyword(property_data: Dict[str, Any], cfg: Dict[str, Any]) -> bool:
+    text = _condition_text(property_data, cfg)
+    return any(_compact_for_keyword(kw) and _compact_for_keyword(kw) in text for kw in cfg.get("keywords") or [])
+
+
+# '압류' 뒤 12자 안에 나오는 첫 금액. 단위 없는 숫자는 3자리 이상(만원)만 인정하고,
+# 뒤에 . - / 년 + 숫자가 이어지면 날짜(2025.03.12)로 보고 버린다.
+_SEIZURE_AMOUNT_RE = re.compile(
+    r"압\s*류[^\d\n/]{0,12}?"
+    r"(\d[\d,]*(?:\.\d+)?\s*억(?:\s*\d[\d,]*\s*(?:천만|천|만)?)?"
+    r"|\d[\d,]*\s*천\s*만?"
+    r"|\d[\d,]*\s*만"
+    r"|\d[\d,]{2,}(?![\d,]*\s*[.\-/년]\s*\d))"
+)
+
+
+def _korean_amount_to_manwon(chunk: str) -> Optional[float]:
+    """'1억5천', '3,000만', '3000', '2천' → 만원."""
+    s = re.sub(r"[\s,]", "", chunk)
+    m = re.match(r"(\d+(?:\.\d+)?)억(?:(\d+)(천만|천|만)?)?$", s)
+    if m:
+        total = float(m.group(1)) * 10000
+        if m.group(2):
+            total += int(m.group(2)) * (1000 if m.group(3) in ("천", "천만") else 1)
+        return total
+    m = re.match(r"(\d+)천만?$", s)
+    if m:
+        return float(int(m.group(1)) * 1000)
+    m = re.match(r"(\d+(?:\.\d+)?)만?$", s)
+    if m:
+        value = float(m.group(1))
+        return value if value >= 100 or s.endswith("만") else None
+    return None
+
+
+def detect_seizure(property_data: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """
+    압류·가압류 판정 (common_conditions.seizure).
+    Returns: None 또는 {"mortgage_indexes": 설정내역의 압류 항목 위치, "text_amount": 특이사항·요청사항 대납금액(만원) 또는 None}
+    """
+    if not property_data:
+        return None
+    cfg = _load_common_conditions().get("seizure") or {}
+    inst_keywords = [_compact_for_keyword(k) for k in cfg.get("mortgage_institution_keywords") or [] if k]
+    mortgage_indexes = [
+        i for i, m in enumerate(property_data.get("mortgages") or [])
+        if any(kw in _compact_for_keyword(m.get("institution")) for kw in inst_keywords)
+    ]
+    in_text = _text_has_condition_keyword(property_data, cfg)
+    if not mortgage_indexes and not in_text:
+        return None
+    text_amount = None
+    if in_text:
+        raw = " ".join(str(property_data.get(f) or "") for f in cfg.get("detect_fields") or ["special_notes", "requests"])
+        amounts = [_korean_amount_to_manwon(m.group(1)) for m in _SEIZURE_AMOUNT_RE.finditer(raw)]
+        amounts = [a for a in amounts if a]
+        text_amount = sum(amounts) if amounts else None
+    return {"mortgage_indexes": mortgage_indexes, "text_amount": text_amount}
+
+
+def detect_delinquency(property_data: Optional[Dict[str, Any]]) -> bool:
+    """특이사항·요청사항에 현재 연체 키워드가 있는지 (common_conditions.delinquency)."""
+    if not property_data:
+        return False
+    return _text_has_condition_keyword(property_data, _load_common_conditions().get("delinquency") or {})
 
 
 def _to_float_or_none(value: Any) -> Optional[float]:
@@ -923,10 +996,16 @@ class BaseCalculator:
         self._ltv_adjustment_messages = []
         self._max_total_amount_limit_applied = False
         self._tenant_no_consent_message = None
+        self._condition_captions = []
         
         # config에 product_type이 있으면 product_type 파라미터가 없을 때 사용 (팀엑스대부 등)
         if product_type is None:
             product_type = self.config.get("product_type")
+
+        # 압류·가압류 / 연체중 공통조건 (common_conditions.seizure·delinquency, 금융사 JSON seizure_allowed·delinquency_allowed)
+        property_data, condition_error = self._apply_seizure_and_delinquency(property_data)
+        if condition_error:
+            return self._error_result([condition_error])
         
         # 모든 검증 오류를 수집
         validation_errors = []
@@ -1324,13 +1403,11 @@ class BaseCalculator:
                     f"detected={detected_reconstruction_stage}, max={max_stage_int}, bank={self.bank_name}"
                 )
         
-        # 특이사항 검증: 불가 키워드 체크
-        # 기본 불가 키워드
-        restricted_keywords = ["압류", "가압류", "경매취하자금"]
-        # 추가 불가 키워드 (미래하우스론 등 특정 상품용)
-        additional_restricted_keywords = self.config.get("additional_restricted_keywords", [])
-        if additional_restricted_keywords:
-            restricted_keywords.extend(additional_restricted_keywords)
+        # 특이사항 검증: 전 금융사 공통 불가 키워드(common_conditions.always_restricted_keywords)
+        # + 금융사별 추가 불가 키워드(additional_restricted_keywords). 압류·가압류는 common_conditions.seizure에서 판정
+        always_restricted = _load_common_conditions().get("always_restricted_keywords") or {}
+        restricted_keywords = list(always_restricted.get("keywords") or [])
+        restricted_keywords.extend(self.config.get("additional_restricted_keywords") or [])
         
         # 구분 "아파트(대지권미등기)"처럼 물건유형에만 적힌 경우도 잡도록 구분까지 검사
         keyword_check_text = f"{special_notes} {property_data.get('property_type') or ''}"
@@ -1341,7 +1418,10 @@ class BaseCalculator:
                 log_print(f"DEBUG: BaseCalculator.calculate - 특이사항에 '{keyword}' 발견, 취급 불가")
         
         if found_keywords:
-            validation_errors.append(f"특이사항에 '{', '.join(found_keywords)}'가 포함되어 취급 불가합니다")
+            validation_errors.append(
+                (always_restricted.get("error_message") or "특이사항에 '{keywords}'가 포함되어 취급 불가합니다")
+                .format(keywords=", ".join(found_keywords))
+            )
         
         # 직업 제한 확인 (restricted_occupations)
         restricted_occupations_config = self.config.get("restricted_occupations", {})
@@ -1784,6 +1864,13 @@ class BaseCalculator:
                     institution_clean = institution.replace(" ", "")
                     institution_short = self._short_institution_name(institution)
                     priority = mortgage.get("priority")
+
+                    # 압류 대납(common_conditions.seizure 허용 금융사)은 기관 판정 없이 대환 원금에 포함
+                    if mortgage.get("is_seizure"):
+                        refinance_principal += float(mortgage.get("amount", 0) or 0)
+                        if institution not in all_refinance_institutions:
+                            all_refinance_institutions.append(institution)
+                        continue
                     
                     # self_refinance_excluded 체크: 본인 금융사 대환 불가
                     is_self_refinance_excluded = False
@@ -3500,6 +3587,9 @@ class BaseCalculator:
         # 세입자 미동의 진행 가능 금융사: 미동의 입력 시 한도 밑 안내
         if getattr(self, "_tenant_no_consent_message", None):
             out["tenant_consent_caption"] = self._tenant_no_consent_message
+        # 압류 대납·연체중 진행 가능 금융사: 한도 밑 안내 (common_conditions.seizure·delinquency)
+        if getattr(self, "_condition_captions", None):
+            out["condition_captions"] = list(self._condition_captions)
         return out
     
     def credit_score_to_grade(self, credit_score: Optional[int]) -> Optional[int]:
@@ -3607,6 +3697,59 @@ class BaseCalculator:
             print(f"DEBUG: _get_ltv_steps_by_grade - 기본 ltv_steps 사용: {default_steps}")
             return default_steps
     
+    def _condition_allowed(self, cfg: Dict[str, Any], default_key: str) -> bool:
+        return bool(self.config.get(cfg.get("toggle_key") or default_key, cfg.get("default_allowed", False)))
+
+    def _apply_seizure_and_delinquency(
+        self, property_data: Dict[str, Any]
+    ) -> Tuple[Dict[str, Any], Optional[str]]:
+        """
+        압류·가압류 / 연체중 판정. 불가 금융사는 (property_data, 부결 문구) 반환.
+        압류 가능 금융사는 압류금을 대환(대납) 항목으로 넣은 property_data 사본을 반환한다
+        (설정내역의 압류 항목은 대환으로 바꾸고, 없으면 특이사항·요청사항 금액으로 '압류 대납' 항목 추가).
+        """
+        common = _load_common_conditions()
+        delinquency_cfg = common.get("delinquency") or {}
+        if detect_delinquency(property_data):
+            if not self._condition_allowed(delinquency_cfg, "delinquency_allowed"):
+                return property_data, delinquency_cfg.get("reject_message") or "연체중 진행 불가"
+            if delinquency_cfg.get("allowed_message"):
+                self._condition_captions.append(delinquency_cfg["allowed_message"])
+
+        seizure_cfg = common.get("seizure") or {}
+        seizure = detect_seizure(property_data)
+        if not seizure:
+            return property_data, None
+        if not self._condition_allowed(seizure_cfg, "seizure_allowed"):
+            return property_data, seizure_cfg.get("reject_message") or "압류·가압류 진행 불가"
+
+        # property_data는 calculate_all_* 에서 모든 금융사가 함께 쓰므로 원본을 고치지 않고 사본에 대납 항목을 넣는다
+        mortgages = [dict(m) for m in property_data.get("mortgages") or []]
+        amount = 0.0
+        for i in seizure["mortgage_indexes"]:
+            mortgages[i]["is_refinance"] = True
+            mortgages[i]["is_seizure"] = True
+            amount += float(mortgages[i].get("amount") or 0)
+        # 설정내역에 압류 항목이 있으면 특이사항 금액은 같은 압류로 보고 더하지 않는다 (이중 차감 방지)
+        if not seizure["mortgage_indexes"] and seizure["text_amount"]:
+            amount = float(seizure["text_amount"])
+            mortgages.append({
+                "priority": max((int(m.get("priority") or 0) for m in mortgages), default=0) + 1,
+                "institution": seizure_cfg.get("daenap_institution_label") or "압류 대납",
+                "amount": amount,
+                "max_amount": amount,
+                "is_refinance": True,
+                "is_seizure": True,
+            })
+        if amount > 0:
+            caption = (seizure_cfg.get("allowed_message") or "").format(amount=f"{amount:,.0f}")
+        else:
+            caption = seizure_cfg.get("no_amount_message") or ""
+        if caption:
+            self._condition_captions.append(caption)
+        print(f"DEBUG: BaseCalculator.calculate - {self.bank_name} 압류 대납 조건: {amount}만원")
+        return {**property_data, "mortgages": mortgages}, None
+
     def _check_is_startup_business(self, property_data: Dict[str, Any]) -> bool:
         """
         창업사업자 여부 판단 (애큐온캐피탈 등, startup_business_keywords 설정 시에만)
@@ -3736,32 +3879,6 @@ class BaseCalculator:
                 validation_errors.append(error_msg)
                 return  # 제한 키워드 발견 시 복합 규칙 체크 스킵
         
-        # 3. 근저당 기관명 제한 (이음에셋대부 등: 가압류·압류 선순위는 취급 불가)
-        mortgage_institution_restricted = validation_rules.get("mortgage_institution_restricted", {})
-        if mortgage_institution_restricted:
-            keywords = mortgage_institution_restricted.get("keywords", [])
-            if keywords:
-                # 긴 키워드 우선 (「가압류」에 「압류」가 포함되는 중복 방지)
-                kw_sorted = sorted(keywords, key=lambda x: len(x or ""), reverse=True)
-                found_inst = []
-                for m in property_data.get("mortgages") or []:
-                    inst = (m.get("institution") or "").strip()
-                    if not inst:
-                        continue
-                    for kw in kw_sorted:
-                        if kw and kw in inst:
-                            if kw not in found_inst:
-                                found_inst.append(kw)
-                            break
-                if found_inst:
-                    error_msg = mortgage_institution_restricted.get(
-                        "error_message",
-                        f"근저당 선순위에 '{', '.join(found_inst)}'가 포함되어 취급 불가입니다",
-                    )
-                    validation_errors.append(error_msg)
-                    log_print(f"DEBUG: BaseCalculator._validate_validation_rules - 근저당 기관명 제한: {found_inst}")
-                    return
-
         # 3-1. 근저당권 설정일 기반 개월수 제한 (날짜가 있는 경우에만 적용)
         mortgage_age_restricted = validation_rules.get("mortgage_age_restricted", {})
         if mortgage_age_restricted and mortgage_age_restricted.get("enabled", False):
@@ -3831,7 +3948,7 @@ class BaseCalculator:
                 validation_errors.append(error_msg_template.format(violations=violation_text))
                 return
         
-        # 4. 복합 규칙 체크 (complex_rules)
+        # 3. 복합 규칙 체크 (complex_rules)
         complex_rules = validation_rules.get("complex_rules", [])
         for rule in complex_rules:
             conditions = rule.get("conditions", {})
@@ -6223,7 +6340,7 @@ class BaseCalculator:
         if not property_data:
             return False
         # 기관명이 금융기관이 아닌 순위가 하나라도 있으면 개인설정
-        # 가압류·압류 등은 법적 담보 표시로 개인설정(개인명 근저당)과 구분 → 후순위/대환 산출 허용
+        # 가압류·압류 등은 개인설정(개인명 근저당)으로 세지 않는다. 압류 가능 여부는 common_conditions.seizure에서 따로 판정
         exclude_keywords = ("신탁", "물상담보", "물상", "전세입자", "전세권", "세입자", "월세입자", "가압류", "압류")
         physical_collateral_keywords = ("물상담보", "물상")
         has_remaining_personal = False

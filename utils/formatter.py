@@ -403,6 +403,8 @@ def _format_result_with_label(
     tenant_caption = bank_result.get("tenant_consent_caption")
     if tenant_caption and has_actual_limit:
         lines.append(tenant_caption)
+    if has_actual_limit:
+        lines.extend(bank_result.get("condition_captions") or [])
 
     # 애큐온캐피탈 전용 동적 코멘트 (대출금액=대환 포함 total_amount 기준)
     extra_conditions: List[str] = []

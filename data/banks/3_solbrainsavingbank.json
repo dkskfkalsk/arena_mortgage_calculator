@@ -2,6 +2,10 @@
   "bank_name": "솔브레인저축은행 (선심사승인후 부가세신고가능)",
   "tenant_no_consent_allowed": false,
   "_comment_tenant_no_consent_allowed": "세입자 미동의(특이사항·요청사항·거주여부) 진행 가능 여부. true=가능, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 tenant_consent",
+  "seizure_allowed": false,
+  "_comment_seizure_allowed": "압류·가압류(특이사항·요청사항·설정내역) 진행 가능 여부. true=압류금 대납(대환) 조건으로 한도 산출, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 seizure",
+  "delinquency_allowed": false,
+  "_comment_delinquency_allowed": "연체중(특이사항·요청사항, 연체 이력은 제외) 진행 가능 여부. true=가능, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 delinquency",
   "refinance_self_aliases": [
     "솔브레인저축은행",
     "솔브레인저축"
@@ -298,9 +302,7 @@
       ],
       "keywords": [
         "제3자 담보",
-        "압류",
-        "가등기",
-        "가압류"
+        "가등기"
       ],
       "error_message": "특이사항/요청사항에 '{keywords}'가 포함되어 취급 불가합니다"
     },

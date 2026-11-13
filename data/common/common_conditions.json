@@ -1,5 +1,5 @@
 {
-  "_comment": "금융사 공통 조건 정의. 금융사 JSON(data/banks, data/loan)에는 켜고 끄는 값·규칙만 적고, 키워드·문구·프리셋은 여기서 관리한다. 이 파일은 data/banks·data/loan 밖에 있어야 한다(그 폴더의 JSON은 모두 금융사로 로드됨).",
+  "_comment": "금융사 공통 조건 정의 (tenant_consent 세입자 미동의, seizure 압류·가압류, delinquency 연체중, always_restricted_keywords 공통 불가 키워드, ltv_adjustments LTV 조정). 금융사 JSON(data/banks, data/loan)에는 켜고 끄는 값·규칙만 적고, 키워드·문구·프리셋은 여기서 관리한다. 이 파일은 data/banks·data/loan 밖에 있어야 한다(그 폴더의 JSON은 모두 금융사로 로드됨).",
 
   "tenant_consent": {
     "_comment": "세입자 동의/미동의 조건. 특이사항·요청사항·거주여부에 미동의 키워드가 있으면, 금융사 JSON의 toggle_key로 전세·월세별 진행 가능 여부를 판정한다. 불가면 한도 미산출(reject_message), 가능하면 한도 아래 allowed_message.",
@@ -31,6 +31,45 @@
     "reject_message": "{type_label} 미동의 진행 불가",
     "allowed_message": "※ {type_label} 미동의 진행 가능",
     "_comment_messages": "{type_label}은 type_labels 값. 금융사 JSON에 tenant_consent_caption이 있으면 allowed_message 대신 그 문구를 쓴다"
+  },
+
+  "seizure": {
+    "_comment": "압류·가압류 조건 (대납 표현 유무와 상관없이 압류가 있으면 적용). 특이사항·요청사항 또는 설정내역 기관명에 압류가 있으면, 금융사 JSON의 toggle_key가 false인 금융사는 한도 미산출(reject_message). true면 압류금을 대납(대환)하는 조건으로 산출: 총실행 = 대납금액 + 가용.",
+    "toggle_key": "seizure_allowed",
+    "_comment_toggle_key": "금융사 JSON에 \"seizure_allowed\": true(압류 대납 조건 진행 가능) / false(불가)로 적는다",
+    "default_allowed": false,
+    "detect_fields": ["special_notes", "requests"],
+    "keywords": ["압류"],
+    "_comment_keywords": "'압류'는 '가압류'도 포함한다. 띄어쓰기·쉼표·마침표를 지우고 비교",
+    "exclude_phrases": ["압류해제", "압류해지", "압류말소", "압류취하", "압류없음", "압류무", "압류x", "압류X"],
+    "_comment_exclude_phrases": "이 표현은 지운 뒤 keywords를 찾는다 (예: '가압류 말소 완료'는 압류 아님)",
+    "mortgage_institution_keywords": ["압류"],
+    "_comment_mortgage_institution_keywords": "설정내역(근저당 목록) 기관명에 있으면 압류로 본다. 가능 금융사는 그 항목 원금을 대납금액으로 쓴다",
+    "daenap_institution_label": "압류 대납",
+    "_comment_daenap_institution_label": "특이사항·요청사항 금액으로 만든 대납 항목의 표시 이름 (대환 진행 헤더에 표시)",
+    "reject_message": "압류·가압류 진행 불가",
+    "allowed_message": "※ 압류·가압류 {amount}만원 대납 조건 (총실행에 대납금 포함)",
+    "no_amount_message": "※ 압류·가압류 대납 조건 진행 (대납금액 미기재로 한도에 미반영)",
+    "_comment_messages": "{amount}=대납금액(만원). 특이사항·요청사항 금액은 '압류 대납 3,000', '가압류 1억5천' 처럼 압류 뒤에 적힌 금액을 읽는다. 날짜(2025.03.12)는 금액으로 보지 않는다"
+  },
+
+  "delinquency": {
+    "_comment": "연체중 조건 (현재 연체만, 연체 이력은 제외). 특이사항·요청사항에 키워드가 있으면 금융사 JSON의 toggle_key가 false인 금융사는 한도 미산출",
+    "toggle_key": "delinquency_allowed",
+    "_comment_toggle_key": "금융사 JSON에 \"delinquency_allowed\": true(연체중 진행 가능) / false(불가)로 적는다",
+    "default_allowed": false,
+    "detect_fields": ["special_notes", "requests"],
+    "keywords": ["연체중", "연체진행중", "연체있음", "현재연체", "연체상태", "연체발생"],
+    "_comment_keywords": "띄어쓰기·쉼표·마침표를 지우고 비교 ('카드 연체 중' → '카드연체중'에 '연체중' 포함). '연체이력', '과거 연체'는 키워드에 없어 해당 안 됨",
+    "exclude_phrases": ["연체중아님", "연체중x", "연체중X", "현재연체없음", "연체없음"],
+    "reject_message": "연체중 진행 불가",
+    "allowed_message": "※ 연체중 진행 가능"
+  },
+
+  "always_restricted_keywords": {
+    "_comment": "전 금융사 공통 취급 불가 키워드 (특이사항·물건구분에서 검사). 금융사별 추가 키워드는 금융사 JSON의 additional_restricted_keywords",
+    "keywords": ["경매취하자금"],
+    "error_message": "특이사항에 '{keywords}'가 포함되어 취급 불가합니다"
   },
 
   "ltv_adjustments": {

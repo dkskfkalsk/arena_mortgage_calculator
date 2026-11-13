@@ -3,6 +3,10 @@
   "_comment_bank_name": "한도 회신에 표시되는 금융사명",
   "tenant_no_consent_allowed": false,
   "_comment_tenant_no_consent_allowed": "세입자 미동의(특이사항·요청사항·거주여부) 진행 가능 여부. true=가능, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 tenant_consent",
+  "seizure_allowed": false,
+  "_comment_seizure_allowed": "압류·가압류(특이사항·요청사항·설정내역) 진행 가능 여부. true=압류금 대납(대환) 조건으로 한도 산출, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 seizure",
+  "delinquency_allowed": false,
+  "_comment_delinquency_allowed": "연체중(특이사항·요청사항, 연체 이력은 제외) 진행 가능 여부. true=가능, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 delinquency",
   "bank_id": "acuon_capital",
   "_comment_bank_id": "고정 식별자(변경 금지). base_calculator.py의 금융사별 특례 로직이 이 값으로 식별됨. bank_name(표시명)은 자유롭게 변경 가능.",
   "refinance_self_aliases": [
@@ -859,6 +863,7 @@
     "100세대 미만",
     "위 예외항목 3개이상 포함시 취급불가 & 가산금리 0.5%p 추가"
   ],
+  "_comment_conditions": "한도 회신에 그대로 표시되는 안내 문구 (판정에는 쓰지 않음). 연체중 진행 여부는 delinquency_allowed + data/common/common_conditions.json의 delinquency로 판정",
   "validation_rules": {
     "enabled": false
   },

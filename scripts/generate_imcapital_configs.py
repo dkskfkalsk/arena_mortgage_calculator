@@ -205,7 +205,7 @@ COMMON_VALIDATION = {
     },
     "restricted_keywords": {
         "check_fields": ["special_notes", "requests"],
-        "keywords": ["제3자 담보", "별도등기", "압류", "가등기", "가압류"],
+        "keywords": ["제3자 담보", "별도등기", "가등기"],
         "error_message": "특이사항/요청사항에 '{keywords}'가 포함되어 취급 불가합니다",
         "_comment": "별도등기 포함 시 취급 불가 (등기부 파싱 시 '별도등기 있음'으로 special_notes 유입)",
     },
@@ -244,6 +244,10 @@ COMMON_BASE = {
     "_comment_tenant_consent_caption": "세입자 있을 때 한도 밑에 동의/미동의 가능 안내",
     "tenant_no_consent_allowed": True,
     "_comment_tenant_no_consent_allowed": "세입자 미동의(특이사항·요청사항·거주여부) 진행 가능 여부. true=가능, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 tenant_consent",
+    "seizure_allowed": False,
+    "_comment_seizure_allowed": "압류·가압류(특이사항·요청사항·설정내역) 진행 가능 여부. true=압류금 대납(대환) 조건으로 한도 산출, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 seizure",
+    "delinquency_allowed": False,
+    "_comment_delinquency_allowed": "연체중(특이사항·요청사항, 연체 이력은 제외) 진행 가능 여부. true=가능, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 delinquency",
     "corporate_business_restriction": {
         "enabled": False,
         "keywords": ["법인사업자", "법인"],
