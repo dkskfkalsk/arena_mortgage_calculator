@@ -1,8 +1,8 @@
 {
   "_comment": "드림에셋대부 가계. 전국. 선순위는 채권최고액. 아파트는 1급지 300세대 이상 80%, 그 외 70%. 오피스텔은 1급지 65%·그 외 60%, 빌라·단독·다가구·토지 60%. 임야 불가. 공동소유는 차주 지분만 (시세×LTV×지분)−차주 명의 선순위.",
   "bank_name": "드림에셋대부",
-  "tenant_no_consent_allowed": false,
-  "_comment_tenant_no_consent_allowed": "세입자 미동의(특이사항·요청사항·거주여부) 진행 가능 여부. true=가능, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 tenant_consent",
+  "tenant_no_consent_allowed": { "jeonse": true, "wolse": false },
+  "_comment_tenant_no_consent_allowed": "세입자 미동의(특이사항·요청사항·거주여부) 진행 가능 여부. 빌라·오피스텔·단독·토지는 전세 미동의 가능, 월세 미동의 불가. 아파트는 products에서 true(전·월세 모두 가능)로 덮어씀. 키워드·문구는 data/common/common_conditions.json의 tenant_consent",
   "enabled": true,
   "use_principal_for_calculation": false,
   "_comment_use_principal_for_calculation": "선순위 차감은 채권최고액",
@@ -58,6 +58,8 @@
     {
       "product_name": "아파트",
       "product_type": "household",
+      "tenant_no_consent_allowed": true,
+      "_comment_tenant_no_consent_allowed": "아파트는 전세·월세 미동의 모두 진행 가능",
       "household_property_types": {
         "apartment": 1,
         "apartment_no_land_registry": 1,
@@ -104,7 +106,7 @@
         "가계자금",
         "전국 당일 진행 가능",
         "공실, 증여, 상속건 취급 가능",
-        "세입자 미동의 시 진행 불가",
+        "전·월세 세입자 미동의 진행 가능",
         "아파트 LTV: 1급지 300세대 이상 80%, 그 외 70%",
         "금리: 수도권 KB시세·200세대 이상 13.2~17%, 그 외 14.4~18%"
       ]
@@ -178,7 +180,7 @@
         "가계자금",
         "전국 당일 진행 가능",
         "공실, 증여, 상속건 취급 가능",
-        "*세입자 미동의 시 진행 불가",
+        "*월세세입자 미동의 시 진행 불가",
         "오피스텔 LTV: 1급지 65%, 그 외 60%",
         "금리 13~18%"
       ]
@@ -218,7 +220,7 @@
         "가계자금",
         "전국 당일 진행 가능",
         "공실, 증여, 상속건 취급 가능",
-        "*세입자 미동의 시 진행 불가",
+        "*월세세입자 미동의 시 진행 불가",
         "단독주택·다가구·토지 LTV 60% (임야 불가)",
         "금리 15.6~16.8%"
       ]

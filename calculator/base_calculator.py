@@ -195,20 +195,72 @@ def _compact_for_keyword(text: Any) -> str:
     return re.sub(r"[\s,.·/]+", "", str(text or "")).lower()
 
 
-def has_tenant_no_consent(property_data: Optional[Dict[str, Any]]) -> bool:
-    """특이사항·요청사항·거주여부에 세입자 미동의 키워드가 있는지 (common_conditions.tenant_consent)."""
+def _tenant_types_from_mortgages(property_data: Dict[str, Any]) -> Set[str]:
+    """설정내역 세입자 정보로 전세/월세 판별 (월세 금액·월세입자 표기 → wolse, 전세입자·전세권 → jeonse)."""
+    types: Set[str] = set()
+    for m in property_data.get("mortgages") or []:
+        inst = str(m.get("institution") or "")
+        if not (m.get("is_tenant") or "세입자" in inst or "임차" in inst or "전세권" in inst):
+            continue
+        if m.get("monthly_rent_man") or "월세" in inst:
+            types.add("wolse")
+        elif "전세" in inst:
+            types.add("jeonse")
+    return types
+
+
+def detect_tenant_no_consent(property_data: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """
+    특이사항·요청사항·거주여부의 세입자 미동의 키워드 판정 (common_conditions.tenant_consent).
+    Returns: None(미동의 없음) 또는 {"types": {"jeonse", "wolse"} 부분집합, "label_key": type_labels 키}
+    """
     if not property_data:
-        return False
+        return None
     cfg = _load_common_conditions().get("tenant_consent") or {}
     fields = cfg.get("detect_fields") or ["special_notes", "requests", "residence"]
     text = _compact_for_keyword(" ".join(str(property_data.get(f) or "") for f in fields))
     if not text:
-        return False
-    return any(
-        _compact_for_keyword(kw) in text
-        for kw in cfg.get("no_consent_keywords") or []
-        if _compact_for_keyword(kw)
-    )
+        return None
+    groups = cfg.get("no_consent_keywords") or {}
+    if isinstance(groups, list):
+        groups = {"unspecified": groups}
+
+    types: Set[str] = set()
+    unspecified = False
+    for group in ("both", "jeonse", "wolse", "unspecified"):
+        keywords = sorted(
+            (_compact_for_keyword(kw) for kw in groups.get(group) or []),
+            key=len,
+            reverse=True,
+        )
+        for kw in keywords:
+            if not kw or kw not in text:
+                continue
+            text = text.replace(kw, "")
+            if group == "both":
+                types.update(("jeonse", "wolse"))
+            elif group == "unspecified":
+                unspecified = True
+            else:
+                types.add(group)
+
+    label_key = None
+    if unspecified:
+        inferred = _tenant_types_from_mortgages(property_data)
+        if inferred:
+            types.update(inferred)
+        else:
+            types.update(("jeonse", "wolse"))
+            label_key = "unknown"
+    if not types:
+        return None
+    if label_key is None:
+        label_key = "both" if types == {"jeonse", "wolse"} else next(iter(types))
+    return {"types": types, "label_key": label_key}
+
+
+def has_tenant_no_consent(property_data: Optional[Dict[str, Any]]) -> bool:
+    return detect_tenant_no_consent(property_data) is not None
 
 
 def _to_float_or_none(value: Any) -> Optional[float]:
@@ -870,6 +922,7 @@ class BaseCalculator:
         self._ltv_adjustments_applied = []
         self._ltv_adjustment_messages = []
         self._max_total_amount_limit_applied = False
+        self._tenant_no_consent_message = None
         
         # config에 product_type이 있으면 product_type 파라미터가 없을 때 사용 (팀엑스대부 등)
         if product_type is None:
@@ -2056,14 +2109,34 @@ class BaseCalculator:
                 return self._error_result(["오피스텔인 경우 선순위만 산출 가능 (세입자 1순위 시 2순위 불가)"])
         
         # 세입자 미동의 토글 (common_conditions.tenant_consent, 금융사 JSON tenant_no_consent_allowed)
-        tenant_consent_cfg = _load_common_conditions().get("tenant_consent") or {}
-        no_consent_allowed = self.config.get(
-            tenant_consent_cfg.get("toggle_key") or "tenant_no_consent_allowed",
-            tenant_consent_cfg.get("default_allowed", False),
-        )
-        if not no_consent_allowed and has_tenant_no_consent(property_data):
-            print("DEBUG: BaseCalculator.calculate - 세입자 미동의 진행 불가 (tenant_no_consent_allowed=false)")
-            return self._error_result([tenant_consent_cfg.get("reject_message") or "세입자 미동의 진행 불가"])
+        no_consent = detect_tenant_no_consent(property_data)
+        if no_consent:
+            tenant_consent_cfg = _load_common_conditions().get("tenant_consent") or {}
+            default_allowed = bool(tenant_consent_cfg.get("default_allowed", False))
+            toggle = self.config.get(tenant_consent_cfg.get("toggle_key") or "tenant_no_consent_allowed", default_allowed)
+            if isinstance(toggle, dict):
+                allowed_by_type = {t: bool(toggle.get(t, default_allowed)) for t in ("jeonse", "wolse")}
+            else:
+                allowed_by_type = {"jeonse": bool(toggle), "wolse": bool(toggle)}
+            labels = tenant_consent_cfg.get("type_labels") or {}
+            denied = sorted(t for t in no_consent["types"] if not allowed_by_type[t])
+            if denied:
+                if no_consent["label_key"] == "unknown":
+                    label_key = "unknown"
+                else:
+                    label_key = "both" if len(denied) > 1 else denied[0]
+                message = (tenant_consent_cfg.get("reject_message") or "{type_label} 미동의 진행 불가").format(
+                    type_label=labels.get(label_key, "세입자")
+                )
+                print(f"DEBUG: BaseCalculator.calculate - {message} (tenant_no_consent_allowed={toggle})")
+                return self._error_result([message])
+            self._tenant_no_consent_message = (
+                self.config.get("tenant_consent_caption")
+                or (tenant_consent_cfg.get("allowed_message") or "").format(
+                    type_label=labels.get(no_consent["label_key"], "세입자")
+                )
+                or None
+            )
 
         # 세입자 후순위 토글/급지 제한
         # - tenant_subordinate_allowed=false: 세입자 있는 후순위는 전면 취급 불가
@@ -3430,6 +3503,9 @@ class BaseCalculator:
         tenant_caption = self.config.get("tenant_consent_caption")
         if tenant_caption and property_data and has_tenant_in_property(property_data):
             out["tenant_consent_caption"] = tenant_caption
+        # 세입자 미동의 진행 가능 금융사: 미동의 입력 시 한도 밑 안내
+        if getattr(self, "_tenant_no_consent_message", None):
+            out["tenant_consent_caption"] = self._tenant_no_consent_message
         return out
     
     def credit_score_to_grade(self, credit_score: Optional[int]) -> Optional[int]:

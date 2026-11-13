@@ -2,32 +2,35 @@
   "_comment": "금융사 공통 조건 정의. 금융사 JSON(data/banks, data/loan)에는 켜고 끄는 값·규칙만 적고, 키워드·문구·프리셋은 여기서 관리한다. 이 파일은 data/banks·data/loan 밖에 있어야 한다(그 폴더의 JSON은 모두 금융사로 로드됨).",
 
   "tenant_consent": {
-    "_comment": "세입자 동의/미동의 조건. 특이사항·요청사항·거주여부에 미동의 키워드가 있으면, 금융사 JSON의 toggle_key가 false인 금융사는 한도 미산출(reject_message). true면 정상 산출.",
+    "_comment": "세입자 동의/미동의 조건. 특이사항·요청사항·거주여부에 미동의 키워드가 있으면, 금융사 JSON의 toggle_key로 전세·월세별 진행 가능 여부를 판정한다. 불가면 한도 미산출(reject_message), 가능하면 한도 아래 allowed_message.",
     "toggle_key": "tenant_no_consent_allowed",
-    "_comment_toggle_key": "금융사 JSON에 \"tenant_no_consent_allowed\": true(미동의 진행 가능) / false(미동의 진행 불가)로 적는다",
+    "_comment_toggle_key": "금융사 JSON(대부 products[] 안에도 가능)에 true(전세·월세 미동의 모두 가능) / false(모두 불가) / {\"jeonse\": true, \"wolse\": false}(종류별)로 적는다",
     "default_allowed": false,
-    "_comment_default_allowed": "금융사 JSON에 toggle_key가 없을 때 적용할 값. 새 금융사는 미동의 불가가 기본",
+    "_comment_default_allowed": "금융사 JSON에 toggle_key가 없거나 종류 값이 빠졌을 때 적용할 값. 새 금융사는 미동의 불가가 기본",
     "detect_fields": ["special_notes", "requests", "residence"],
     "_comment_detect_fields": "미동의 키워드를 찾는 입력 항목 (특이사항, 요청사항, 거주여부)",
-    "no_consent_keywords": [
-      "세입자미동의",
-      "세입자비동의",
-      "세입자부동의",
-      "세입자동의불가",
-      "세입자동의x",
-      "세입자동의안됨",
-      "임차인미동의",
-      "임차인비동의",
-      "전입자미동의",
-      "전입세대미동의",
-      "전세미동의",
-      "월세미동의",
-      "전월세미동의",
-      "전세입자미동의",
-      "월세입자미동의"
-    ],
-    "_comment_no_consent_keywords": "띄어쓰기·쉼표·마침표를 지우고 대소문자 무시로 비교한다 (예: '전,월세 미동의' → '전월세미동의')",
-    "reject_message": "세입자 미동의 진행 불가"
+    "no_consent_keywords": {
+      "both": ["전월세미동의", "전월세비동의", "전월세세입자미동의"],
+      "jeonse": ["전세세입자미동의", "전세입자미동의", "전세미동의", "전세비동의"],
+      "wolse": ["월세세입자미동의", "월세입자미동의", "월세미동의", "월세비동의"],
+      "unspecified": [
+        "세입자미동의",
+        "세입자비동의",
+        "세입자부동의",
+        "세입자동의불가",
+        "세입자동의x",
+        "세입자동의안됨",
+        "임차인미동의",
+        "임차인비동의",
+        "전입자미동의",
+        "전입세대미동의"
+      ]
+    },
+    "_comment_no_consent_keywords": "띄어쓰기·쉼표·마침표를 지우고 대소문자 무시로 비교. both→jeonse→wolse→unspecified 순서로 찾고, 찾은 키워드는 지운 뒤 다음 묶음을 본다(예: '월세세입자 미동의'는 월세로만 판정). unspecified는 세입자 정보(월세 금액·월세입자/전세입자 표기)로 전세·월세를 정하고, 모르면 전세·월세 둘 다 미동의로 본다",
+    "type_labels": { "jeonse": "전세", "wolse": "월세", "both": "전·월세", "unknown": "세입자" },
+    "reject_message": "{type_label} 미동의 진행 불가",
+    "allowed_message": "※ {type_label} 미동의 진행 가능",
+    "_comment_messages": "{type_label}은 type_labels 값. 금융사 JSON에 tenant_consent_caption이 있으면 allowed_message 대신 그 문구를 쓴다"
   },
 
   "ltv_adjustments": {
