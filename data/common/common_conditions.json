@@ -1,5 +1,5 @@
 {
-  "_comment": "금융사 공통 조건 정의 (tenant_consent 세입자 미동의, seizure 압류·가압류, delinquency 연체중, always_restricted_keywords 공통 불가 키워드, ltv_adjustments LTV 조정). 금융사 JSON(data/banks, data/loan)에는 켜고 끄는 값·규칙만 적고, 키워드·문구·프리셋은 여기서 관리한다. 이 파일은 data/banks·data/loan 밖에 있어야 한다(그 폴더의 JSON은 모두 금융사로 로드됨).",
+  "_comment": "금융사 공통 조건 정의 (tenant_consent 세입자 미동의, seizure 압류·가압류, delinquency 연체중, foreigner 외국인 비자, always_restricted_keywords 공통 불가 키워드, ltv_adjustments LTV 조정). 금융사 JSON(data/banks, data/loan)에는 켜고 끄는 값·규칙만 적고, 키워드·문구·프리셋은 여기서 관리한다. 이 파일은 data/banks·data/loan 밖에 있어야 한다(그 폴더의 JSON은 모두 금융사로 로드됨).",
 
   "tenant_consent": {
     "_comment": "세입자 동의/미동의 조건. 특이사항·요청사항·거주여부에 미동의 키워드가 있으면, 금융사 JSON의 toggle_key로 전세·월세별 진행 가능 여부를 판정한다. 불가면 한도 미산출(reject_message), 가능하면 한도 아래 allowed_message.",
@@ -66,8 +66,18 @@
     "allowed_message": "※ 연체중 진행 가능"
   },
 
+  "foreigner": {
+    "_comment": "외국인 비자 조건. 금융사 JSON(대부 products[] 안에도 가능)에 toggle_key가 있을 때만 검사하고, 없으면 외국인 여부를 보지 않는다. 키워드가 있는데 허용 비자가 적혀 있지 않으면 한도 미산출",
+    "toggle_key": "foreigner_allowed_visas",
+    "_comment_toggle_key": "금융사 JSON에 [\"F4\", \"F5\"]처럼 허용 비자 목록을 적는다. 'F-4', 'f4' 표기도 같은 비자로 본다. []면 외국인 전면 불가",
+    "detect_fields": ["special_notes", "requests", "occupation"],
+    "keywords": ["외국인", "외국국적"],
+    "exclude_phrases": ["외국인아님", "외국인x", "외국인X"],
+    "reject_message": "외국인은 {visas} 비자만 진행 가능"
+  },
+
   "always_restricted_keywords": {
-    "_comment": "전 금융사 공통 취급 불가 키워드 (특이사항·물건구분에서 검사). 금융사별 추가 키워드는 금융사 JSON의 additional_restricted_keywords",
+    "_comment": "전 금융사 공통 취급 불가 키워드 (특이사항·물건구분에서 검사). 금융사별 추가 키워드는 금융사 JSON의 additional_restricted_keywords, 이 중 취급하는 키워드는 금융사 JSON의 allowed_restricted_keywords로 뺀다",
     "keywords": ["경매취하자금"],
     "error_message": "특이사항에 '{keywords}'가 포함되어 취급 불가합니다"
   },

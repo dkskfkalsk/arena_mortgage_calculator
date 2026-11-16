@@ -1405,8 +1405,10 @@ class BaseCalculator:
         
         # 특이사항 검증: 전 금융사 공통 불가 키워드(common_conditions.always_restricted_keywords)
         # + 금융사별 추가 불가 키워드(additional_restricted_keywords). 압류·가압류는 common_conditions.seizure에서 판정
+        # 공통 불가 키워드 중 금융사가 취급하는 것은 allowed_restricted_keywords로 뺀다 (경인대부 가계자금 경매취하자금 등)
         always_restricted = _load_common_conditions().get("always_restricted_keywords") or {}
-        restricted_keywords = list(always_restricted.get("keywords") or [])
+        allowed_restricted = set(self.config.get("allowed_restricted_keywords") or [])
+        restricted_keywords = [kw for kw in always_restricted.get("keywords") or [] if kw not in allowed_restricted]
         restricted_keywords.extend(self.config.get("additional_restricted_keywords") or [])
         
         # 구분 "아파트(대지권미등기)"처럼 물건유형에만 적힌 경우도 잡도록 구분까지 검사
@@ -1486,6 +1488,7 @@ class BaseCalculator:
         self._validate_validation_rules(property_data, validation_errors)
 
         # 소유권 이전 후 경과개월 제한 (소유권이전일이 없으면 검사하지 않고 산출)
+        # ownership_transfer_caption_only=true면 부결하지 않고 한도 밑 안내만 단다
         min_transfer_months = self.config.get("min_months_since_ownership_transfer")
         transfer_date_str = str(property_data.get("ownership_transfer_date") or "").strip()
         if min_transfer_months and transfer_date_str:
@@ -1493,10 +1496,21 @@ class BaseCalculator:
             if transfer_date is not None:
                 elapsed = self._months_since(transfer_date)
                 if elapsed < int(min_transfer_months):
-                    log_print(f"DEBUG: BaseCalculator.calculate - 소유권이전 {transfer_date_str} 경과 {elapsed}개월 < {min_transfer_months}개월, 취급 불가")
-                    validation_errors.append(
-                        f"소유권 이전 {min_transfer_months}개월 경과 후 취급 가능합니다 (소유권이전일: {transfer_date_str}, 경과 {elapsed}개월)"
-                    )
+                    if self.config.get("ownership_transfer_caption_only"):
+                        log_print(f"DEBUG: BaseCalculator.calculate - 소유권이전 {transfer_date_str} 경과 {elapsed}개월 < {min_transfer_months}개월, 안내만 추가")
+                        self._condition_captions.append(
+                            f"※ 소유권 취득 {min_transfer_months}개월 경과 후 진행 가능 (소유권이전일: {transfer_date_str}, 경과 {elapsed}개월)"
+                        )
+                    else:
+                        log_print(f"DEBUG: BaseCalculator.calculate - 소유권이전 {transfer_date_str} 경과 {elapsed}개월 < {min_transfer_months}개월, 취급 불가")
+                        validation_errors.append(
+                            f"소유권 이전 {min_transfer_months}개월 경과 후 취급 가능합니다 (소유권이전일: {transfer_date_str}, 경과 {elapsed}개월)"
+                        )
+
+        # 외국인 비자 제한 (common_conditions.foreigner, 금융사 JSON foreigner_allowed_visas). 키가 없으면 검사하지 않음
+        foreigner_error = self._check_foreigner_visa(property_data)
+        if foreigner_error:
+            validation_errors.append(foreigner_error)
 
         # 개인설정 후순위 취급 불가 (금융사별 — allow_physical_collateral_subordinate 시 물상담보 제외)
         if self._is_blocked_by_personal_mortgage(property_data):
@@ -3709,6 +3723,24 @@ class BaseCalculator:
     
     def _condition_allowed(self, cfg: Dict[str, Any], default_key: str) -> bool:
         return bool(self.config.get(cfg.get("toggle_key") or default_key, cfg.get("default_allowed", False)))
+
+    def _check_foreigner_visa(self, property_data: Dict[str, Any]) -> Optional[str]:
+        """
+        외국인 판정 (common_conditions.foreigner). 금융사 JSON에 foreigner_allowed_visas가 있을 때만 검사.
+        외국인 키워드가 있는데 허용 비자(F4 → 'f4'·'f-4' 표기 모두)가 적혀 있지 않으면 부결 문구 반환.
+        """
+        cfg = _load_common_conditions().get("foreigner") or {}
+        allowed_visas = self.config.get(cfg.get("toggle_key") or "foreigner_allowed_visas")
+        if allowed_visas is None or not _text_has_condition_keyword(property_data, cfg):
+            return None
+        fields = cfg.get("detect_fields") or ["special_notes", "requests"]
+        raw = " ".join(str(property_data.get(f) or "") for f in fields)
+        text = re.sub(r"[\s,.·/\-]+", "", raw).lower()
+        for visa in allowed_visas:
+            if re.sub(r"[\s\-]+", "", str(visa)).lower() in text:
+                return None
+        visa_label = "·".join(str(v) for v in allowed_visas) or "없음"
+        return (cfg.get("reject_message") or "외국인은 {visas} 비자만 진행 가능").format(visas=visa_label)
 
     def _apply_seizure_and_delinquency(
         self, property_data: Dict[str, Any]
@@ -6466,6 +6498,9 @@ class BaseCalculator:
                     cfg_product_type = calculator.config.get("product_type")
                     result = calculator.calculate(property_data, product_type=cfg_product_type)
                     if result is not None and not cls._should_exclude_property_type_mismatch(result):
+                        best_of_group = calculator.config.get("best_of_group")
+                        if best_of_group:
+                            result["_best_of_group"] = best_of_group
                         # 취급 불가지역인 경우도 포함 (errors에 "취급 불가지역"이 있으면)
                         results.append(result)
             except Exception as e:
@@ -6485,6 +6520,50 @@ class BaseCalculator:
             if "취급 불가 물건 타입" in str(err):
                 return True
         return False
+
+    @classmethod
+    def _filter_best_of_group_results(cls, results: list) -> list:
+        """
+        products[]에 best_of_group이 같은 상품끼리는 한도가 가장 큰 1개만 남긴다 (한도가 같으면 금리가 낮은 것).
+        금리 범위 상품은 최저 금리로 비교. 그룹 안에 한도가 나온 상품이 없으면 부결 사유를 모두 남긴다.
+        """
+        def _valid_rows(bank_result):
+            return [
+                x for x in bank_result.get("results") or []
+                if not x.get("limit_not_calculated", False)
+                and (x.get("available_amount") or x.get("amount") or 0) > 0
+            ]
+
+        def _score(bank_result):
+            rows = _valid_rows(bank_result)
+            amount = max((x.get("available_amount") or x.get("amount") or 0) for x in rows)
+            rates = []
+            for x in rows:
+                if x.get("interest_rate") is not None:
+                    rates.append(float(x["interest_rate"]))
+                elif x.get("interest_rate_range"):
+                    rates.append(float(x["interest_rate_range"][0]))
+            return (amount, -(min(rates) if rates else float("inf")))
+
+        groups: Dict[str, list] = {}
+        for r in results:
+            group = r.get("_best_of_group")
+            if group:
+                groups.setdefault(group, []).append(r)
+
+        drop_ids = set()
+        for group, members in groups.items():
+            candidates = [r for r in members if _valid_rows(r)]
+            if not candidates:
+                continue
+            best = max(candidates, key=_score)
+            print(f"DEBUG: BaseCalculator - best_of_group '{group}': {best.get('bank_name')} 선택 ({len(candidates)}/{len(members)}개 산출)")
+            drop_ids.update(id(r) for r in members if r is not best)
+
+        filtered = [r for r in results if id(r) not in drop_ids]
+        for r in filtered:
+            r.pop("_best_of_group", None)
+        return filtered
 
     @classmethod
     def _filter_eum_hiroon_results(cls, results: list) -> list:
@@ -6581,6 +6660,8 @@ class BaseCalculator:
         
         # 이음에셋대부: 이음-하이론 한도가 이음론보다 클 때만 둘 다 표시, 아니면 이음론만
         results = cls._filter_eum_hiroon_results(results)
+        # best_of_group이 같은 상품끼리는 가장 좋은 조건 1개만 (경인대부 사업자금 등)
+        results = cls._filter_best_of_group_results(results)
         
         return results
 

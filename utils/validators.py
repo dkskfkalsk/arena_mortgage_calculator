@@ -4,6 +4,37 @@
 """
 
 
+def _parse_eok_price(text):
+    """
+    첫 번째 'N억 [M천|M천만|M백만|M만|M]'을 만원으로 변환. 억이 없으면 None.
+    단위 없는 뒷자리는 한 자리면 천만 단위('2억5' = 2억5천), 두 자리 이상이면 만원('2억5000').
+    뒷자리 바로 뒤가 . - / 년 월이면 날짜로 보고 버린다 ('5억 2025.10 기준' = 5억).
+    """
+    import re
+    m = re.search(
+        r'(\d[\d,]*(?:\.\d+)?)\s*억(?:\s*(\d[\d,]*)\s*(천만|천|백만|만)?(?![\d,]*\s*[.\-/년월]))?',
+        text,
+    )
+    if not m:
+        return None
+    price = float(m.group(1).replace(',', '')) * 10000
+    if m.group(2):
+        rest = int(m.group(2).replace(',', ''))
+        unit = m.group(3)
+        if unit in ("천", "천만"):
+            price += rest * 1000
+            baek = re.match(r'\s*(\d+)\s*백', text[m.end():]) if unit == "천" else None
+            if baek:
+                price += int(baek.group(1)) * 100
+        elif unit == "백만":
+            price += rest * 100
+        elif unit == "만" or rest >= 10:
+            price += rest
+        else:
+            price += rest * 1000
+    return price
+
+
 def validate_kb_price(kb_price):
     """
     KB시세 검증
@@ -54,11 +85,9 @@ def validate_kb_price(kb_price):
         price_str_clean = re.sub(r'\s+', ' ', price_str_clean)
         
         # "억" 단위 처리 (먼저 처리)
-        # "20억" -> 200,000만원으로 변환
-        eok_match = re.search(r'([\d,]+)\s*억', price_str_clean, re.IGNORECASE)
-        if eok_match:
-            eok_value = float(eok_match.group(1).replace(',', ''))
-            price = eok_value * 10000  # 1억 = 10,000만원
+        # "20억" -> 200,000, "2.5억" -> 25,000, "2억5천"·"2억 5,000만" -> 25,000만원
+        price = _parse_eok_price(price_str_clean)
+        if price is not None:
             print(f"DEBUG: validate_kb_price - extracted price from 억: {price}만원")
             return price
         
