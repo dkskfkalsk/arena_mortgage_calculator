@@ -2244,6 +2244,16 @@ class BaseCalculator:
                     return self._error_result(
                         [f"세입자 후순위는 1~{max_subordinate_grade}급지까지 가능합니다 (현재: {grade_int}급지)"]
                     )
+
+        # tenant_subordinate_regions: 세입자 후순위 가능 지역(시·도 접두어). 급지와 별개 기준
+        # (마젤란은 인천이 2급지라 max_subordinate_grade로는 수도권만 허용할 수 없음)
+        tenant_subordinate_regions = self.config.get("tenant_subordinate_regions")
+        if tenant_subordinate_regions and has_tenant and self._is_subordinate:
+            region_compact = str(property_data.get("region") or "").replace(" ", "")
+            if not any(region_compact.startswith(str(p).replace(" ", "")) for p in tenant_subordinate_regions):
+                message = self.config.get("tenant_subordinate_region_message") or "세입자 후순위 취급 지역이 아닙니다"
+                print(f"DEBUG: BaseCalculator.calculate - {message} (region={region_compact})")
+                return self._error_result([message])
         
         # 신용점수/등급 확인
         credit_score = property_data.get("credit_score")
@@ -6340,14 +6350,15 @@ class BaseCalculator:
         if not property_data:
             return False
         # 기관명이 금융기관이 아닌 순위가 하나라도 있으면 개인설정
-        # 가압류·압류 등은 개인설정(개인명 근저당)으로 세지 않는다. 압류 가능 여부는 common_conditions.seizure에서 따로 판정
-        exclude_keywords = ("신탁", "물상담보", "물상", "전세입자", "전세권", "세입자", "월세입자", "가압류", "압류")
+        # 세입자(is_tenant, 임차보증금·임차인 등)·가압류·압류는 개인설정(개인명 근저당)으로 세지 않는다.
+        # 세입자 후순위 가능 여부는 tenant_subordinate_*, 압류는 common_conditions.seizure에서 따로 판정
+        exclude_keywords = ("신탁", "물상담보", "물상", "전세입자", "전세권", "세입자", "월세입자", "임차", "가압류", "압류")
         physical_collateral_keywords = ("물상담보", "물상")
         has_remaining_personal = False
         has_refinanced_personal = False
         for m in property_data.get("mortgages") or []:
             institution = (m.get("institution") or "").strip()
-            if not institution:
+            if not institution or m.get("is_tenant"):
                 continue
             inst_type = classify_financial_institution(institution)
             if inst_type != "기타":

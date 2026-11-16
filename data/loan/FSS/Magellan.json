@@ -18,6 +18,10 @@
   "fractional_share_allowed": false,
   "_comment_fractional_share_allowed": "등기상 지분·공유지분 물건 취급 불가",
   "refinance_all_requested": true,
+  "tenant_subordinate_regions": ["서울특별시", "경기도", "인천광역시"],
+  "_comment_tenant_subordinate_regions": "세입자 후순위(설정내역에 전·월세 임차인 보증금이 있고 이번 대출이 후순위)는 이 지역만 가능. 시·도 이름으로 시작하는지 비교. 세입자 없는 후순위·선순위는 target_regions 전체 가능. 거주여부·특이사항에만 세입자가 적힌 경우는 해당 안 됨",
+  "tenant_subordinate_region_message": "수도권 외 지역 세입자 후순위 진행 불가",
+  "_comment_tenant_subordinate_region_message": "tenant_subordinate_regions 밖 지역일 때 부결 문구",
   "loan_term_months": 24,
   "target_regions": [
     "서울",
