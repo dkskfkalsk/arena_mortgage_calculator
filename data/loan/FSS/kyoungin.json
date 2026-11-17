@@ -19,7 +19,7 @@
   "_comment_fractional_share_request_allowed": "요청사항에 지분조건(지분대출)이면 취급 불가",
   "fractional_share_request_enabled": false,
   "use_principal_for_calculation": false,
-  "_comment_use_principal_for_calculation": "기존 근저당 차감 기준. false=채권최고액(max_amount) 합·없으면 원금×1.2",
+  "_comment_use_principal_for_calculation": "남는 선순위(대환 제외) 차감 기준. true=원금, false=채권최고액(없으면 원금×1.2). 원금 없으면 채권최고액 그대로. 대환 대상은 항상 원금. 기본값은 data/common/common_conditions.json의 senior_lien_basis",
   "refinance_all_requested": true,
   "minimum_administrative_level": "city",
   "_comment_minimum_administrative_level": "전 상품 군 단위 제외 (region_grades 9급지와 이중 안전장치)",

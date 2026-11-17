@@ -235,6 +235,7 @@ def main():
         "enabled": True,
         "_comment_enabled": "한도 산출 on/off",
         "use_principal_for_calculation": False,
+        "_comment_use_principal_for_calculation": "남는 선순위(대환 제외) 차감 기준. true=원금, false=채권최고액(없으면 원금×1.2). 원금 없으면 채권최고액 그대로. 대환 대상은 항상 원금. 기본값은 data/common/common_conditions.json의 senior_lien_basis",
         "fractional_share_request_enabled": False,
         "target_regions": mg["target_regions"] + ["대구", "세종"],
         "product_type": "business",

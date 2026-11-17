@@ -1168,6 +1168,7 @@ class RegistryParser:
     def _extract_mortgages(self) -> List[MortgageInfo]:
         """근저당권 설정 내역 추출"""
         mortgages = []
+        sub_ranks: Dict[int, str] = {}
         
         # 을구 섹션 찾기 (근저당권 변경 확인용)
         eulgu_pattern = r'을\s*구[\s\S]*?(?=출력일시|$)'
@@ -1185,7 +1186,8 @@ class RegistryParser:
             summary_text = summary_match.group(0)
             # 방법: 모든 "N 근저당권설정" 패턴을 먼저 찾고, 각 순위별로 블록 추출
             # 순위 패턴: "14 근저당권설정" 또는 "14\n근저당권설정" (줄바꿈 허용)
-            rank_pattern = r'(\d+)\s+근저당권설정'
+            # 추가설정계약은 한 순위번호 아래 "1\n(1)근저당권설정", "1\n(2)근저당권설정"으로 나뉜다.
+            rank_pattern = r'(\d+)\s+(?:\((\d+)\)\s*)?근저당권설정'
             rank_matches = list(re.finditer(rank_pattern, summary_text))
             
             # 디버깅: 찾은 순위 개수 확인
@@ -1193,6 +1195,7 @@ class RegistryParser:
             
             for i, rank_match in enumerate(rank_matches):
                 rank = rank_match.group(1)
+                sub_rank = rank_match.group(2) or ""
                 start_pos = rank_match.start()
                 
                 # 다음 순위 또는 [ 참 고 전까지의 블록 추출
@@ -1276,10 +1279,17 @@ class RegistryParser:
                 debtor = ""
                 if eulgu_text:
                     # 을구에서 해당 순위의 블록 찾기
-                    eulgu_rank_match = re.search(rf'^{rank}\s+근저당권설정', eulgu_text, re.MULTILINE)
+                    if sub_rank:
+                        eulgu_rank_match = re.search(
+                            rf'^{rank}\s+\({sub_rank}\)\s*근저당권설정', eulgu_text, re.MULTILINE
+                        )
+                        next_rank_pattern = r'^\d+(?:\s*-\s*\d+)?\s+(?:\(\d+\)\s*)?근저당권'
+                    else:
+                        eulgu_rank_match = re.search(rf'^{rank}\s+근저당권설정', eulgu_text, re.MULTILINE)
+                        next_rank_pattern = rf'^{int(rank)+1}\s+근저당권설정|^{rank}\s*-\s*\d+\s*근저당권'
                     if eulgu_rank_match:
                         eulgu_start = eulgu_rank_match.start()
-                        next_rank_match = re.search(rf'^{int(rank)+1}\s+근저당권설정|^{rank}\s*-\s*\d+\s*근저당권', eulgu_text[eulgu_start+1:], re.MULTILINE)
+                        next_rank_match = re.search(next_rank_pattern, eulgu_text[eulgu_start+1:], re.MULTILINE)
                         if next_rank_match:
                             eulgu_end = eulgu_start + 1 + next_rank_match.start()
                         else:
@@ -1298,6 +1308,13 @@ class RegistryParser:
                 # 그래도 실패하면 요약본 대상소유자 fallback
                 if not debtor:
                     debtor = self._find_target_owner_in_section(summary_text, rank)
+                if not debtor and sub_rank:
+                    owner_match = re.search(
+                        r'채권최고액\s*금?\s*[\d,]+\s*원[\s\n]*([가-힣]{2,4}(?:\s*등)?)(?=\s*\n|제\d+호|근저당권자|$)',
+                        rank_block,
+                    )
+                    if owner_match:
+                        debtor = re.sub(r'\s+', ' ', owner_match.group(1).strip())
                 
                 # 마지막으로 rank block 간단 패턴 시도
                 if not debtor:
@@ -1320,6 +1337,8 @@ class RegistryParser:
                     설정일=설정일
                 )
                 mortgages.append(mortgage)
+                if sub_rank:
+                    sub_ranks[id(mortgage)] = sub_rank
         
         # 방법 1-2: 전체 텍스트에서도 추출 시도 (요약 섹션이 없는 경우)
         # 단, 요약에 "기록사항 없음"이 있으면 근저당권이 모두 말소된 것이므로 추출 생략
@@ -1353,7 +1372,7 @@ class RegistryParser:
         if not mortgages and not has_no_records:
             # 을구에서 근저당권설정 블록 찾기
             # 패턴: 순위번호 근저당권설정 날짜 날짜 채권최고액 금XXX원
-            mortgage_block_pattern = r'(\d+)\s+근저당권설정\s+(\d{4})년(\d{1,2})월(\d{1,2})일.*?채권최고액\s*금?\s*([\d,]+)\s*원.*?채무자\s+(\S+).*?근저당권자\s+(\S+)'
+            mortgage_block_pattern = r'(\d+)\s+(?:\(\d+\)\s*)?근저당권설정\s+(\d{4})년(\d{1,2})월(\d{1,2})일.*?채권최고액\s*금?\s*([\d,]+)\s*원.*?채무자\s+(\S+).*?근저당권자\s+(\S+)'
             
             matches = re.finditer(mortgage_block_pattern, self.text, re.DOTALL)
             for match in matches:
@@ -1411,6 +1430,11 @@ class RegistryParser:
                 # "16번근저당권말소" (설정 없이 직접 말소)
                 rf'{exclude_other_land}{rank_boundary}{rank_num}번\s*근저당권\s*말\s*소(?!\s*[가-힣a-zA-Z])',  # 말소 뒤에 다른 텍스트가 오지 않는 경우
             ]
+            sub_rank = sub_ranks.get(id(m))
+            if sub_rank:
+                cancel_patterns.append(
+                    rf'{exclude_other_land}{rank_boundary}{rank_num}번\s*\(\s*{sub_rank}\s*\)\s*근저당권\s*(?:설정\s*)?등?\s*기?\s*말\s*소'
+                )
 
             is_cancelled = False
             for pattern in cancel_patterns:
@@ -1425,7 +1449,7 @@ class RegistryParser:
         seen = set()
         unique = []
         for m in active_mortgages:
-            key = (m.순위번호, m.채권최고액)
+            key = (m.순위번호, sub_ranks.get(id(m), ""), m.채권최고액)
             if key not in seen:
                 seen.add(key)
                 unique.append(m)

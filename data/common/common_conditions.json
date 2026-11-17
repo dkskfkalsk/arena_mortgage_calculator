@@ -1,5 +1,5 @@
 {
-  "_comment": "금융사 공통 조건 정의 (tenant_consent 세입자 미동의, seizure 압류·가압류, delinquency 연체중, foreigner 외국인 비자, always_restricted_keywords 공통 불가 키워드, ltv_adjustments LTV 조정). 금융사 JSON(data/banks, data/loan)에는 켜고 끄는 값·규칙만 적고, 키워드·문구·프리셋은 여기서 관리한다. 이 파일은 data/banks·data/loan 밖에 있어야 한다(그 폴더의 JSON은 모두 금융사로 로드됨).",
+  "_comment": "금융사 공통 조건 정의 (tenant_consent 세입자 미동의, seizure 압류·가압류, delinquency 연체중, foreigner 외국인 비자, always_restricted_keywords 공통 불가 키워드, senior_lien_basis 선순위 차감 기준, ltv_adjustments LTV 조정). 금융사 JSON(data/banks, data/loan)에는 켜고 끄는 값·규칙만 적고, 키워드·문구·프리셋은 여기서 관리한다. 이 파일은 data/banks·data/loan 밖에 있어야 한다(그 폴더의 JSON은 모두 금융사로 로드됨).",
 
   "tenant_consent": {
     "_comment": "세입자 동의/미동의 조건. 특이사항·요청사항·거주여부에 미동의 키워드가 있으면, 금융사 JSON의 toggle_key로 전세·월세별 진행 가능 여부를 판정한다. 불가면 한도 미산출(reject_message), 가능하면 한도 아래 allowed_message.",
@@ -80,6 +80,18 @@
     "_comment": "전 금융사 공통 취급 불가 키워드 (특이사항·물건구분에서 검사). 금융사별 추가 키워드는 금융사 JSON의 additional_restricted_keywords, 이 중 취급하는 키워드는 금융사 JSON의 allowed_restricted_keywords로 뺀다",
     "keywords": ["경매취하자금"],
     "error_message": "특이사항에 '{keywords}'가 포함되어 취급 불가합니다"
+  },
+
+  "senior_lien_basis": {
+    "_comment": "남는 선순위(대환 제외) 차감 기준. 후순위 한도 = 시세×LTV − 남는 선순위 합. 대환일 때는 남는 선순위를 이 기준으로 빼고, 대환 대상만 원금으로 추가로 뺀다.",
+    "toggle_key": "use_principal_for_calculation",
+    "_comment_toggle_key": "금융사 JSON(대부 products[] 루트에도 가능)에 true(원금 기준) / false(채권최고액 기준)로 적는다",
+    "default": false,
+    "_comment_default": "금융사 JSON에 키가 없으면 채권최고액 기준. 현재 원금 기준은 투맨금융대부만 true",
+    "principal_missing_fallback": "max_amount",
+    "_comment_principal_missing_fallback": "원금 기준인데 메시지에 원금이 없으면 채권최고액을 그대로 뺀다",
+    "max_amount_missing_fallback": "amount_x_1_2",
+    "_comment_max_amount_missing_fallback": "채권최고액 기준인데 채권최고액이 없으면 원금×1.2로 추정한다"
   },
 
   "ltv_adjustments": {
