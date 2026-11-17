@@ -1,5 +1,5 @@
 {
-  "_comment": "투맨금융대부 가계 — 아파트만, 전국(제주 제외). KB시세 기준 LTV: 서울·경기·인천 65%, 그 외 60%. 근저당 3순위까지 가능.",
+  "_comment": "투맨금융대부 가계 — KB등재 아파트·주상복합, 전국(제주 제외). KB시세 기준 LTV: 서울 75%, 경기·인천 72%, 그 외 68%. 한도 2천만~5억. 근저당 3순위까지 가능(4순위 불가).",
   "bank_name": "투맨금융대부",
   "tenant_no_consent_allowed": true,
   "_comment_tenant_no_consent_allowed": "세입자 미동의(특이사항·요청사항·거주여부) 진행 가능 여부. true=가능, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 tenant_consent",
@@ -23,7 +23,11 @@
     "korea_realestate_price": 0,
     "housematch_price": 0
   },
-  "min_amount": 1000,
+  "min_amount": 2000,
+  "_comment_min_amount": "최소 진행금액 2천만원",
+  "max_amount_limit": 50000,
+  "max_amount_limit_applies_to_total": true,
+  "_comment_max_amount_limit": "최대 한도 5억 (총실행 = 대환원금 + 가용)",
   "occupation_limit": {
     "enabled": true,
     "keywords": ["무직"],
@@ -46,28 +50,35 @@
   "min_birth_year_error_message": "1957년생부터 취급 불가입니다 (현재 {birth_year}년생)",
   "max_age": 69,
   "_comment_max_age": "출생연도가 없는 기존 문구(이름 (69))용. 만69세까지, 70세부터 취급 불가",
+  "min_age": 20,
+  "_comment_min_age": "20세부터 취급 (출생연도가 있어도 검사)",
   "hide_credit_grade": true,
   "show_region_grade": false,
   "show_interest_rate_range": true,
   "reconstruction_max_stage": 4,
   "_comment_reconstruction_max_stage": "재건축 단계 제한 (5단계부터 취급 불가, 4단계까지 가능)",
-  "max_priority_limit": 4,
-  "_comment_max_priority_limit_error_message": "max_priority_limit 위반 시 errors에 넣을 회신 문구. {limit}=설정값(4), {n}=선순위 합산 카운트(동일 금융사+동일 채무자는 순위 비연속이어도 합산)",
-  "max_priority_limit_error_message": "근저당권 4순위 이상은 취급 불가입니다. (현재 선순위 {n}개, 동일 금융사+동일 채무자는 합산)",
+  "max_priority_limit": 3,
+  "_comment_max_priority_limit": "대환 후 남는 선순위 근저당이 3건 이상이면 이번 대출이 4순위가 되므로 불가 (3순위까지 가능)",
+  "_comment_max_priority_limit_error_message": "max_priority_limit 위반 시 errors에 넣을 회신 문구. {limit}=설정값(3), {n}=선순위 합산 카운트(동일 금융사+동일 채무자는 순위 비연속이어도 합산)",
+  "max_priority_limit_error_message": "4순위 진행 불가입니다. (현재 선순위 {n}개, 동일 금융사+동일 채무자는 합산)",
   "tenant_consent_caption": "※ 전,월세 동의·미동의 진행 가능",
   "household_property_types": {
     "apartment": 1,
     "apartment_no_land_registry": 1,
     "_comment_apartment_no_land_registry": "취급 불가는 additional_restricted_keywords 멘트로 처리 (0이면 결과가 출력에서 빠짐)",
-    "residential_commercial": 0,
+    "residential_commercial": 1,
     "villa": 0,
     "officetel": 0,
     "detached_house": 0,
     "multi_family_house": 0
   },
   "property_type_conditions": {
-    "_comment": "아파트 200세대 이상, 1개동 불가 (동 수 정보가 없으면 동 수 조건은 통과)",
+    "_comment": "아파트·주상복합 200세대 이상, 1개동 불가 (동 수 정보가 없으면 동 수 조건은 통과)",
     "apartment": {
+      "min_household_count": 200,
+      "min_building_count": 2
+    },
+    "residential_commercial": {
       "min_household_count": 200,
       "min_building_count": 2
     }
@@ -80,33 +91,37 @@
     { "starts_with": "", "grade": "3" }
   ],
   "max_ltv_by_grade": {
-    "1": 65,
-    "2": 65,
-    "3": 65,
+    "1": 75,
+    "2": 72,
+    "3": 68,
     "9": 0
   },
+  "_comment_max_ltv_by_grade": "1=서울 75%, 2=경기·인천 72%, 3=5대광역시·지방·읍면리 68%, 9=제주 불가",
   "max_limit_only": true,
   "primary_interest_rates_by_ltv": {
-    "65": { "1": 17.5 },
-    "60": { "1": 17.5 }
+    "75": { "1": 17.5 },
+    "72": { "1": 17.5 },
+    "68": { "1": 17.5 }
   },
   "interest_rate_range_by_profile": [
     {
-      "match": { "property_type_keys": ["apartment"], "region_grades": ["1", "2", "3"] },
+      "match": { "property_type_keys": ["apartment", "residential_commercial"], "region_grades": ["1", "2", "3"] },
       "range": [17, 18]
     }
   ],
   "conditions": [
     "가계자금",
-    "아파트만 취급 (200세대 이상, 1개동 불가, 대지권 미등기 불가)",
+    "KB등재 아파트·주상복합만 취급 (200세대 이상, 1개동 불가, 대지권 미등기 불가, 오피스텔 불가)",
     "지분대출 불가 (공동명의 동의조건 가능)",
     "재건축 4단계까지 취급 (5단계부터 불가)",
     "KB시세 1억 미만은 1순위만 취급 (대환 가능, 세입자 있으면 불가)",
     "전국 (제주도 제외)",
-    "LTV: 서울·경기·인천 65%, 그 외 60%",
+    "LTV: 서울 75%, 경기·인천 72%, 5대광역시·지방·읍면리 68%",
+    "대출한도 2천만원~5억원",
     "대출금리 17~18%",
     "중도상환 수수료 2~3%",
-    "근저당 3순위까지 설정 가능",
+    "근저당 3순위까지 설정 가능 (4순위 불가)",
+    "나이 20세부터",
     "무직 최대한도 3천만원 (대환원금 3천 초과 시 대환 불가)",
     "1957년생부터 취급 불가 (출생연도 없으면 만69세까지)"
   ],

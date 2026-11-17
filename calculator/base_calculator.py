@@ -1560,6 +1560,17 @@ class BaseCalculator:
                             )
                 except (ValueError, TypeError):
                     pass  # 나이가 숫자가 아니면 무시
+
+        # 고객 나이 하한 (min_age: 미만 시 취급 불가). min_birth_year는 상한만 보므로 출생연도가 있어도 검사
+        min_age = self.config.get("min_age")
+        if min_age is not None and property_data.get("age") is not None:
+            try:
+                age_int = int(property_data.get("age"))
+                if age_int < int(min_age):
+                    log_print(f"DEBUG: BaseCalculator.calculate - 나이 {age_int}세 < min_age {min_age}세, 취급 불가")
+                    validation_errors.append(f"고객 나이 {age_int}세는 {min_age}세 이상부터 취급 가능합니다")
+            except (ValueError, TypeError):
+                pass
         
         # 신용평점 최소 점수 검증
         min_credit_score = self.config.get("min_credit_score")
