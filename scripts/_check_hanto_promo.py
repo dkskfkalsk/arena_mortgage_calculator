@@ -15,8 +15,8 @@ def base(**kw):
     data = {
         "kb_price": 53000,
         "kb_price_raw": "일반 53,000만원",
-        "region": "서울특별시강남구",
-        "address": "서울특별시 강남구 역삼동 10층",
+        "region": "서울특별시마포구",
+        "address": "서울특별시 마포구 공덕동 10층",
         "property_type": "아파트",
         "area": 84,
         "household_count": 600,
@@ -55,11 +55,11 @@ def run(name, data, checks):
 cases = []
 
 cases.append(run(
-    "강남 93 추가",
+    "마포 93 추가",
     base(),
     [
-        ("93", lambda r, t: any(x[0] == 93 and x[1] == 9.62 and x[2] == "한도프로모션" for x in ltvs(r))),
-        ("90 plain", lambda r, t: any(x[0] == 90 and x[1] == 9.12 and not x[2] for x in ltvs(r))),
+        ("93", lambda r, t: any(x[0] == 93 and x[1] == 9.54 and x[2] == "한도프로모션" for x in ltvs(r))),
+        ("90 plain", lambda r, t: any(x[0] == 90 and x[1] == 9.04 and not x[2] for x in ltvs(r))),
         ("label", lambda r, t: "한도프로모션" in t),
         ("no 5억", lambda r, t: "5억초과" not in t),
     ],
@@ -85,7 +85,7 @@ cases.append(run(
     "4등급 120㎡는 90 추가",
     base(credit_score=800, area=120, kb_price=40000, kb_price_raw="일반 40,000만원"),
     [
-        ("90 promo", lambda r, t: any(x[0] == 90 and x[1] == 10.12 and x[2] == "한도프로모션" for x in ltvs(r))),
+        ("90 promo", lambda r, t: any(x[0] == 90 and x[1] == 10.04 and x[2] == "한도프로모션" for x in ltvs(r))),
         ("87 plain", lambda r, t: any(x[0] == 87 and not x[2] for x in ltvs(r))),
         ("no 93", lambda r, t: all(x[0] != 93 for x in ltvs(r))),
     ],
@@ -128,7 +128,7 @@ cases.append(run(
 
 cases.append(run(
     "1층 하한가 없음",
-    base(address="서울특별시 강남구 역삼동 1층", kb_price_raw="일반 53,000만원 하한 50,000만원"),
+    base(address="서울특별시 마포구 공덕동 1층", kb_price_raw="일반 53,000만원 하한 50,000만원"),
     [("no", lambda r, t: r and "한도프로모션" not in t and any(x[0] == 90 for x in ltvs(r)))],
 ))
 
@@ -162,12 +162,12 @@ cases.append(run(
 
 cases.append(run(
     "주상복합 5층 없음 11층 있음",
-    base(property_type="주상복합", address="서울특별시 강남구 역삼동 5층", kb_price_raw="일반 53,000만원 하한 50,000만원"),
+    base(property_type="주상복합", address="서울특별시 마포구 공덕동 5층", kb_price_raw="일반 53,000만원 하한 50,000만원"),
     [("no", lambda r, t: r and "한도프로모션" not in t)],
 ))
 cases.append(run(
     "주상복합 11층 있음",
-    base(property_type="주상복합", address="서울특별시 강남구 역삼동 11층"),
+    base(property_type="주상복합", address="서울특별시 마포구 공덕동 11층"),
     [("yes", lambda r, t: "한도프로모션" in t)],
 ))
 
@@ -175,8 +175,8 @@ cases.append(run(
     "점수없음 4등급 93",
     base(credit_score=None),
     [
-        ("93", lambda r, t: any(x[0] == 93 and x[1] == 10.62 and x[2] == "한도프로모션" for x in ltvs(r))),
-        ("label", lambda r, t: "4등급기준" in t and "한도프로모션" in t),
+        ("93", lambda r, t: any(x[0] == 93 and x[1] == 10.54 and x[2] == "한도프로모션" for x in ltvs(r))),
+        ("label", lambda r, t: "한도프로모션" in t and "등급기준" not in t),
     ],
 ))
 
@@ -184,6 +184,46 @@ cases.append(run(
     "합계 딱 5억이면 93 유지",
     base(kb_price=64520, kb_price_raw="일반 64,520만원"),
     [("93", lambda r, t: any(x[0] == 93 and x[2] == "한도프로모션" for x in ltvs(r)))],
+))
+
+for name, region, address in (
+    ("강남", "서울특별시강남구", "서울특별시 강남구 역삼동 10층"),
+    ("서초", "서울특별시서초구", "서울특별시 서초구 서초동 10층"),
+    ("송파", "서울특별시송파구", "서울특별시 송파구 잠실동 10층"),
+):
+    cases.append(run(
+        f"{name} 최대 80",
+        base(region=region, address=address),
+        [
+            ("80", lambda r, t: r and any(x[0] == 80 and not x[2] for x in ltvs(r))),
+            ("no above 80", lambda r, t: r and all((x[0] or 0) <= 80 for x in ltvs(r))),
+            ("no promo", lambda r, t: r and "한도프로모션" not in t),
+        ],
+    ))
+
+cases.append(run(
+    "강남 선순위도 80",
+    base(region="서울특별시강남구", address="서울특별시 강남구 역삼동 10층", mortgages=[]),
+    [
+        ("80", lambda r, t: r and any(x[0] == 80 and not x[2] for x in ltvs(r))),
+        ("no above 80", lambda r, t: r and all((x[0] or 0) <= 80 for x in ltvs(r))),
+        ("no promo", lambda r, t: r and "한도프로모션" not in t),
+    ],
+))
+
+cases.append(run(
+    "강남 빌라 135초과 6등급은 77 유지",
+    base(
+        region="서울특별시강남구",
+        address="서울특별시 강남구 역삼동 10층",
+        property_type="빌라",
+        area=140,
+        credit_score=720,
+    ),
+    [
+        ("77", lambda r, t: r and any(x[0] == 77 for x in ltvs(r))),
+        ("no above 77", lambda r, t: r and all((x[0] or 0) <= 77 for x in ltvs(r))),
+    ],
 ))
 
 print("ALL OK" if all(cases) else "SOME FAILED")
