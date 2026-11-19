@@ -7,6 +7,8 @@
   "_comment_seizure_allowed": "압류·가압류(특이사항·요청사항·설정내역) 진행 가능 여부. true=압류금 대납(대환) 조건으로 한도 산출, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 seizure",
   "delinquency_allowed": false,
   "_comment_delinquency_allowed": "연체중(특이사항·요청사항, 연체 이력은 제외) 진행 가능 여부. true=가능, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 delinquency",
+  "rental_business_caption_enabled": true,
+  "_comment_rental_business_caption_enabled": "특이사항에 임대사업자가 있으면 한도는 산출하고 '임대사업자 진행불가' 멘트만 추가(이음론·이음-하이론 공통). 키워드·문구는 data/common/common_conditions.json의 rental_business_caption",
   "enabled": true,
   "_comment_enabled": "한도 산출 on/off. false면 calculate_all_loans에서 이 금융사 제외",
   "use_principal_for_calculation": false,

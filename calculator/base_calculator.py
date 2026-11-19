@@ -336,6 +336,19 @@ def detect_delinquency(property_data: Optional[Dict[str, Any]]) -> bool:
     return _text_has_condition_keyword(property_data, _load_common_conditions().get("delinquency") or {})
 
 
+def detect_rental_business_caption(property_data: Optional[Dict[str, Any]]) -> bool:
+    """
+    특이사항 등에 임대사업자 키워드가 있는지 (common_conditions.rental_business_caption).
+    금융사 JSON의 rental_business_caption_enabled가 true일 때만 호출측에서 멘트를 붙인다.
+    한도 거절이 아니라 안내 멘트용 판정이다.
+    """
+    if not property_data:
+        return False
+    return _text_has_condition_keyword(
+        property_data, _load_common_conditions().get("rental_business_caption") or {}
+    )
+
+
 def _to_float_or_none(value: Any) -> Optional[float]:
     if value is None or isinstance(value, bool):
         return None
@@ -1006,6 +1019,10 @@ class BaseCalculator:
         property_data, condition_error = self._apply_seizure_and_delinquency(property_data)
         if condition_error:
             return self._error_result([condition_error])
+
+        # 임대사업자 안내 멘트 (common_conditions.rental_business_caption, 금융사 JSON rental_business_caption_enabled)
+        # 거절이 아님 — 한도는 그대로 산출하고, 한도가 나온 회신 아래에 caption_message만 붙인다.
+        self._apply_rental_business_caption(property_data)
         
         # 모든 검증 오류를 수집
         validation_errors = []
@@ -3743,6 +3760,26 @@ class BaseCalculator:
                 return None
         visa_label = "·".join(str(v) for v in allowed_visas) or "없음"
         return (cfg.get("reject_message") or "외국인은 {visas} 비자만 진행 가능").format(visas=visa_label)
+
+    def _apply_rental_business_caption(self, property_data: Dict[str, Any]) -> None:
+        """
+        임대사업자 안내 멘트.
+        common_conditions.rental_business_caption의 키워드·문구를 쓰고,
+        금융사 JSON의 rental_business_caption_enabled가 true일 때만 적용한다.
+        한도 산출은 막지 않고 _condition_captions에 멘트만 남긴다
+        (formatter는 실제 한도가 있을 때만 condition_captions를 출력).
+        """
+        cfg = _load_common_conditions().get("rental_business_caption") or {}
+        toggle_key = cfg.get("toggle_key") or "rental_business_caption_enabled"
+        # default_enabled=false: 키를 안 켠 금융사에는 멘트를 붙이지 않는다
+        if not bool(self.config.get(toggle_key, cfg.get("default_enabled", False))):
+            return
+        if not detect_rental_business_caption(property_data):
+            return
+        message = cfg.get("caption_message") or "임대사업자 진행불가"
+        if message not in self._condition_captions:
+            self._condition_captions.append(message)
+            print(f"DEBUG: BaseCalculator.calculate - {self.bank_name} 임대사업자 안내 멘트: {message}")
 
     def _apply_seizure_and_delinquency(
         self, property_data: Dict[str, Any]

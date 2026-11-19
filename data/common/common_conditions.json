@@ -1,5 +1,5 @@
 {
-  "_comment": "금융사 공통 조건 정의 (tenant_consent 세입자 미동의, seizure 압류·가압류, delinquency 연체중, foreigner 외국인 비자, always_restricted_keywords 공통 불가 키워드, senior_lien_basis 선순위 차감 기준, ltv_adjustments LTV 조정). 금융사 JSON(data/banks, data/loan)에는 켜고 끄는 값·규칙만 적고, 키워드·문구·프리셋은 여기서 관리한다. 이 파일은 data/banks·data/loan 밖에 있어야 한다(그 폴더의 JSON은 모두 금융사로 로드됨).",
+  "_comment": "금융사 공통 조건 정의 (tenant_consent 세입자 미동의, seizure 압류·가압류, delinquency 연체중, foreigner 외국인 비자, rental_business_caption 임대사업자 안내 멘트, always_restricted_keywords 공통 불가 키워드, senior_lien_basis 선순위 차감 기준, ltv_adjustments LTV 조정). 금융사 JSON(data/banks, data/loan)에는 켜고 끄는 값·규칙만 적고, 키워드·문구·프리셋은 여기서 관리한다. 이 파일은 data/banks·data/loan 밖에 있어야 한다(그 폴더의 JSON은 모두 금융사로 로드됨).",
 
   "tenant_consent": {
     "_comment": "세입자 동의/미동의 조건. 특이사항·요청사항·거주여부에 미동의 키워드가 있으면, 금융사 JSON의 toggle_key로 전세·월세별 진행 가능 여부를 판정한다. 불가면 한도 미산출(reject_message), 가능하면 한도 아래 allowed_message.",
@@ -74,6 +74,22 @@
     "keywords": ["외국인", "외국국적"],
     "exclude_phrases": ["외국인아님", "외국인x", "외국인X"],
     "reject_message": "외국인은 {visas} 비자만 진행 가능"
+  },
+
+  "rental_business_caption": {
+    "_comment": "임대사업자 안내 멘트(거절 아님). 금융사 JSON의 toggle_key가 true인 금융사만, detect_fields에 keywords가 있으면 한도는 그대로 산출하고 한도 아래 caption_message만 추가한다. false이거나 키 없으면 멘트 없음.",
+    "toggle_key": "rental_business_caption_enabled",
+    "_comment_toggle_key": "금융사 JSON(대부 products[] 루트에도 가능)에 true(멘트 추가) / false(멘트 없음)로 적는다. 현재 마젤란대부·이음에셋대부만 true",
+    "default_enabled": false,
+    "_comment_default_enabled": "금융사 JSON에 toggle_key가 없으면 false — 새 금융사는 기본적으로 멘트 없음",
+    "detect_fields": ["special_notes"],
+    "_comment_detect_fields": "키워드를 찾는 입력 항목. 요청사항은 기본 검사에서 제외(특이사항만). 필요하면 금융사 쪽에서 확장하지 말고 여기 목록에 필드를 추가한다",
+    "keywords": ["임대사업자"],
+    "_comment_keywords": "띄어쓰기·쉼표·마침표를 지우고 비교 ('임대 사업자' → '임대사업자'). '주택임대사업자'·'부동산임대사업자'에도 '임대사업자'가 포함되어 매칭됨",
+    "exclude_phrases": ["임대사업자아님", "임대사업자x", "임대사업자X", "임대사업자없음"],
+    "_comment_exclude_phrases": "이 표현은 지운 뒤 keywords를 찾는다 (예: '임대사업자 아님'은 멘트를 붙이지 않음)",
+    "caption_message": "임대사업자 진행불가",
+    "_comment_caption_message": "한도가 나온 회신 아래에 붙는 문구. 한도 미산출(부결)이면 formatter가 condition_captions를 생략하므로 표시되지 않음"
   },
 
   "always_restricted_keywords": {
