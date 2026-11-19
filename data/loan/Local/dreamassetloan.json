@@ -53,9 +53,16 @@
   "validation_rules": {
     "enabled": true,
     "restricted_keywords": {
-      "keywords": ["임야"],
-      "check_fields": ["property_type", "special_notes", "ownership"],
-      "error_message": "임야는 취급 불가입니다"
+      "_comment": "임야·전세퇴거자금 취급 불가. 전세퇴거 관련은 특이사항·요청사항에서 검사",
+      "keywords": [
+        "임야",
+        "세입자퇴거자금",
+        "전세퇴거",
+        "퇴거자금",
+        "전세퇴거자금"
+      ],
+      "check_fields": ["property_type", "special_notes", "requests", "ownership"],
+      "error_message": "'{keywords}'가 포함되어 취급 불가합니다"
     }
   },
   "products": [
