@@ -103,9 +103,24 @@
     "_comment_detect_fields": "단계를 찾는 입력 항목. reconstruction=조견 '재건축 :' 전용 줄, special_notes=특이사항, requests=요청사항",
     "allowed_regions_key": "reconstruction_allowed_regions",
     "_comment_allowed_regions_key": "금융사 JSON에 [\"서울\", \"경기\", \"인천\"]처럼 적으면 재건축 물건은 그 지역만 취급. target_regions와 같은 표기. 키가 없으면 지역 제한 없음",
+    "stage_names": {
+      "1": "기본계획수립",
+      "2": "재건축진단",
+      "3": "정비구역지정",
+      "4": "추진위원회승인",
+      "5": "조합설립인가",
+      "6": "사업시행인가",
+      "7": "관리처분인가",
+      "8": "이주 및 철거",
+      "9": "일반분양"
+    },
     "reject_message": "{keyword} {stage}단계는 취급 불가합니다 (최대 {max_stage}단계까지 가능)",
     "region_reject_message": "{keyword} 물건은 {regions}만 취급 가능합니다",
-    "_comment_messages": "{keyword}=재건축 키워드, {stage}=검출 단계, {max_stage}=금융사 상한, {regions}=허용 지역 목록"
+    "allowed_message": "※ {keyword} {stage}단계({stage_name}) 취급 가능",
+    "allowed_message_no_name": "※ {keyword} {stage}단계 취급 가능",
+    "allowed_message_with_regions": "※ {keyword} {stage}단계({stage_name}) 취급 가능 ({regions})",
+    "allowed_message_with_regions_no_name": "※ {keyword} {stage}단계 취급 가능 ({regions})",
+    "_comment_messages": "{keyword}=재건축 키워드, {stage}=검출 단계, {stage_name}=단계명, {max_stage}=금융사 상한, {regions}=허용 지역 목록. allowed_*는 한도가 나온 금융사 한도 아래 안내"
   },
 
   "always_restricted_keywords": {

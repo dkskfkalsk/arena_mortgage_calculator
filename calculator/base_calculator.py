@@ -594,13 +594,16 @@ def has_bucuk_jageum_request(property_data: Dict[str, Any]) -> bool:
     return "부족자금" in req or "부족자금" in notes
 
 
-def extract_reconstruction_stage(
+_RECONSTRUCTION_STAGE_RE = re.compile(r"(\d+)\s*단계\s*([가-힣]+(?:\s*[가-힣]+)*)?")
+
+
+def extract_reconstruction_info(
     property_data: Dict[str, Any],
     keyword: Optional[str] = None,
-) -> Optional[int]:
+) -> Optional[Dict[str, Any]]:
     """
-    조견 '재건축 :' 줄·특이사항·요청사항에서 재건축 단계 숫자 추출.
-    예: "재건축 : 6단계사업시행인가'2025.12.24" -> 6
+    조견 '재건축 :' 줄·특이사항·요청사항에서 재건축 단계·단계명 추출.
+    예: "재건축 : 6단계사업시행인가'2025.12.24" -> {stage: 6, stage_name: "사업시행인가"}
     여러 단계가 있으면 가장 높은 단계 반환.
     """
     if not property_data:
@@ -609,10 +612,14 @@ def extract_reconstruction_stage(
     cfg = _load_common_conditions().get("reconstruction") or {}
     keyword = keyword or cfg.get("keyword") or "재건축"
     fields = cfg.get("detect_fields") or ["reconstruction", "special_notes", "requests"]
-    stages: List[int] = []
+    found: Dict[int, str] = {}
 
-    # 1) 라인 단위: 재건축 키워드가 있는 줄에서 N단계 추출
-    #    reconstruction 전용 필드는 키워드 없이도 "6단계…"만 있어도 인식
+    def _remember(stage: int, name: str = "") -> None:
+        prev = found.get(stage, "")
+        cleaned = re.sub(r"\s+", "", name or "")
+        if stage not in found or (cleaned and len(cleaned) > len(prev)):
+            found[stage] = cleaned
+
     for field in fields:
         text = str(property_data.get(field) or "")
         if not text.strip():
@@ -623,34 +630,42 @@ def extract_reconstruction_stage(
                 continue
             if field != "reconstruction" and keyword not in line:
                 continue
-            for m in re.finditer(r"(\d+)\s*단계", line):
+            for m in _RECONSTRUCTION_STAGE_RE.finditer(line):
                 try:
-                    stages.append(int(m.group(1)))
+                    _remember(int(m.group(1)), m.group(2) or "")
                 except (TypeError, ValueError):
                     continue
 
-        # 2) 줄바꿈으로 키워드/단계가 분리된 경우까지 보완
         if keyword in text:
             for m in re.finditer(rf"{re.escape(keyword)}[\s\S]*?(\d+)\s*단계", text):
                 try:
-                    stages.append(int(m.group(1)))
+                    _remember(int(m.group(1)))
                 except (TypeError, ValueError):
                     continue
 
-    if not stages:
+    if not found:
         return None
-    return max(stages)
+    stage = max(found)
+    stage_names = cfg.get("stage_names") or {}
+    stage_name = found.get(stage) or str(stage_names.get(str(stage)) or "")
+    return {"stage": stage, "stage_name": stage_name}
 
 
-def check_reconstruction_restriction(
+def extract_reconstruction_stage(
+    property_data: Dict[str, Any],
+    keyword: Optional[str] = None,
+) -> Optional[int]:
+    """조견·특이사항·요청사항에서 재건축 단계 숫자만 추출."""
+    info = extract_reconstruction_info(property_data, keyword=keyword)
+    return None if info is None else info.get("stage")
+
+
+def _reconstruction_eval(
     property_data: Optional[Dict[str, Any]],
     bank_config: Optional[Dict[str, Any]],
     region_in_targets=None,
-) -> Optional[str]:
-    """
-    금융사별 재건축 단계·지역 제한 (common_conditions.reconstruction).
-    금융사 JSON에 reconstruction_max_stage가 있을 때만 검사. 위반 시 거절 문구, 아니면 None.
-    """
+) -> Optional[Dict[str, Any]]:
+    """재건축 필터 대상이면 {cfg, keyword, stage, stage_name, max_stage, allowed_regions, region_ok}."""
     if not property_data or not bank_config:
         return None
 
@@ -662,6 +677,10 @@ def check_reconstruction_restriction(
     reconstruction_max_stage = bank_config.get(max_stage_key)
     if reconstruction_max_stage is None:
         return None
+    try:
+        max_stage_int = int(reconstruction_max_stage)
+    except (TypeError, ValueError):
+        return None
 
     keyword_key = cfg.get("keyword_key") or "reconstruction_keyword"
     keyword = str(
@@ -669,38 +688,102 @@ def check_reconstruction_restriction(
         or cfg.get("keyword")
         or "재건축"
     )
-    detected = extract_reconstruction_stage(property_data, keyword=keyword)
-    if detected is None:
+    info = extract_reconstruction_info(property_data, keyword=keyword)
+    if not info:
         return None
 
-    # 재건축 물건 지역 제한 (예: OK저축은행 수도권만)
     regions_key = cfg.get("allowed_regions_key") or "reconstruction_allowed_regions"
-    allowed_regions = bank_config.get(regions_key)
+    allowed_regions = list(bank_config.get(regions_key) or [])
+    region_ok = True
     if allowed_regions:
         region = str(property_data.get("region") or "").strip()
-        ok = False
         if region and callable(region_in_targets):
-            ok = bool(region_in_targets(region, list(allowed_regions)))
+            region_ok = bool(region_in_targets(region, allowed_regions))
         elif region:
-            ok = any(str(r) in region for r in allowed_regions)
-        if not ok:
-            regions_label = ", ".join(str(r) for r in allowed_regions)
-            return (
-                cfg.get("region_reject_message")
-                or "{keyword} 물건은 {regions}만 취급 가능합니다"
-            ).format(keyword=keyword, regions=regions_label, stage=detected)
+            region_ok = any(str(r) in region for r in allowed_regions)
+        else:
+            region_ok = False
 
-    try:
-        max_stage_int = int(reconstruction_max_stage)
-    except (TypeError, ValueError):
+    return {
+        "cfg": cfg,
+        "keyword": keyword,
+        "stage": info["stage"],
+        "stage_name": info.get("stage_name") or "",
+        "max_stage": max_stage_int,
+        "allowed_regions": allowed_regions,
+        "region_ok": region_ok,
+    }
+
+
+def _reconstruction_regions_label(regions: List[Any]) -> str:
+    return "·".join(str(r) for r in regions)
+
+
+def check_reconstruction_restriction(
+    property_data: Optional[Dict[str, Any]],
+    bank_config: Optional[Dict[str, Any]],
+    region_in_targets=None,
+) -> Optional[str]:
+    """
+    금융사별 재건축 단계·지역 제한 (common_conditions.reconstruction).
+    금융사 JSON에 reconstruction_max_stage가 있을 때만 검사. 위반 시 거절 문구, 아니면 None.
+    """
+    ctx = _reconstruction_eval(property_data, bank_config, region_in_targets=region_in_targets)
+    if not ctx:
         return None
 
-    if detected > max_stage_int:
+    cfg = ctx["cfg"]
+    if not ctx["region_ok"]:
+        regions_label = _reconstruction_regions_label(ctx["allowed_regions"])
+        return (
+            cfg.get("region_reject_message")
+            or "{keyword} 물건은 {regions}만 취급 가능합니다"
+        ).format(keyword=ctx["keyword"], regions=regions_label, stage=ctx["stage"])
+
+    if ctx["stage"] > ctx["max_stage"]:
         return (
             cfg.get("reject_message")
             or "{keyword} {stage}단계는 취급 불가합니다 (최대 {max_stage}단계까지 가능)"
-        ).format(keyword=keyword, stage=detected, max_stage=max_stage_int)
+        ).format(keyword=ctx["keyword"], stage=ctx["stage"], max_stage=ctx["max_stage"])
     return None
+
+
+def reconstruction_allowed_caption(
+    property_data: Optional[Dict[str, Any]],
+    bank_config: Optional[Dict[str, Any]],
+    region_in_targets=None,
+) -> Optional[str]:
+    """
+    재건축 필터가 있는 금융사에서 단계가 상한 이내이면 한도 아래 안내 멘트.
+    reconstruction_max_stage가 없거나 부결이면 None.
+    """
+    if check_reconstruction_restriction(property_data, bank_config, region_in_targets=region_in_targets):
+        return None
+    ctx = _reconstruction_eval(property_data, bank_config, region_in_targets=region_in_targets)
+    if not ctx:
+        return None
+
+    cfg = ctx["cfg"]
+    regions_label = _reconstruction_regions_label(ctx["allowed_regions"])
+    stage_name = ctx["stage_name"]
+    values = {
+        "keyword": ctx["keyword"],
+        "stage": ctx["stage"],
+        "stage_name": stage_name,
+        "max_stage": ctx["max_stage"],
+        "regions": regions_label,
+    }
+    if ctx["allowed_regions"]:
+        template = (
+            (cfg.get("allowed_message_with_regions") if stage_name else cfg.get("allowed_message_with_regions_no_name"))
+            or "※ {keyword} {stage}단계 취급 가능 ({regions})"
+        )
+    else:
+        template = (
+            (cfg.get("allowed_message") if stage_name else cfg.get("allowed_message_no_name"))
+            or "※ {keyword} {stage}단계 취급 가능"
+        )
+    return template.format(**values)
 
 
 class BaseCalculator:
@@ -1478,6 +1561,18 @@ class BaseCalculator:
                 "DEBUG: BaseCalculator.calculate - 재건축 제한, "
                 f"error={reconstruction_error}, bank={self.bank_name}"
             )
+        else:
+            reconstruction_caption = reconstruction_allowed_caption(
+                property_data,
+                self.config,
+                region_in_targets=self._region_in_targets,
+            )
+            if reconstruction_caption and reconstruction_caption not in self._condition_captions:
+                self._condition_captions.append(reconstruction_caption)
+                log_print(
+                    "DEBUG: BaseCalculator.calculate - 재건축 취급 가능 안내, "
+                    f"caption={reconstruction_caption}, bank={self.bank_name}"
+                )
         
         # 특이사항 검증: 전 금융사 공통 불가 키워드(common_conditions.always_restricted_keywords)
         # + 금융사별 추가 불가 키워드(additional_restricted_keywords). 압류·가압류는 common_conditions.seizure에서 판정
