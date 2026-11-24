@@ -56,7 +56,7 @@
   "show_region_grade": false,
   "show_interest_rate_range": true,
   "reconstruction_max_stage": 4,
-  "_comment_reconstruction_max_stage": "재건축 단계 제한 (5단계부터 취급 불가, 4단계까지 가능)",
+  "_comment_reconstruction_max_stage": "재건축 4단계(추진위원회승인)까지 취급. 키워드·멘트는 data/common/common_conditions.json의 reconstruction",
   "max_priority_limit": 3,
   "_comment_max_priority_limit": "대환 후 남는 선순위 근저당이 3건 이상이면 이번 대출이 4순위가 되므로 불가 (3순위까지 가능)",
   "_comment_max_priority_limit_error_message": "max_priority_limit 위반 시 errors에 넣을 회신 문구. {limit}=설정값(3), {n}=선순위 합산 카운트(동일 금융사+동일 채무자는 순위 비연속이어도 합산)",

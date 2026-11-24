@@ -798,7 +798,7 @@
   "regular_max_amount_limit": null,
   "_comment_regular_max_amount_limit": "일반사업자 최대한도 제한 없음",
   "reconstruction_max_stage": 6,
-  "_comment_reconstruction_max_stage": "재건축 단계 제한 (특이사항/요청사항의 재건축 N단계 인식, N이 이 값 초과면 취급 불가)",
+  "_comment_reconstruction_max_stage": "재건축 6단계(사업시행인가)까지 취급. 키워드·멘트는 data/common/common_conditions.json의 reconstruction",
   "min_age": 21,
   "max_age": 69,
   "min_kb_price": 20000,

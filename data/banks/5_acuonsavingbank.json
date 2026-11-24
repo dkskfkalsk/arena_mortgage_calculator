@@ -608,8 +608,8 @@
     }
   },
   "_comment_interest_rates": "LTV 구간별 신용등급 금리(급지 무관). 금리표에 없는 LTV는 바로 위 구간 금리 적용(예: 77%→80%). 표에 없는 칸=취급불가",
-  "reconstruction_max_stage": 5,
-  "reconstruction_keyword": "재건축",
+  "reconstruction_max_stage": 6,
+  "_comment_reconstruction_max_stage": "재건축 6단계(사업시행인가)까지 취급. 키워드·멘트는 data/common/common_conditions.json의 reconstruction",
   "restricted_occupations": {
     "enabled": true,
     "keywords": [

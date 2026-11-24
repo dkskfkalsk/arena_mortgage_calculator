@@ -101,6 +101,7 @@ class MessageParser:
             "realestatetech_price": None,  # 부동산테크 시세 (별도 저장, 금융사별 price_sources에서 처리)
             "price_type": None,  # 시세 유형: "housematch" | "kb" | "kb_ai" | "realestatetech" | "탁감가" 등
             "mortgages": [],
+            "reconstruction": None,  # 조견 '재건축 : N단계…' 줄
             "special_notes": None,
             "requests": None,
             "real_transaction_price": None,
@@ -903,6 +904,11 @@ class MessageParser:
 
         elif "소유현황" in key_clean or "소유권" in key_clean:
             data["ownership"] = value
+
+        elif "재건축" in key_clean:
+            # 조견 전용 줄: "재건축 : 6단계사업시행인가'2025.12.24"
+            data["reconstruction"] = value
+            print(f"DEBUG: Parsed 재건축 - {value}")
         
         elif "주소" in key_clean:  # 공백 제거된 키로 비교
             data["address"] = value

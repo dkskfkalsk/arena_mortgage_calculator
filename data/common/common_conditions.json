@@ -1,5 +1,5 @@
 {
-  "_comment": "금융사 공통 조건 정의 (tenant_consent 세입자 미동의, seizure 압류·가압류, delinquency 연체중, foreigner 외국인 비자, rental_business_caption 임대사업자 안내 멘트, always_restricted_keywords 공통 불가 키워드, senior_lien_basis 선순위 차감 기준, ltv_adjustments LTV 조정). 금융사 JSON(data/banks, data/loan)에는 켜고 끄는 값·규칙만 적고, 키워드·문구·프리셋은 여기서 관리한다. 이 파일은 data/banks·data/loan 밖에 있어야 한다(그 폴더의 JSON은 모두 금융사로 로드됨).",
+  "_comment": "금융사 공통 조건 정의 (tenant_consent 세입자 미동의, seizure 압류·가압류, delinquency 연체중, foreigner 외국인 비자, rental_business_caption 임대사업자 안내 멘트, reconstruction 재건축 단계, always_restricted_keywords 공통 불가 키워드, senior_lien_basis 선순위 차감 기준, ltv_adjustments LTV 조정). 금융사 JSON(data/banks, data/loan)에는 켜고 끄는 값·규칙만 적고, 키워드·문구·프리셋은 여기서 관리한다. 이 파일은 data/banks·data/loan 밖에 있어야 한다(그 폴더의 JSON은 모두 금융사로 로드됨).",
 
   "tenant_consent": {
     "_comment": "세입자 동의/미동의 조건. 특이사항·요청사항·거주여부에 미동의 키워드가 있으면, 금융사 JSON의 toggle_key로 전세·월세별 진행 가능 여부를 판정한다. 불가면 한도 미산출(reject_message), 가능하면 한도 아래 allowed_message.",
@@ -90,6 +90,22 @@
     "_comment_exclude_phrases": "이 표현은 지운 뒤 keywords를 찾는다 (예: '임대사업자 아님'은 멘트를 붙이지 않음)",
     "caption_message": "임대사업자 진행불가",
     "_comment_caption_message": "한도가 나온 회신 아래에 붙는 문구. 한도 미산출(부결)이면 formatter가 condition_captions를 생략하므로 표시되지 않음"
+  },
+
+  "reconstruction": {
+    "_comment": "재건축 단계 제한. 조견의 '재건축 : N단계…' 줄·특이사항·요청사항에서 단계를 읽고, 금융사 JSON의 max_stage_key가 있을 때만 검사한다. 키가 없으면 재건축 필터를 적용하지 않는다.",
+    "max_stage_key": "reconstruction_max_stage",
+    "_comment_max_stage_key": "금융사 JSON에 \"reconstruction_max_stage\": 5 처럼 허용 최대 단계를 적는다. 예: 5=조합설립인가까지, 6=사업시행인가까지",
+    "keyword_key": "reconstruction_keyword",
+    "_comment_keyword_key": "금융사 JSON에서 키워드를 덮어쓸 때 사용. 없으면 아래 keyword 사용",
+    "keyword": "재건축",
+    "detect_fields": ["reconstruction", "special_notes", "requests"],
+    "_comment_detect_fields": "단계를 찾는 입력 항목. reconstruction=조견 '재건축 :' 전용 줄, special_notes=특이사항, requests=요청사항",
+    "allowed_regions_key": "reconstruction_allowed_regions",
+    "_comment_allowed_regions_key": "금융사 JSON에 [\"서울\", \"경기\", \"인천\"]처럼 적으면 재건축 물건은 그 지역만 취급. target_regions와 같은 표기. 키가 없으면 지역 제한 없음",
+    "reject_message": "{keyword} {stage}단계는 취급 불가합니다 (최대 {max_stage}단계까지 가능)",
+    "region_reject_message": "{keyword} 물건은 {regions}만 취급 가능합니다",
+    "_comment_messages": "{keyword}=재건축 키워드, {stage}=검출 단계, {max_stage}=금융사 상한, {regions}=허용 지역 목록"
   },
 
   "always_restricted_keywords": {

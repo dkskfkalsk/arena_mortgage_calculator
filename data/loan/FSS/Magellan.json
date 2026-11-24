@@ -435,7 +435,7 @@
   "appraisal_max_price": 200000,
   "_comment_appraisal_max_price": "감정건 최대 취급 시세 20억. 초과 시 취급 제한",
   "reconstruction_max_stage": 5,
-  "_comment_reconstruction_max_stage": "재건축 5단계 조합설립인가까지 취급 가능",
+  "_comment_reconstruction_max_stage": "재건축 5단계(조합설립인가)까지 취급. 키워드·멘트는 data/common/common_conditions.json의 reconstruction",
   "conditions": [
     " 즉발사업자 가능",
     " 용도증빙 대행가능, 비용별도"
