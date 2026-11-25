@@ -603,10 +603,11 @@ def format_all_results(
         kb_price_raw = property_data.get("kb_price_raw", "")
         kb_price = property_data.get("kb_price")
         kb_price_num = float(kb_price) if kb_price is not None else None
+        kb_raw_compact = str(kb_price_raw or "").lower().replace(" ", "")
         is_kb_ai_applied = (
             property_data.get("price_type") == "kb_ai"
             or property_data.get("kb_ai_price") is not None
-            or (kb_price_raw and ("KB AI" in str(kb_price_raw) or "kbaise" in str(kb_price_raw).lower().replace(" ", "")))
+            or ("ai시세" in kb_raw_compact or "kbai" in kb_raw_compact)
         )
         
         # 사용자 최초 입력 기준 (금융사 계산 중 kb_price에 대체 시세가 써 넣어졌을 수 있음)
@@ -614,7 +615,9 @@ def format_all_results(
         input_kb = snapshot.get("kb_price") if snapshot is not None else kb_price
         input_raw = str((snapshot.get("kb_price_raw") if snapshot is not None else kb_price_raw) or "")
         input_is_appraisal = any(k in input_raw for k in ("탁감", "감정가"))
-        has_real_kb = bool(input_kb) and not input_is_appraisal
+        input_raw_compact = input_raw.lower().replace(" ", "")
+        input_is_ai = "ai시세" in input_raw_compact or "kbai" in input_raw_compact
+        has_real_kb = bool(input_kb) and not input_is_appraisal and not input_is_ai
 
         def _price_text(value, fallback_raw=""):
             if isinstance(value, (int, float)):

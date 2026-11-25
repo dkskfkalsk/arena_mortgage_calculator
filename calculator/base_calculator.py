@@ -1202,6 +1202,21 @@ class BaseCalculator:
             appraisal_from_kb_field = kb_price
             kb_price = None
             applied_price_source = None
+        kb_raw_compact = re.sub(r"\s+", "", str(kb_price_raw or "")).lower()
+        is_ai_in_kb_field = (
+            "ai시세" in kb_raw_compact or "kbai" in kb_raw_compact
+        ) and "kb시세" not in kb_raw_compact.replace("kbai시세", "").replace("ai시세", "")
+        if is_ai_in_kb_field and kb_price is not None:
+            if property_data.get("kb_ai_price") is None:
+                property_data["kb_ai_price"] = kb_price
+            if not property_data.get("price_type"):
+                property_data["price_type"] = "kb_ai"
+            log_print(
+                "DEBUG: BaseCalculator.calculate - AI시세가 KB시세 칸에 들어옴 → 대체 시세로 처리: "
+                f"{kb_price_raw}"
+            )
+            kb_price = None
+            applied_price_source = None
         has_real_kb = kb_price is not None
         
         special_notes_for_check = str(property_data.get("special_notes", "") or "")

@@ -18,6 +18,7 @@
   "price_sources": {
     "kb_price": 1,
     "kb_ai_price": 0,
+    "_comment_kb_ai_price": "KB AI시세·AI시세 취급 불가. 공식 KB시세만 사용",
     "bank_appraisal_price": 0,
     "realestatetech_price": 0,
     "korea_realestate_price": 0,
@@ -111,7 +112,7 @@
   ],
   "conditions": [
     "가계자금",
-    "KB등재 아파트·주상복합만 취급 (200세대 이상, 1개동 불가, 대지권 미등기 불가, 오피스텔 불가)",
+    "KB등재 아파트·주상복합만 취급 (200세대 이상, 1개동 불가, 대지권 미등기 불가, 오피스텔 불가, KB AI시세 불가)",
     "지분대출 불가 (공동명의 동의조건 가능)",
     "재건축 4단계까지 취급 (5단계부터 불가)",
     "KB시세 1억 미만은 1순위만 취급 (대환 가능, 세입자 있으면 불가)",

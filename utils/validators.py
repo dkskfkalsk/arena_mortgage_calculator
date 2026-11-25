@@ -286,10 +286,10 @@ def extract_kb_ai_price_from_special_notes(special_notes):
         import re
         notes_str = str(special_notes).strip()
         
-        # "KB AI시세" 또는 "KB AI 시세" 패턴 찾기
-        # 형식: "KB AI시세 39400-38000(26.02.25)" (범위 시 첫 숫자=일반), "KB AI시세: 25,000만원"
+        # "KB AI시세" / "AI시세" 패턴. 공식 KB시세와 구분
+        # 형식: "KB AI시세 39400-38000(26.02.25)" (범위 시 첫 숫자=일반), "AI시세 : 89,701만원"
         patterns = [
-            r'KB\s*AI\s*시세\s*[:\s]*(?:일반\s*)?([\d,]+)(?:[-~][\d,]+)?(?:\s*만원)?',
+            r'(?:KB\s*)?AI\s*시세\s*[:\s]*(?:일반\s*)?([\d,]+)(?:[-~][\d,]+)?(?:\s*만원)?',
             r'KB\s*AI시세\s*[:\s]*(?:일반\s*)?([\d,]+)(?:[-~][\d,]+)?(?:\s*만원)?',
         ]
         
@@ -324,8 +324,8 @@ def extract_kb_ai_lower_bound_from_special_notes(special_notes):
         import re
         notes_str = str(special_notes).strip()
         patterns = [
-            r'KB\s*AI\s*시세\s*[:\s]*하한\s*[가]?\s*[:\s]*([\d,]+)',
-            r'KB\s*AI\s*시세\s*[:\s]*(?:일반\s*)?[\d,]+\s*[-~]\s*([\d,]+)',
+            r'(?:KB\s*)?AI\s*시세\s*[:\s]*하한\s*[가]?\s*[:\s]*([\d,]+)',
+            r'(?:KB\s*)?AI\s*시세\s*[:\s]*(?:일반\s*)?[\d,]+\s*[-~]\s*([\d,]+)',
         ]
         for pattern in patterns:
             match = re.search(pattern, notes_str, re.IGNORECASE)

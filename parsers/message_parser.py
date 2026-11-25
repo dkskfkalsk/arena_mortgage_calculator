@@ -63,6 +63,20 @@ def _looks_like_priority_list_keyword(text: str) -> bool:
     return bool(re.fullmatch(r"[\d,\s]+순위?", t))
 
 
+def _compact_price_label(text: str) -> str:
+    return re.sub(r"\s+", "", str(text or "")).lower()
+
+
+def _is_kb_ai_price_label(text: str) -> bool:
+    """'KB AI시세', 'AI시세'처럼 KB AI시세 표기인지. 공식 KB시세와 구분."""
+    compact = _compact_price_label(text)
+    if not compact:
+        return False
+    if "참고" in compact:
+        return False
+    return "kbai" in compact or "ai시세" in compact
+
+
 class MessageParser:
     """
     텔레그램 메시지 파서
@@ -268,8 +282,12 @@ class MessageParser:
                             # 감정가·탁감가·은행감정가·탁감 동일 취급 → kb_price_raw는 항상 탁감가 접두 (하위 로직 공통 키워드)
                             data["kb_price_raw"] = f"탁감가: {value}"
                             print(f"DEBUG: Parsed 감정가/탁감가 (no colon) - keyword: {keyword}, value: {value}")
-            elif "kb시세" in line.replace(" ", "").lower() and "kbai" not in line.replace(" ", "").lower() and current_section != "mortgages":
-                # "KB시세" 또는 "KB 시세" (공백 유연) - KB AI시세 제외
+            elif (
+                "kb시세" in line.replace(" ", "").lower()
+                and not _is_kb_ai_price_label(line)
+                and current_section != "mortgages"
+            ):
+                # "KB시세" 또는 "KB 시세" (공백 유연) - KB AI시세·AI시세 제외
                 # 예: "KB시세 일반 125,000만원", "KB 시세 24,400만원"
                 kb_match = re.search(r'kb\s*시세\s*:?\s*(.+)', line, re.IGNORECASE)
                 if kb_match:
@@ -988,8 +1006,8 @@ class MessageParser:
                 data["price_type"] = "realestatetech"
                 print(f"DEBUG: Parsed 부동산테크 시세 - value: {value}, validated: {validated}")
         
-        elif "kbai" in key_clean or ("kb" in key_clean and "ai" in key_clean and "시세" in key_clean):
-            # KB AI시세 - 별도 저장 (금융사별 price_sources.kb_ai_price에서 처리)
+        elif _is_kb_ai_price_label(key_clean):
+            # KB AI시세 / AI시세 - 별도 저장 (금융사별 price_sources.kb_ai_price에서 처리)
             if "참고" in key_clean and (
                 (value and (value.strip().lower().startswith("http://") or value.strip().lower().startswith("https://")))
                 or "kbland.kr" in (value or "").lower()
@@ -997,17 +1015,20 @@ class MessageParser:
                 print(f"DEBUG: Parsed KB AI시세 - 키가 '참고'이고 값이 URL이라 시세로 사용 안 함: key={key}")
                 return
             if "하한" in key_clean or str(value).strip().startswith("하한"):
-                raw = str(data.get("kb_price_raw") or "")
+                raw = str(data.get("kb_ai_price_raw") or data.get("kb_price_raw") or "")
                 if value and "하한" not in raw:
-                    data["kb_price_raw"] = f"{raw} 하한 {value}".strip()
+                    data["kb_ai_price_raw"] = f"{raw} 하한 {value}".strip()
                 print(f"DEBUG: Parsed KB AI시세 하한은 일반가를 덮어쓰지 않음: {value}")
                 return
             data["kb_ai_price"] = value
             data["price_type"] = "kb_ai"
-            data["kb_price_raw"] = f"KB AI시세: {value}"
+            data["kb_ai_price_raw"] = f"KB AI시세: {value}"
+            # 공식 KB시세가 없을 때만 raw를 AI로 표시. 있으면 KB시세를 덮어쓰지 않음
+            if not data.get("kb_price"):
+                data["kb_price_raw"] = data["kb_ai_price_raw"]
             print(f"DEBUG: Parsed KB AI시세 - value: {value}")
         
-        elif "kb시세" in key_clean or "시세" in key_clean:
+        elif "kb시세" in key_clean or ("시세" in key_clean and "ai" not in key_clean):
             # "KB시세 참고" + URL은 시세가 아님 → 덮어쓰지 않음 (기존 일반/하한 시세 유지)
             if "참고" in key_clean and (
                 (value and (value.strip().lower().startswith("http://") or value.strip().lower().startswith("https://")))
@@ -1130,12 +1151,12 @@ class MessageParser:
         lines = text.split('\n')
         kb_value = None
         
-        # KB시세가 포함된 줄 찾기 (KB AI시세 제외)
+        # KB시세가 포함된 줄 찾기 (KB AI시세·AI시세 제외)
         for i, line in enumerate(lines):
             line_lower = line.lower()
             line_compact = line_lower.replace(" ", "")
-            if 'kbaise' in line_compact or 'kbai' in line_compact:
-                continue  # KB AI시세는 별도 필드로 처리
+            if _is_kb_ai_price_label(line):
+                continue  # KB AI시세·AI시세는 별도 필드로 처리
             if 'kb시세' in line_compact or ('kb' in line_compact and '시세' in line_compact):
                 print(f"DEBUG: Found KB시세 line: {line}")
                 # KB시세 줄에서 값 추출
