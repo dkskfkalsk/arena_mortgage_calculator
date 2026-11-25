@@ -1,4 +1,6 @@
 {
+  "enabled": true,
+  "_comment_enabled": "한도 산출 on/off. false면 calculate_all_banks에서 이 금융사 제외",
   "bank_name": "OK저축은행",
   "tenant_no_consent_allowed": false,
   "_comment_tenant_no_consent_allowed": "세입자 미동의(특이사항·요청사항·거주여부) 진행 가능 여부. true=가능, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 tenant_consent",
@@ -14,8 +16,6 @@
     "오케이저축"
   ],
   "_comment_refinance_self_aliases": "마스터 대환 명단에서 자기만 제외할 때 사용. business_product_names 미지정 시 적용.",
-  "enabled": true,
-  "_comment_enabled": "한도 산출 on/off. false면 calculate_all_banks에서 이 금융사 제외",
   "reconstruction_max_stage": 5,
   "reconstruction_allowed_regions": ["서울", "경기", "인천"],
   "_comment_reconstruction_max_stage": "재건축 5단계(조합설립인가)까지, 수도권(서울·경기·인천)만. 키워드·멘트는 data/common/common_conditions.json의 reconstruction",

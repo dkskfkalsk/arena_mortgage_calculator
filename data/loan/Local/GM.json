@@ -1,4 +1,6 @@
 {
+  "enabled": true,
+  "_comment_enabled": "한도 산출 on/off. false면 calculate_all_loans에서 이 금융사 제외",
   "_comment": "GM대부 가계 — 아파트·빌라·오피스텔 3상품. 지역은 region_grade_prefix_rules 로 서울/경기·인천/그 외 구분. 시세는 KB·AI·탁감가·부동산테크 등 전부 허용.",
   "bank_name": "GM대부",
   "tenant_no_consent_allowed": true,
@@ -7,8 +9,6 @@
   "_comment_seizure_allowed": "압류·가압류(특이사항·요청사항·설정내역) 진행 가능 여부. true=압류금 대납(대환) 조건으로 한도 산출, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 seizure",
   "delinquency_allowed": true,
   "_comment_delinquency_allowed": "연체중(특이사항·요청사항, 연체 이력은 제외) 진행 가능 여부. true=가능, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 delinquency",
-  "enabled": true,
-  "_comment_enabled": "한도 산출 on/off. false면 calculate_all_loans에서 이 금융사 제외",
   "use_principal_for_calculation": false,
   "_comment_use_principal_for_calculation": "남는 선순위(대환 제외) 차감 기준. true=원금, false=채권최고액(없으면 원금×1.2). 원금 없으면 채권최고액 그대로. 대환 대상은 항상 원금. 기본값은 data/common/common_conditions.json의 senior_lien_basis",
   "fractional_share_request_enabled": true,

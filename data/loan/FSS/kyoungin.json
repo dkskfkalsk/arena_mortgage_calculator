@@ -1,8 +1,8 @@
 {
-  "_comment": "경인대부 - 사업자금 3개(MG캐피탈 유동화, 메리츠특판, 메리츠) + 가계자금 1개. 사업자금은 best_of_group으로 가장 좋은 조건 1개만 회신",
-  "bank_name": "경인대부",
   "enabled": true,
   "_comment_enabled": "한도 산출 on/off. false면 calculate_all_loans에서 이 금융사 제외",
+  "_comment": "경인대부 - 사업자금 3개(MG캐피탈 유동화, 메리츠특판, 메리츠) + 가계자금 1개. 사업자금은 best_of_group으로 가장 좋은 조건 1개만 회신",
+  "bank_name": "경인대부",
   "show_product_name_only": true,
   "_comment_show_product_name_only": "상품명만 표시 (경인대부(사업자금-MG) 등)",
   "tenant_no_consent_allowed": false,

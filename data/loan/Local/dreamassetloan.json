@@ -1,4 +1,6 @@
 {
+  "enabled": true,
+  "_comment_enabled": "한도 산출 on/off. false면 calculate_all_loans에서 이 금융사 제외",
   "_comment": "드림에셋대부 가계. 전국. 선순위는 채권최고액. 아파트는 1급지 300세대 이상 80%, 그 외 70%. 오피스텔은 1급지 65%·그 외 60%, 빌라·단독·다가구·토지 60%. 임야 불가. 공동소유는 차주 지분만 (시세×LTV×지분)−차주 명의 선순위.",
   "bank_name": "드림에셋대부",
   "tenant_no_consent_allowed": { "jeonse": true, "wolse": false },
@@ -7,7 +9,6 @@
   "_comment_seizure_allowed": "압류·가압류(특이사항·요청사항·설정내역) 진행 가능 여부. true=압류금 대납(대환) 조건으로 한도 산출, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 seizure",
   "delinquency_allowed": true,
   "_comment_delinquency_allowed": "연체중(특이사항·요청사항, 연체 이력은 제외) 진행 가능 여부. true=가능, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 delinquency",
-  "enabled": true,
   "use_principal_for_calculation": false,
   "_comment_use_principal_for_calculation": "남는 선순위(대환 제외) 차감 기준. true=원금, false=채권최고액(없으면 원금×1.2). 원금 없으면 채권최고액 그대로. 대환 대상은 항상 원금. 기본값은 data/common/common_conditions.json의 senior_lien_basis",
   "ownership_share_limit": true,

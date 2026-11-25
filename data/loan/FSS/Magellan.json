@@ -1,4 +1,6 @@
 {
+  "enabled": true,
+  "_comment_enabled": "한도 산출 on/off. false면 calculate_all_loans에서 이 금융사 제외",
   "bank_name": "마젤란대부(사업자금)",
   "tenant_no_consent_allowed": true,
   "_comment_tenant_no_consent_allowed": "세입자 미동의(특이사항·요청사항·거주여부) 진행 가능 여부. true=가능, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 tenant_consent",
@@ -8,8 +10,6 @@
   "_comment_delinquency_allowed": "연체중(특이사항·요청사항, 연체 이력은 제외) 진행 가능 여부. true=가능, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 delinquency",
   "rental_business_caption_enabled": true,
   "_comment_rental_business_caption_enabled": "특이사항에 임대사업자가 있으면 한도는 산출하고 '임대사업자 진행불가' 멘트만 추가. 키워드·문구는 data/common/common_conditions.json의 rental_business_caption",
-  "enabled": true,
-  "_comment_enabled": "한도 산출 on/off. false면 calculate_all_loans에서 이 금융사 제외",
   "loan_type": "사업자금",
   "use_principal_for_calculation": false,
   "_comment_use_principal_for_calculation": "남는 선순위(대환 제외) 차감 기준. true=원금, false=채권최고액(없으면 원금×1.2). 원금 없으면 채권최고액 그대로. 대환 대상은 항상 원금. 기본값은 data/common/common_conditions.json의 senior_lien_basis",
