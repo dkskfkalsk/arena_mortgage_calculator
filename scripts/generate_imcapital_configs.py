@@ -240,7 +240,7 @@ COMMON_BASE = {
     "max_age_error_message": "*차주 기준 만65세 초과 진행 불가(담보제공 나이제한 없음)",
     "tenant_subordinate_allowed": True,
     "_comment_tenant_subordinate_allowed": "세입자 있는 후순위 취급 허용",
-    "tenant_consent_caption": "※ 전,월세 동의·미동의 진행 가능",
+    "tenant_consent_caption": "*전,월세 동의·미동의 진행 가능",
     "_comment_tenant_consent_caption": "세입자 있을 때 한도 밑에 동의/미동의 가능 안내",
     "tenant_no_consent_allowed": True,
     "_comment_tenant_no_consent_allowed": "세입자 미동의(특이사항·요청사항·거주여부) 진행 가능 여부. true=가능, false=한도 미산출. 키워드·문구는 data/common/common_conditions.json의 tenant_consent",

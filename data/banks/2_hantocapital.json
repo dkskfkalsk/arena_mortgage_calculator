@@ -730,8 +730,14 @@
     {
       "action": "cap",
       "when": {
-        "region_grade_in": [1],
-        "region_in": ["서울특별시강남구", "서울특별시서초구", "서울특별시송파구"]
+        "region_grade_in": [
+          1
+        ],
+        "region_in": [
+          "서울특별시강남구",
+          "서울특별시서초구",
+          "서울특별시송파구"
+        ]
       },
       "value": 80
     }
@@ -907,7 +913,7 @@
   },
   "_comment_eupmyeon_restriction": "읍·면·리 불가. allowed_pairs(시+읍면)만 예외: 김포 고촌·양촌, 남양주 와부·오남·진접·퇴계원",
   "conditions": [
-    "나이스 710점 이상 필수 조건"
+    "*나이스 710점 이상 필수 조건"
   ],
   "_comment_conditions": "한도와 함께 항상 붙는 고정 문구. 한도가 나온 건만 한도 아래에 표시",
   "amount_condition_threshold": 50000,

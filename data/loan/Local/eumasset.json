@@ -540,12 +540,12 @@
             "대지권 미등기",
             "별도등기"
           ],
-          "message": "※ 대지권 미등기·토지 별도등기는 5년 이내 신축 건물만 취급 가능"
+          "message": "*대지권 미등기·토지 별도등기는 5년 이내 신축 건물만 취급 가능"
         }
       ],
       "conditions": [
-        "2년 계약- 1년 후 금리 2%인상조건",
-        "사업자상품(즉발가능)"
+        "*2년 계약- 1년 후 금리 2%인상조건",
+        "*사업자상품(즉발가능)"
       ],
       "validation_rules": {
         "enabled": true,
@@ -679,7 +679,13 @@
       },
       "_comment_hiroon_ltv": "1~3급지 LTV 90% (전용 85㎡ 초과 시 85%), 4·5급지 취급 불가",
       "ltv_adjustments": [
-        { "preset": "area_over_cap", "when": { "area_gt": 85 }, "value": 85 }
+        {
+          "preset": "area_over_cap",
+          "when": {
+            "area_gt": 85
+          },
+          "value": 85
+        }
       ],
       "_comment_ltv_adjustments": "조건별 LTV 조정 (형식·preset은 data/common/common_conditions.json의 ltv_adjustments). 전용면적 85㎡ 초과 시 최대 LTV 85% + 사유 안내",
       "ltv_steps": [
@@ -918,12 +924,12 @@
             "대지권 미등기",
             "별도등기"
           ],
-          "message": "※ 대지권 미등기·토지 별도등기는 5년 이내 신축 건물만 취급 가능"
+          "message": "*대지권 미등기·토지 별도등기는 5년 이내 신축 건물만 취급 가능"
         }
       ],
       "conditions": [
-        "2년 계약- 1년 후 금리 2%인상조건",
-        "사업자상품(즉발가능)"
+        "*2년 계약- 1년 후 금리 2%인상조건",
+        "*사업자상품(즉발가능)"
       ],
       "validation_rules": {
         "enabled": true,

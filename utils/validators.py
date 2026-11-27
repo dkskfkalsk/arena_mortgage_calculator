@@ -3,6 +3,20 @@
 데이터 검증 유틸리티
 """
 
+from typing import Any
+
+
+def normalize_condition_message(text: Any) -> str:
+    """한도 회신·조건 멘트 접두를 * 로 통일 (※ 또는 접두 없음 → *)."""
+    s = str(text or "").strip()
+    if not s:
+        return s
+    if s.startswith("※"):
+        s = "*" + s[1:].lstrip()
+    elif not s.startswith("*"):
+        s = "*" + s
+    return s
+
 
 def _parse_eok_price(text):
     """

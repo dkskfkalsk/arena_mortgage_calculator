@@ -199,10 +199,16 @@
     "multi_family_house": 0
   },
   "conditions": [
-    "대환 및 추가대출 공통 가용 최대 1억"
+    "*대환 및 추가대출 공통 가용 최대 1억"
   ],
   "ltv_adjustments": [
-    { "preset": "household_under", "when": { "household_count_lt": 100 }, "value": 5 }
+    {
+      "preset": "household_under",
+      "when": {
+        "household_count_lt": 100
+      },
+      "value": 5
+    }
   ],
   "_comment_ltv_adjustments": "조건별 LTV 조정 (형식·preset은 data/common/common_conditions.json의 ltv_adjustments). 100세대 미만 5%p 차감, 차감으로 한도 없으면 '*100세대미만 LTV5%차감으로 한도 불가'",
   "caption_rules": [

@@ -6,6 +6,8 @@
 import re
 from typing import Dict, List, Any, Optional, Tuple, Set
 
+from utils.validators import normalize_condition_message
+
 
 def _parse_grade_range(credit_grade: str) -> Set[int]:
     """credit_grade 문자열(예: '1~2', '1~5', '5')을 등급 번호 집합으로 변환"""
@@ -402,9 +404,10 @@ def _format_result_with_label(
     # 세입자 시 캡션 (투맨금융대부 등 - 한도 밑에 전,월세 동의·미동의 안내)
     tenant_caption = bank_result.get("tenant_consent_caption")
     if tenant_caption and has_actual_limit:
-        lines.append(tenant_caption)
+        lines.append(normalize_condition_message(tenant_caption))
     if has_actual_limit:
-        lines.extend(bank_result.get("condition_captions") or [])
+        for cap in bank_result.get("condition_captions") or []:
+            lines.append(normalize_condition_message(cap))
 
     # 애큐온캐피탈 전용 동적 코멘트 (대출금액=대환 포함 total_amount 기준)
     extra_conditions: List[str] = []
@@ -436,15 +439,15 @@ def _format_result_with_label(
     # 지분한도 안내는 상품 조건 6줄 제한과 별도로 항상 남긴다.
     share_notes = [
         c for c in merged_conditions
-        if c.startswith("지분한도 산출") or c.startswith("차주가 아닌 공유자")
+        if "지분한도 산출" in c or "차주가 아닌 공유자" in c
     ]
     regular_conditions = [c for c in merged_conditions if c not in share_notes]
     if regular_conditions and has_actual_limit and not bank_result.get("hide_conditions", False):
         for condition in regular_conditions[:6]:  # 최대 6개만 표시
-            lines.append(f"- {condition}")
+            lines.append(f"- {normalize_condition_message(condition)}")
     if share_notes and has_actual_limit:
         for condition in share_notes:
-            lines.append(f"- {condition}")
+            lines.append(f"- {normalize_condition_message(condition)}")
     
     return "\n".join(lines)
 
@@ -452,7 +455,7 @@ def _format_result_with_label(
 REJECTION_REASON_KEYWORD = "부결사유"
 NO_LIMIT_BANKS_MESSAGE = (
     "한도 산출 가능한 금융사가 없습니다.\n"
-    "※ 요청사항 또는 특이사항에 \"부결사유\"를 적으면 금융사별 부결 사유까지 함께 산출합니다."
+    "*요청사항 또는 특이사항에 \"부결사유\"를 적으면 금융사별 부결 사유까지 함께 산출합니다."
 )
 
 
@@ -501,7 +504,7 @@ def format_all_results(
         포맷팅된 문자열
     """
     if not all_results:
-        return "산출 가능한 금융사가 없습니다.\n\n※ KB시세가 없으면 산출이 불가능합니다."
+        return "산출 가능한 금융사가 없습니다.\n\n*KB시세가 없으면 산출이 불가능합니다."
     
     # 개인설정으로 전 금융사가 막힌 경우에만 단독 안내 (일부 금융사만 막히면 나머지 결과는 표시)
     has_any_results = any(r.get("results") for r in all_results)
@@ -686,18 +689,18 @@ def format_all_results(
         if all_refinance_institutions_set:
             institutions_str = ", ".join(sorted(all_refinance_institutions_set))
             if priority_text:
-                t = f"※ 대환 진행 ({institutions_str}) - {priority_text} 진행"
+                t = f"*대환 진행 ({institutions_str}) - {priority_text} 진행"
             else:
-                t = f"※ 대환 진행 ({institutions_str})"
+                t = f"*대환 진행 ({institutions_str})"
         else:
-            t = f"※ 대환 진행 - {priority_text} 진행" if priority_text else "※ 대환 진행"
+            t = f"*대환 진행 - {priority_text} 진행" if priority_text else "*대환 진행"
         return t + (f" / {appraisal_price_info}" if appraisal_price_info else "")
     
     def make_subordinate_header():
         if is_primary_section:
-            t = "※ 선순위 진행"
+            t = "*선순위 진행"
         else:
-            t = f"※ 후순위 진행 - {priority_text} 진행" if priority_text else "※ 후순위 진행"
+            t = f"*후순위 진행 - {priority_text} 진행" if priority_text else "*후순위 진행"
         return t + (f" / {appraisal_price_info}" if appraisal_price_info else "")
     
     # 그룹별로 정렬하여 출력: 대환 먼저, 후순위 나중

@@ -389,7 +389,7 @@
       "fractional_share_allowed": true,
       "funding_rate": "9.9~10.5% 플3%",
       "conditions": [
-        "아파트 200세대 이상"
+        "*아파트 200세대 이상"
       ]
     },
     {

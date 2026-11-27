@@ -29,7 +29,7 @@
     "_comment_no_consent_keywords": "띄어쓰기·쉼표·마침표를 지우고 대소문자 무시로 비교. both→jeonse→wolse→unspecified 순서로 찾고, 찾은 키워드는 지운 뒤 다음 묶음을 본다(예: '월세세입자 미동의'는 월세로만 판정). unspecified는 세입자 정보(월세 금액·월세입자/전세입자 표기)로 전세·월세를 정하고, 모르면 전세·월세 둘 다 미동의로 본다",
     "type_labels": { "jeonse": "전세", "wolse": "월세", "both": "전·월세", "unknown": "세입자" },
     "reject_message": "{type_label} 미동의 진행 불가",
-    "allowed_message": "※ {type_label} 미동의 진행 가능",
+    "allowed_message": "*{type_label} 미동의 진행 가능",
     "_comment_messages": "{type_label}은 type_labels 값. 금융사 JSON에 tenant_consent_caption이 있으면 allowed_message 대신 그 문구를 쓴다"
   },
 
@@ -48,8 +48,8 @@
     "daenap_institution_label": "압류 대납",
     "_comment_daenap_institution_label": "특이사항·요청사항 금액으로 만든 대납 항목의 표시 이름 (대환 진행 헤더에 표시)",
     "reject_message": "압류·가압류 진행 불가",
-    "allowed_message": "※ 압류·가압류 {amount}만원 대납 조건 (총실행에 대납금 포함)",
-    "no_amount_message": "※ 압류·가압류 대납 조건 진행 (대납금액 미기재로 한도에 미반영)",
+    "allowed_message": "*압류·가압류 {amount}만원 대납 조건 (총실행에 대납금 포함)",
+    "no_amount_message": "*압류·가압류 대납 조건 진행 (대납금액 미기재로 한도에 미반영)",
     "_comment_messages": "{amount}=대납금액(만원). 특이사항·요청사항 금액은 '압류 대납 3,000', '가압류 1억5천' 처럼 압류 뒤에 적힌 금액을 읽는다. 날짜(2025.03.12)는 금액으로 보지 않는다"
   },
 
@@ -63,7 +63,7 @@
     "_comment_keywords": "띄어쓰기·쉼표·마침표를 지우고 비교 ('카드 연체 중' → '카드연체중'에 '연체중' 포함). '연체이력', '과거 연체'는 키워드에 없어 해당 안 됨",
     "exclude_phrases": ["연체중아님", "연체중x", "연체중X", "현재연체없음", "연체없음"],
     "reject_message": "연체중 진행 불가",
-    "allowed_message": "※ 연체중 진행 가능"
+    "allowed_message": "*연체중 진행 가능"
   },
 
   "foreigner": {
@@ -88,7 +88,7 @@
     "_comment_keywords": "띄어쓰기·쉼표·마침표를 지우고 비교 ('임대 사업자' → '임대사업자'). '주택임대사업자'·'부동산임대사업자'에도 '임대사업자'가 포함되어 매칭됨",
     "exclude_phrases": ["임대사업자아님", "임대사업자x", "임대사업자X", "임대사업자없음"],
     "_comment_exclude_phrases": "이 표현은 지운 뒤 keywords를 찾는다 (예: '임대사업자 아님'은 멘트를 붙이지 않음)",
-    "caption_message": "임대사업자 진행불가",
+    "caption_message": "*임대사업자 진행불가",
     "_comment_caption_message": "한도가 나온 회신 아래에 붙는 문구. 한도 미산출(부결)이면 formatter가 condition_captions를 생략하므로 표시되지 않음"
   },
 
@@ -116,10 +116,10 @@
     },
     "reject_message": "{keyword} {stage}단계는 취급 불가합니다 (최대 {max_stage}단계까지 가능)",
     "region_reject_message": "{keyword} 물건은 {regions}만 취급 가능합니다",
-    "allowed_message": "※ {keyword} {stage}단계({stage_name}) 취급 가능",
-    "allowed_message_no_name": "※ {keyword} {stage}단계 취급 가능",
-    "allowed_message_with_regions": "※ {keyword} {stage}단계({stage_name}) 취급 가능 ({regions})",
-    "allowed_message_with_regions_no_name": "※ {keyword} {stage}단계 취급 가능 ({regions})",
+    "allowed_message": "*{keyword} {stage}단계({stage_name}) 취급 가능",
+    "allowed_message_no_name": "*{keyword} {stage}단계 취급 가능",
+    "allowed_message_with_regions": "*{keyword} {stage}단계({stage_name}) 취급 가능 ({regions})",
+    "allowed_message_with_regions_no_name": "*{keyword} {stage}단계 취급 가능 ({regions})",
     "_comment_messages": "{keyword}=재건축 키워드, {stage}=검출 단계, {stage_name}=단계명, {max_stage}=금융사 상한, {regions}=허용 지역 목록. allowed_*는 한도가 나온 금융사 한도 아래 안내"
   },
 
@@ -205,7 +205,7 @@
         "_comment": "전용면적 N㎡ 초과 시 최대 LTV 상한",
         "when": { "area_gt": 85 },
         "action": "cap",
-        "message": "※ 전용면적 {area}㎡ ({area_gt}㎡ 초과)로 LTV {value}% 적용"
+        "message": "*전용면적 {area}㎡ ({area_gt}㎡ 초과)로 LTV {value}% 적용"
       },
       "officetel": {
         "_comment": "오피스텔 차감",

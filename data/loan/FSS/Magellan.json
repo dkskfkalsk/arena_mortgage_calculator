@@ -20,7 +20,11 @@
   "fractional_share_allowed": false,
   "_comment_fractional_share_allowed": "등기상 지분·공유지분 물건 취급 불가",
   "refinance_all_requested": true,
-  "tenant_subordinate_regions": ["서울특별시", "경기도", "인천광역시"],
+  "tenant_subordinate_regions": [
+    "서울특별시",
+    "경기도",
+    "인천광역시"
+  ],
   "_comment_tenant_subordinate_regions": "세입자 후순위(설정내역에 전·월세 임차인 보증금이 있고 이번 대출이 후순위)는 이 지역만 가능. 시·도 이름으로 시작하는지 비교. 세입자 없는 후순위·선순위는 target_regions 전체 가능. 거주여부·특이사항에만 세입자가 적힌 경우는 해당 안 됨",
   "tenant_subordinate_region_message": "수도권 외 지역 세입자 후순위 진행 불가",
   "_comment_tenant_subordinate_region_message": "tenant_subordinate_regions 밖 지역일 때 부결 문구",
@@ -437,8 +441,8 @@
   "reconstruction_max_stage": 5,
   "_comment_reconstruction_max_stage": "재건축 5단계(조합설립인가)까지 취급. 키워드·멘트는 data/common/common_conditions.json의 reconstruction",
   "conditions": [
-    " 즉발사업자 가능",
-    " 용도증빙 대행가능, 비용별도"
+    "* 즉발사업자 가능",
+    "* 용도증빙 대행가능, 비용별도"
   ],
   "caption_rules": [
     {
@@ -449,7 +453,7 @@
         "special_notes",
         "requests"
       ],
-      "message": "환매특약사항 선확인 필요"
+      "message": "*환매특약사항 선확인 필요"
     },
     {
       "keywords": [
@@ -459,7 +463,7 @@
         "special_notes",
         "requests"
       ],
-      "message": "별도등기 건 진행여부 확인필요"
+      "message": "*별도등기 건 진행여부 확인필요"
     }
   ],
   "additional_restricted_keywords": [

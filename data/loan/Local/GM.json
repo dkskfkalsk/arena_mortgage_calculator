@@ -44,10 +44,22 @@
         "multi_family_house": 0
       },
       "region_grade_prefix_rules": [
-        { "starts_with": "서울특별시", "grade": "1" },
-        { "starts_with": "경기도", "grade": "2" },
-        { "starts_with": "인천광역시", "grade": "2" },
-        { "starts_with": "", "grade": "3" }
+        {
+          "starts_with": "서울특별시",
+          "grade": "1"
+        },
+        {
+          "starts_with": "경기도",
+          "grade": "2"
+        },
+        {
+          "starts_with": "인천광역시",
+          "grade": "2"
+        },
+        {
+          "starts_with": "",
+          "grade": "3"
+        }
       ],
       "max_ltv_by_grade": {
         "1": 70,
@@ -56,7 +68,9 @@
       },
       "ltv_kb_price_override": [
         {
-          "property_type_keys": ["apartment"],
+          "property_type_keys": [
+            "apartment"
+          ],
           "under_kb_price": 20000,
           "ltv_min": 60,
           "ltv_max": 65
@@ -65,33 +79,62 @@
       "interest_rate_range_by_profile": [
         {
           "match": {
-            "property_type_keys": ["apartment"],
-            "region_grades": ["1"],
+            "property_type_keys": [
+              "apartment"
+            ],
+            "region_grades": [
+              "1"
+            ],
             "kb_price_gte": 20000
           },
-          "range": [12, 18]
+          "range": [
+            12,
+            18
+          ]
         },
         {
           "match": {
-            "property_type_keys": ["apartment"],
-            "region_grades": ["1"],
+            "property_type_keys": [
+              "apartment"
+            ],
+            "region_grades": [
+              "1"
+            ],
             "kb_price_lt": 20000
           },
-          "range": [15.6, 18]
+          "range": [
+            15.6,
+            18
+          ]
         },
         {
-          "match": { "property_type_keys": ["apartment"], "region_grades": ["2", "3"] },
-          "range": [15.6, 18]
+          "match": {
+            "property_type_keys": [
+              "apartment"
+            ],
+            "region_grades": [
+              "2",
+              "3"
+            ]
+          },
+          "range": [
+            15.6,
+            18
+          ]
         }
       ],
       "primary_interest_rates_by_ltv": {
-        "70": { "1": 15 },
-        "65": { "1": 15 },
-        "60": { "1": 15 }
+        "70": {
+          "1": 15
+        },
+        "65": {
+          "1": 15
+        },
+        "60": {
+          "1": 15
+        }
       },
-      "conditions": [
-       
-      ]
+      "conditions": []
     },
     {
       "product_name": "빌라",
@@ -107,10 +150,22 @@
         "multi_family_house": 0
       },
       "region_grade_prefix_rules": [
-        { "starts_with": "서울특별시", "grade": "V1" },
-        { "starts_with": "경기도", "grade": "V1" },
-        { "starts_with": "인천광역시", "grade": "V1" },
-        { "starts_with": "", "grade": "V2" }
+        {
+          "starts_with": "서울특별시",
+          "grade": "V1"
+        },
+        {
+          "starts_with": "경기도",
+          "grade": "V1"
+        },
+        {
+          "starts_with": "인천광역시",
+          "grade": "V1"
+        },
+        {
+          "starts_with": "",
+          "grade": "V2"
+        }
       ],
       "max_ltv_by_grade": {
         "V1": 55,
@@ -118,19 +173,34 @@
       },
       "interest_rate_range_by_profile": [
         {
-          "match": { "property_type_keys": ["villa"], "region_grades": ["V1", "V2"] },
-          "range": [15.6, 18]
+          "match": {
+            "property_type_keys": [
+              "villa"
+            ],
+            "region_grades": [
+              "V1",
+              "V2"
+            ]
+          },
+          "range": [
+            15.6,
+            18
+          ]
         }
       ],
       "primary_interest_rates_by_ltv": {
-        "55": { "1": 16 },
-        "50": { "1": 16 }
+        "55": {
+          "1": 16
+        },
+        "50": {
+          "1": 16
+        }
       },
       "conditions": [
-        "가계자금",
-        "빌라 LTV: 수도권(서울·경기·인천) 55%, 그 외 50%",
-        "시세 1억 5천 미만 빌라 취급 불가",
-        "금리구간 15.6~18%"
+        "*가계자금",
+        "*빌라 LTV: 수도권(서울·경기·인천) 55%, 그 외 50%",
+        "*시세 1억 5천 미만 빌라 취급 불가",
+        "*금리구간 15.6~18%"
       ]
     },
     {
@@ -146,10 +216,22 @@
         "multi_family_house": 0
       },
       "region_grade_prefix_rules": [
-        { "starts_with": "서울특별시", "grade": "V1" },
-        { "starts_with": "경기도", "grade": "V1" },
-        { "starts_with": "인천광역시", "grade": "V1" },
-        { "starts_with": "", "grade": "V2" }
+        {
+          "starts_with": "서울특별시",
+          "grade": "V1"
+        },
+        {
+          "starts_with": "경기도",
+          "grade": "V1"
+        },
+        {
+          "starts_with": "인천광역시",
+          "grade": "V1"
+        },
+        {
+          "starts_with": "",
+          "grade": "V2"
+        }
       ],
       "max_ltv_by_grade": {
         "V1": 55,
@@ -157,19 +239,34 @@
       },
       "interest_rate_range_by_profile": [
         {
-          "match": { "property_type_keys": ["officetel"], "region_grades": ["V1", "V2"] },
-          "range": [15.6, 18]
+          "match": {
+            "property_type_keys": [
+              "officetel"
+            ],
+            "region_grades": [
+              "V1",
+              "V2"
+            ]
+          },
+          "range": [
+            15.6,
+            18
+          ]
         }
       ],
       "primary_interest_rates_by_ltv": {
-        "55": { "1": 16 },
-        "50": { "1": 16 }
+        "55": {
+          "1": 16
+        },
+        "50": {
+          "1": 16
+        }
       },
       "conditions": [
-        "가계자금",
-        "오피스텔 LTV: 수도권 55%, 그 외 50% (빌라와 동일)",
-        "서울·수도권·지방 금리구간 15.6~18%",
-        "주거용 오피스텔 기준(구분 입력 시 검토)"
+        "*가계자금",
+        "*오피스텔 LTV: 수도권 55%, 그 외 50% (빌라와 동일)",
+        "*서울·수도권·지방 금리구간 15.6~18%",
+        "*주거용 오피스텔 기준(구분 입력 시 검토)"
       ]
     }
   ]

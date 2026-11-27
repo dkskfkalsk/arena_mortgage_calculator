@@ -776,12 +776,12 @@ def reconstruction_allowed_caption(
     if ctx["allowed_regions"]:
         template = (
             (cfg.get("allowed_message_with_regions") if stage_name else cfg.get("allowed_message_with_regions_no_name"))
-            or "※ {keyword} {stage}단계 취급 가능 ({regions})"
+            or "* {keyword} {stage}단계 취급 가능 ({regions})"
         )
     else:
         template = (
             (cfg.get("allowed_message") if stage_name else cfg.get("allowed_message_no_name"))
-            or "※ {keyword} {stage}단계 취급 가능"
+            or "* {keyword} {stage}단계 취급 가능"
         )
     return template.format(**values)
 
@@ -1162,6 +1162,7 @@ class BaseCalculator:
         # config에 product_type이 있으면 product_type 파라미터가 없을 때 사용 (팀엑스대부 등)
         if product_type is None:
             product_type = self.config.get("product_type")
+        self._calculate_product_type = product_type
 
         # 압류·가압류 / 연체중 공통조건 (common_conditions.seizure·delinquency, 금융사 JSON seizure_allowed·delinquency_allowed)
         property_data, condition_error = self._apply_seizure_and_delinquency(property_data)
@@ -1685,7 +1686,7 @@ class BaseCalculator:
                     if self.config.get("ownership_transfer_caption_only"):
                         log_print(f"DEBUG: BaseCalculator.calculate - 소유권이전 {transfer_date_str} 경과 {elapsed}개월 < {min_transfer_months}개월, 안내만 추가")
                         self._condition_captions.append(
-                            f"※ 소유권 취득 {min_transfer_months}개월 경과 후 진행 가능 (소유권이전일: {transfer_date_str}, 경과 {elapsed}개월)"
+                            f"*소유권 취득 {min_transfer_months}개월 경과 후 진행 가능 (소유권이전일: {transfer_date_str}, 경과 {elapsed}개월)"
                         )
                     else:
                         log_print(f"DEBUG: BaseCalculator.calculate - 소유권이전 {transfer_date_str} 경과 {elapsed}개월 < {min_transfer_months}개월, 취급 불가")
@@ -3627,14 +3628,14 @@ class BaseCalculator:
             if not is_apartment_or_complex and non_apartment_rate > 0 and not is_appraisal_price:
                 if "오피스텔" in property_type:
                     conditions.append(
-                        f"※ 표시금리는 오피스텔 가산금리 {non_apartment_rate:g}%p가 적용된 금리입니다"
+                        f"*표시금리는 오피스텔 가산금리 {non_apartment_rate:g}%p가 적용된 금리입니다"
                     )
                 else:
                     conditions.append(
-                        f"※ 표시금리는 아파트·주상복합 외 물건 가산금리 {non_apartment_rate:g}%p가 적용된 금리입니다"
+                        f"*표시금리는 아파트·주상복합 외 물건 가산금리 {non_apartment_rate:g}%p가 적용된 금리입니다"
                     )
             if is_appraisal_price:
-                conditions.append("※ 표시금리는 감정건(감정가·탁감가) 가산금리 1%p가 적용된 금리입니다")
+                conditions.append("*표시금리는 감정건(감정가·탁감가) 가산금리 1%p가 적용된 금리입니다")
         
         # 총액(대환/추가대출) N억 이상 시 안내 문구 추가 (amount_condition_threshold, amount_condition_message)
         amount_condition_threshold = self.config.get("amount_condition_threshold")
@@ -3666,9 +3667,9 @@ class BaseCalculator:
 
         share_label = getattr(self, "_ownership_share_label", "") or ""
         if results and share_label:
-            conditions.append(f"지분한도 산출 ({share_label})")
+            conditions.append(f"*지분한도 산출 ({share_label})")
         if results and getattr(self, "_ownership_share_skipped", False):
-            conditions.append("차주가 아닌 공유자 명의 선순위는 차감하지 않음")
+            conditions.append("*차주가 아닌 공유자 명의 선순위는 차감하지 않음")
 
         # 조건부 캡션 (공동명의·별도등기·대지권미등기 등) — 한도와 함께 멘트만
         if results and property_data:
@@ -4046,6 +4047,12 @@ class BaseCalculator:
         
         # 1. 직업 요구사항 체크 (required_keywords, forbidden_keywords)
         occupation_requirements = validation_rules.get("occupation_requirements", {})
+        if occupation_requirements:
+            occ_product_types = occupation_requirements.get("product_types")
+            if occ_product_types:
+                pt = getattr(self, "_calculate_product_type", None) or self.config.get("product_type")
+                if pt not in occ_product_types:
+                    occupation_requirements = {}
         if occupation_requirements:
             required_keywords = occupation_requirements.get("required_keywords", [])
             forbidden_keywords = occupation_requirements.get("forbidden_keywords", [])
@@ -5310,13 +5317,18 @@ class BaseCalculator:
         """
         caption_rules: 키워드 매칭 시 한도 회신 멘트만 추가 (거절 아님).
         check_fields 기본: special_notes, requests, ownership, property_type
+        product_types가 있으면 해당 상품(가계 household / 사업 business)에서만 적용.
         """
         rules = self.config.get("caption_rules") or []
         if not rules or not property_data:
             return []
 
+        product_type = getattr(self, "_calculate_product_type", None) or self.config.get("product_type")
         messages: List[str] = []
         for rule in rules:
+            rule_product_types = rule.get("product_types")
+            if rule_product_types and product_type not in rule_product_types:
+                continue
             keywords = rule.get("keywords") or []
             message = rule.get("message")
             if not keywords or not message:

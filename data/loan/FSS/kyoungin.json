@@ -1772,7 +1772,7 @@
             "special_notes",
             "requests"
           ],
-          "message": "※ 매매잔금대출 진행 가능"
+          "message": "*매매잔금대출 진행 가능"
         }
       ],
       "conditions": []
